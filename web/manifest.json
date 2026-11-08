@@ -1,0 +1,9 @@
+{
+  "name": "Profile creation — Demo",
+  "short_name": "Profile demo",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#f4f4f4",
+  "theme_color": "#f4f4f4",
+  "description": "Flutter profile and Contacts demo"
+}
