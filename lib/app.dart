@@ -366,10 +366,14 @@ class _DemoScreenState extends State<_DemoScreen> with WidgetsBindingObserver {
                     padding: const EdgeInsets.symmetric(horizontal: 28),
                     child: _Navigation(selected: _tab, onSelected: _selectTab),
                   ),
-                  if (controller.error != null && controller.loaded)
+                  if (controller.error != null &&
+                      controller.loaded &&
+                      !controller.deleting)
                     _SaveError(
                       message: controller.error!,
-                      retry: controller.flush,
+                      retry: controller.deleteFailed
+                          ? _deleteAccount
+                          : controller.flush,
                     ),
                   if (_chat.error != null &&
                       _chat.loaded &&
@@ -634,6 +638,7 @@ class _DemoScreenState extends State<_DemoScreen> with WidgetsBindingObserver {
               values: controller.profile.searchingSkills,
               active: controller.profile.hasData,
               validate: _validationActive,
+              isRequired: false,
               onAdd: (value) => controller.addSkill(value, searching: true),
               onRemove: (value) =>
                   controller.removeSkill(value, searching: true),
@@ -939,6 +944,7 @@ class _SkillsEditor extends StatefulWidget {
     required this.onRemove,
     required this.active,
     required this.validate,
+    this.isRequired = true,
   });
   final String label;
   final Key fieldKey;
@@ -948,6 +954,7 @@ class _SkillsEditor extends StatefulWidget {
   final ValueChanged<String> onRemove;
   final bool active;
   final bool validate;
+  final bool isRequired;
 
   @override
   State<_SkillsEditor> createState() => _SkillsEditorState();
@@ -961,7 +968,8 @@ class _SkillsEditorState extends State<_SkillsEditor> {
 
   String? get _fieldError =>
       _error ??
-      ((widget.validate || _touched) &&
+      (widget.isRequired &&
+              (widget.validate || _touched) &&
               widget.values.isEmpty &&
               _draft.text.trim().isEmpty
           ? 'Required'
@@ -980,7 +988,7 @@ class _SkillsEditorState extends State<_SkillsEditor> {
     if (text.isEmpty) {
       setState(() {
         _touched = true;
-        _error = widget.values.isEmpty ? 'Required' : null;
+        _error = widget.isRequired && widget.values.isEmpty ? 'Required' : null;
       });
       _focus.requestFocus();
       return;

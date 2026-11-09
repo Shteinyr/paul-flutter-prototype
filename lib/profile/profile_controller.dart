@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:characters/characters.dart';
 import 'package:flutter/foundation.dart';
 
 import 'profile_store.dart';
@@ -21,11 +22,13 @@ class ProfileController extends ChangeNotifier {
   int get generation => _generation;
   bool loaded = false;
   bool loadFailed = false;
+  bool deleteFailed = false;
   bool deleting = false;
   String? error;
 
   Future<void> load() async {
     loadFailed = false;
+    deleteFailed = false;
     error = null;
     _notify();
     try {
@@ -49,7 +52,7 @@ class ProfileController extends ChangeNotifier {
     final skill = value.trim().replaceAll(RegExp(r'\s+'), ' ');
     final current = searching ? _profile.searchingSkills : _profile.skills;
     if (skill.isEmpty ||
-        skill.length > 64 ||
+        skill.characters.length > 64 ||
         current.any((item) => item.toLowerCase() == skill.toLowerCase())) {
       return false;
     }
@@ -99,8 +102,12 @@ class ProfileController extends ChangeNotifier {
       try {
         await _store.write(snapshot);
         _savedRevision = revision;
-        if (_savedRevision == _revision) error = null;
+        if (_savedRevision == _revision) {
+          error = null;
+          deleteFailed = false;
+        }
       } catch (_) {
+        deleteFailed = false;
         error = 'Changes could not be saved. Tap Retry.';
       }
       _notify();
@@ -110,6 +117,7 @@ class ProfileController extends ChangeNotifier {
 
   Future<bool> deleteProfile() async {
     if (deleting || !loaded) return false;
+    deleteFailed = false;
     deleting = true;
     _saveTimer?.cancel();
     _saveTimer = null;
@@ -126,6 +134,7 @@ class ProfileController extends ChangeNotifier {
       _notify();
       return true;
     } catch (_) {
+      deleteFailed = true;
       deleting = false;
       error = 'Could not delete your profile. Please try again.';
       _notify();

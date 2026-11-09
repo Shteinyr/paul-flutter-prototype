@@ -83,6 +83,30 @@ void main() {
   });
 
   test(
+    'skill length matches user-perceived characters in both fields',
+    () async {
+      final store = MemoryProfileStore();
+      final controller = ProfileController(store);
+      addTearDown(controller.dispose);
+      await controller.load();
+      final accentedSkill = List.filled(64, 'e\u0301').join();
+      final emojiSkill = List.filled(64, '👨‍👩‍👦').join();
+
+      expect(controller.addSkill(accentedSkill), isTrue);
+      expect(controller.addSkill(emojiSkill, searching: true), isTrue);
+      expect(controller.addSkill('${accentedSkill}a'), isFalse);
+      expect(controller.addSkill('${emojiSkill}a', searching: true), isFalse);
+      expect(controller.addSkill(accentedSkill), isFalse);
+      expect(controller.addSkill(emojiSkill, searching: true), isFalse);
+
+      await controller.flush();
+      final restored = await store.read();
+      expect(restored.skills, [accentedSkill]);
+      expect(restored.searchingSkills, [emojiSkill]);
+    },
+  );
+
+  test(
     'skills normalize whitespace, reject duplicates and remain independent',
     () async {
       final controller = ProfileController(MemoryProfileStore());

@@ -228,6 +228,23 @@ void main() {
       );
       await tester.tap(find.byKey(const Key('edit-public-profile')));
       await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byTooltip('Remove Photography'));
+      await tester.tap(find.byTooltip('Remove Photography'));
+      await tester.pumpAndSettle();
+      expect(controller.profile.searchingSkills, isEmpty);
+      await tester.ensureVisible(find.byKey(const Key('add-searching-skill')));
+      await tester.tap(find.byKey(const Key('add-searching-skill')));
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('searching-skills')),
+          matching: find.text('Required'),
+        ),
+        findsNothing,
+      );
+      await controller.flush();
+      expect((await store.read()).searchingSkills, isEmpty);
+      expect(controller.profile.skills, ['Flutter']);
       await tester.ensureVisible(find.byKey(const Key('delete-account')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('delete-account')));
@@ -242,6 +259,73 @@ void main() {
       controller.dispose();
     },
   );
+  testWidgets(
+    'failed deletion retries confirmation and save failures retry edits',
+    (tester) async {
+      tester.view.physicalSize = const Size(402, 1100);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final store = MemoryProfileStore();
+      final controller = ProfileController(store);
+      addTearDown(controller.dispose);
+      await controller.load();
+      controller.updateName('P02 Reviewer');
+      controller.updateSummary('Original summary');
+      await controller.flush();
+      store.failDelete = true;
+      await tester.pumpWidget(PaulDemoApp(controller: controller));
+      await tester.tap(find.byKey(const Key('tab-3')));
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(find.byKey(const Key('delete-account')));
+      await tester.tap(find.byKey(const Key('delete-account')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('confirm-delete')));
+      await tester.pumpAndSettle();
+      expect(controller.profile.name, 'P02 Reviewer');
+      await tester.tap(find.text('Retry'));
+      await tester.pumpAndSettle();
+      expect(find.text('Delete account?'), findsOneWidget);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect((await store.read()).summary, 'Original summary');
+
+      store.failWrite = true;
+      await tester.ensureVisible(find.byKey(const Key('summary-field')));
+      await tester.enterText(
+        find.byKey(const Key('summary-field')),
+        'Edited summary after failed deletion',
+      );
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pumpAndSettle();
+      store.failWrite = false;
+      await tester.tap(find.text('Retry'));
+      await tester.pumpAndSettle();
+      expect(find.text('Delete account?'), findsNothing);
+      expect(
+        (await store.read()).summary,
+        'Edited summary after failed deletion',
+      );
+      expect(controller.error, isNull);
+
+      await tester.ensureVisible(find.byKey(const Key('delete-account')));
+      await tester.tap(find.byKey(const Key('delete-account')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('confirm-delete')));
+      await tester.pumpAndSettle();
+      store.failDelete = false;
+      await tester.tap(find.text('Retry'));
+      await tester.pumpAndSettle();
+      expect(find.text('Delete account?'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('confirm-delete')));
+      await tester.pumpAndSettle();
+      expect(controller.profile.hasData, isFalse);
+      expect(store.saved, isNull);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
   testWidgets(
     'all five contacts open full profiles and both skill lists on a small screen',
     (tester) async {
@@ -290,7 +374,7 @@ void main() {
     },
   );
   testWidgets(
-    'photo activates all five Required markers without moving the fields',
+    'photo activates required markers without shifting the optional searching field',
     (tester) async {
       tester.view.physicalSize = const Size(402, 1100);
       tester.view.devicePixelRatio = 1;
@@ -311,7 +395,14 @@ void main() {
       expect(find.text('Required'), findsNothing);
       await tester.tap(find.byKey(const Key('choose-photo')));
       await tester.pumpAndSettle();
-      expect(find.text('Required'), findsNWidgets(5));
+      expect(find.text('Required'), findsNWidgets(4));
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('searching-skills')),
+          matching: find.text('Required'),
+        ),
+        findsNothing,
+      );
       expect(
         tester.getTopLeft(find.byKey(const Key('searching-skills-field'))),
         before,
