@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:paul_demo/onboarding/onboarding_draft_store.dart';
 import 'package:paul_demo/onboarding/onboarding_flow.dart';
+import 'package:paul_demo/onboarding/onboarding_skills_step.dart';
 import 'package:paul_demo/photo_picker.dart';
 import 'package:paul_demo/profile/user_profile.dart';
 
@@ -45,6 +46,30 @@ Future<void> _press(WidgetTester tester, String key) async {
 }
 
 void main() {
+  testWidgets(
+    'a late input callback keeps the skill list of its original step',
+    (tester) async {
+      final preferences = DraftPreferences();
+      await OnboardingDraftStore(
+        preferences: preferences,
+      ).write(const UserProfile(skills: ['Flutter']));
+      await tester.pumpWidget(
+        _app(preferences: preferences, onComplete: (_) async {}),
+      );
+      await tester.pumpAndSettle();
+      final offeredInputChanged = tester
+          .widget<OnboardingSkillsStep>(find.byType(OnboardingSkillsStep))
+          .onInputChanged;
+      await _press(tester, 'onboarding-next');
+      offeredInputChanged('Composing offering');
+      await tester.pumpAndSettle(const Duration(milliseconds: 300));
+      final restored = OnboardingDraftStore(preferences: preferences);
+      await restored.read();
+      expect(restored.offeredInput, 'Composing offering');
+      expect(restored.searchingInput, isEmpty);
+    },
+  );
+
   testWidgets(
     'cancelled sign-in, edits and host re-entry retain the newest local draft',
     (tester) async {

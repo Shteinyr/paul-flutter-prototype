@@ -323,6 +323,7 @@ class _OnboardingFlowState extends State<OnboardingFlow>
       );
     }
     final title = ['Getting Started', 'Searching Skills', 'About You'][_step];
+    final searching = _step == 1;
     final description = [
       'Add your skills to increase visibility in our community  (1/3)',
       'List skills you or your friends might be searching for  (2/3)',
@@ -430,12 +431,12 @@ class _OnboardingFlowState extends State<OnboardingFlow>
                             OnboardingSkillsStep(
                               key: ValueKey('onboarding-skills-$_step'),
                               controller: _controller,
-                              searching: _step == 1,
-                              input: _step == 0
-                                  ? _store.offeredInput
-                                  : _store.searchingInput,
+                              searching: searching,
+                              input: searching
+                                  ? _store.searchingInput
+                                  : _store.offeredInput,
                               onInputChanged: (value) =>
-                                  _inputChanged(value, searching: _step == 1),
+                                  _inputChanged(value, searching: searching),
                               onSaved: () => unawaited(_saveDraft()),
                               validate: _validate,
                               enabled: !_busy,
