@@ -279,10 +279,13 @@ class _DemoScreenState extends State<_DemoScreen> with WidgetsBindingObserver {
   void _openDemoQr() {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => DemoQrView(
-          profile: controller.profile,
-          avatar: _Avatar(photo: controller.profile.photo, size: 144),
-          state: _connectState,
+        builder: (_) => ListenableBuilder(
+          listenable: controller,
+          builder: (_, _) => DemoQrView(
+            profile: controller.profile,
+            avatar: _Avatar(photo: controller.profile.photo, size: 144),
+            state: _connectState,
+          ),
         ),
       ),
     );

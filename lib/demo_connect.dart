@@ -72,13 +72,23 @@ class DemoQrView extends StatelessWidget {
           Text(
             profile.name,
             textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+            style: const TextStyle(
+              fontSize: 16,
+              height: 20 / 16,
+              fontWeight: FontWeight.w500,
+              letterSpacing: .5,
+            ),
           ),
           const SizedBox(height: 8),
           Text(
             profile.occupation,
             textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w300),
+            style: const TextStyle(
+              fontSize: 12,
+              height: 20 / 12,
+              fontWeight: FontWeight.w300,
+              letterSpacing: .5,
+            ),
           ),
           const SizedBox(height: 24),
           Semantics(
@@ -97,6 +107,7 @@ class DemoQrView extends StatelessWidget {
             demoInviteCode,
             style: TextStyle(
               fontSize: 12,
+              height: 20 / 12,
               fontWeight: FontWeight.w300,
               letterSpacing: .5,
             ),
@@ -121,48 +132,87 @@ class DemoConnectView extends StatefulWidget {
 
 class _DemoConnectViewState extends State<DemoConnectView> {
   Future<void> _preview({String? recipient}) async {
+    var copying = false;
+    String? copyError;
     final prepared = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(
-          recipient == null ? 'Share invitation' : 'Invite $recipient',
-        ),
-        content: const Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SelectableText(
-              _invitation,
-              style: TextStyle(fontSize: 13, height: 1.7),
+      builder: (_) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(
+            recipient == null ? 'Share invitation' : 'Invite $recipient',
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SelectableText(
+                _invitation,
+                style: TextStyle(fontSize: 13, height: 1.7),
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                'Demo only. No invitation will be sent.',
+                style: TextStyle(fontSize: 12, color: Colors.black54),
+              ),
+              if (copyError != null) ...[
+                const SizedBox(height: 12),
+                Text(
+                  copyError!,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.error,
+                  ),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Close'),
             ),
-            SizedBox(height: 20),
-            Text(
-              'Demo only. No invitation will be sent.',
-              style: TextStyle(fontSize: 12, color: Colors.black54),
-            ),
+            if (recipient == null)
+              TextButton(
+                key: const Key('copy-demo-invitation'),
+                onPressed: copying
+                    ? null
+                    : () async {
+                        if (copying) return;
+                        setDialogState(() {
+                          copying = true;
+                          copyError = null;
+                        });
+                        try {
+                          await Clipboard.setData(
+                            const ClipboardData(text: _invitation),
+                          );
+                          if (!context.mounted ||
+                              ModalRoute.of(context)?.isCurrent != true) {
+                            return;
+                          }
+                          Navigator.of(context).pop(true);
+                        } catch (_) {
+                          if (!context.mounted ||
+                              ModalRoute.of(context)?.isCurrent != true) {
+                            return;
+                          }
+                          setDialogState(() {
+                            copying = false;
+                            copyError =
+                                'Could not copy invitation. Please try again.';
+                          });
+                        }
+                      },
+                child: const Text('Copy invitation'),
+              )
+            else
+              TextButton(
+                key: const Key('prepare-demo-invitation'),
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('Prepare invite'),
+              ),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Close'),
-          ),
-          if (recipient == null)
-            TextButton(
-              key: const Key('copy-demo-invitation'),
-              onPressed: () async {
-                await Clipboard.setData(const ClipboardData(text: _invitation));
-                if (context.mounted) Navigator.of(context).pop(true);
-              },
-              child: const Text('Copy invitation'),
-            )
-          else
-            TextButton(
-              key: const Key('prepare-demo-invitation'),
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Prepare invite'),
-            ),
-        ],
       ),
     );
     if (!mounted || prepared != true) return;
