@@ -109,4 +109,3 @@ begin
   return jsonb_build_object('connected', item.issuer_id is not null, 'replayed', false);
 end;
 $$;
-

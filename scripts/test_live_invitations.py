@@ -203,8 +203,8 @@ if __name__ == '__main__':
     certificate_bundle = '/etc/ssl/cert.pem'
     tls = ssl.create_default_context(cafile=certificate_bundle if Path(certificate_bundle).exists() else None)
     png = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aXioAAAAASUVORK5CYII=')
-    
-    
+
+
     try:
         {'basic': basic, 'last-use': last_use, 'rate': rate, 'expiry': expiry}[args.phase]()
     except (urllib.error.URLError, TimeoutError):
