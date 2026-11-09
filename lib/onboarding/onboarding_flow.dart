@@ -22,6 +22,8 @@ class OnboardingFlow extends StatefulWidget {
   });
 
   final Future<void> Function(UserProfile draft) onComplete;
+
+  /// Recovery seed used when no valid local onboarding draft is available.
   final UserProfile? initialDraft;
   final VoidCallback? onBack;
   final PickProfilePhoto? pickPhoto;

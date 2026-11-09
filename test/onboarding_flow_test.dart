@@ -46,6 +46,60 @@ Future<void> _press(WidgetTester tester, String key) async {
 
 void main() {
   testWidgets(
+    'cancelled sign-in, edits and host re-entry retain the newest local draft',
+    (tester) async {
+      final preferences = DraftPreferences();
+      final submitted = await _validProfile();
+      var exited = false;
+      Widget host(Key key) => MaterialApp(
+        home: OnboardingFlow(
+          key: key,
+          initialDraft: submitted,
+          preferences: preferences,
+          onBack: () => exited = true,
+          onComplete: (_) async =>
+              throw const OnboardingSubmissionException('Sign in cancelled.'),
+        ),
+      );
+      await tester.pumpWidget(host(const ValueKey('original')));
+      await tester.pumpAndSettle();
+      await _press(tester, 'onboarding-complete');
+      await tester.enterText(
+        find.byKey(const Key('onboarding-name')),
+        'Edited after cancellation',
+      );
+      await _press(tester, 'onboarding-back');
+      await tester.enterText(
+        find.byKey(const Key('onboarding-skill-input')),
+        'Unadded seeking',
+      );
+      await _press(tester, 'onboarding-back');
+      await tester.enterText(
+        find.byKey(const Key('onboarding-skill-input')),
+        'Unadded offering',
+      );
+      await _press(tester, 'onboarding-back');
+      expect(exited, isTrue);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(host(const ValueKey('re-entered')));
+      await tester.pumpAndSettle();
+      expect(find.text('Getting Started'), findsOneWidget);
+      expect(find.text('Unadded offering'), findsOneWidget);
+      await _press(tester, 'onboarding-next');
+      expect(find.text('Unadded seeking'), findsOneWidget);
+      await _press(tester, 'onboarding-next');
+      expect(
+        tester
+            .widget<TextField>(find.byKey(const Key('onboarding-name')))
+            .controller!
+            .text,
+        'Edited after cancellation',
+      );
+    },
+  );
+
+  testWidgets(
     'P09 explains overlong restored fields without losing their contents',
     (tester) async {
       final profile = (await _validProfile()).copyWith(name: 'a' * 121);

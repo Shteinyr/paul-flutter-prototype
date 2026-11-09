@@ -8,6 +8,34 @@ import 'package:paul_demo/profile/user_profile.dart';
 import 'support/onboarding_preferences.dart';
 
 void main() {
+  test('a valid host seed recovers a damaged local draft', () async {
+    final preferences = DraftPreferences();
+    preferences.values[OnboardingDraftStore.storageKey] = 'damaged json';
+    final store = OnboardingDraftStore(
+      preferences: preferences,
+      initialDraft: const UserProfile(name: 'Recovered', skills: ['Flutter']),
+    );
+    expect((await store.read()).name, 'Recovered');
+    expect(store.step, 2);
+  });
+
+  test('a newer saved draft wins over an older host OAuth seed', () async {
+    final preferences = DraftPreferences();
+    final saved = OnboardingDraftStore(preferences: preferences)..step = 1;
+    await saved.write(
+      const UserProfile(name: 'Edited after cancellation', skills: ['Flutter']),
+    );
+    final reopened = OnboardingDraftStore(
+      preferences: preferences,
+      initialDraft: const UserProfile(
+        name: 'Old submitted snapshot',
+        skills: ['Flutter'],
+      ),
+    );
+    expect((await reopened.read()).name, 'Edited after cancellation');
+    expect(reopened.step, 1);
+  });
+
   test('draft restores profile, progress and unfinished skill input', () async {
     final preferences = DraftPreferences();
     preferences.values[PreferencesProfileStore.storageKey] = const UserProfile(
