@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:paul_demo/live/browser_storage.dart';
 import 'package:paul_demo/live/live_app.dart';
+import 'package:paul_demo/live/live_api.dart';
 import 'package:paul_demo/onboarding/onboarding_draft_store.dart';
 import 'package:paul_demo/onboarding/onboarding_flow.dart';
 import 'package:paul_demo/profile/public_profile_view.dart';
@@ -62,6 +63,86 @@ void main() {
     removeSessionValue('paul.live.pending.profile.v1');
     removeSessionValue('paul.live.pending.finalize.v1');
   });
+
+  testWidgets(
+    'registration upload cannot redeem an invitation after account switch',
+    (tester) async {
+      final upload = Completer<http.Response>();
+      var redemptions = 0;
+      final transport = MockClient((request) async {
+        if (request.url.path.endsWith('/token')) {
+          final id =
+              (jsonDecode(request.body) as Map)['email'] == 'a@example.invalid'
+              ? _a
+              : _c;
+          return http.Response(
+            jsonEncode({
+              'access_token': _jwt(id),
+              'refresh_token': 'test-refresh',
+              'token_type': 'bearer',
+              'expires_in': 3600,
+              'user': {
+                'id': id,
+                'aud': 'authenticated',
+                'created_at': DateTime.utc(2026).toIso8601String(),
+                'app_metadata': {},
+                'user_metadata': {},
+              },
+            }),
+            200,
+          );
+        }
+        if (request.url.path.startsWith('/storage/')) return upload.future;
+        redemptions++;
+        return http.Response(
+          '{}',
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      });
+      final client = SupabaseClient(
+        'https://test.supabase.co',
+        'test-key',
+        httpClient: transport,
+        isolate: _Json(),
+        authOptions: const AuthClientOptions(autoRefreshToken: false),
+      );
+      await client.auth.signInWithPassword(
+        email: 'a@example.invalid',
+        password: 'test-only',
+      );
+      final pending = LiveApi(client).redeem(
+        List.filled(64, 'a').join(),
+        draft: UserProfile(
+          name: 'Test member',
+          summary: 'Test summary',
+          skills: const ['Flutter'],
+          photo: base64Decode(
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aXioAAAAASUVORK5CYII=',
+          ),
+        ),
+      );
+      await tester.pump();
+      await client.auth.signInWithPassword(
+        email: 'c@example.invalid',
+        password: 'test-only',
+      );
+      final rejected = expectLater(
+        pending,
+        throwsA(
+          isA<LiveApiException>().having(
+            (error) => error.code,
+            'code',
+            'sign_in_required',
+          ),
+        ),
+      );
+      upload.complete(http.Response('{"Key":"avatars/test.png"}', 200));
+      await rejected;
+      expect(redemptions, 0);
+      await tester.runAsync(client.dispose);
+    },
+  );
 
   for (final changeAccount in [false, true]) {
     testWidgets(
