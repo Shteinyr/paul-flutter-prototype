@@ -2,6 +2,16 @@
 
 Каждый пункт открыт до согласования и проверки production-критериев. Локальный прототип не закрывает серверные работы. Все оценки: **не оценено**.
 
+## Предварительные этапы
+
+- [M1 — Profile, Auth & Onboarding](https://github.com/Shteinyr/paul-flutter-prototype/milestone/1)
+- [M2 — Invites, Contacts, Chat & Push](https://github.com/Shteinyr/paul-flutter-prototype/milestone/2)
+- [M3 — Admin, Search & Community](https://github.com/Shteinyr/paul-flutter-prototype/milestone/3)
+
+Подзадачи G01–G32 связаны с существующими epics. GH01 ведёт настройку и подготовку клиентского доступа отдельно. Статус draft сохраняется до согласования конкретного этапа. Общие друзья, growth-ограничения и полный guest web остаются поздними фазами.
+
+## Существующие блоки
+
 - [ ] [#2](https://github.com/Shteinyr/paul-flutter-prototype/issues/2) **P01 — Profile creation — Test**. Статус базы: Прототип готов. [Требования и приёмка](PROJECT_SPEC.md#p01)
 - [ ] [#3](https://github.com/Shteinyr/paul-flutter-prototype/issues/3) **P02 — Profile creation — Next**. Статус базы: Прототип готов. [Требования и приёмка](PROJECT_SPEC.md#p02)
 - [ ] [#4](https://github.com/Shteinyr/paul-flutter-prototype/issues/4) **P03 — Profile view → GitHub setup**. Статус базы: Прототип готов. [Требования и приёмка](PROJECT_SPEC.md#p03)

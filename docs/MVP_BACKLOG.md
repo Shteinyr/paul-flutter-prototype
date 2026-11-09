@@ -1,6 +1,6 @@
 # Production backlog — proposal for the kickoff call
 
-This is a proposed implementation sequence, not a commitment that the entire advertised scope fits 100 hours. Confirm the acceptance criteria, available accounts and per-item estimates with the owner before agreeing the two-week / 100-hour scope.
+This is a proposed implementation sequence. The first Figma column contains P01–P13 and the client's preliminary 60-hour estimate. Confirm acceptance criteria, available accounts, per-item estimates and delivery dates before starting each stage. Proposed M1/M2/M3 milestones and technical sub-issues are marked draft.
 
 ## Decisions for the 10-minute call
 
