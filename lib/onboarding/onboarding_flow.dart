@@ -208,6 +208,18 @@ class _OnboardingFlowState extends State<OnboardingFlow>
       _submitError = null;
     });
     if (!_validProfile) {
+      if (_profile.photo != null &&
+          (_profile.photo!.isEmpty ||
+              _profile.photo!.lengthInBytes > 3 * 1024 * 1024)) {
+        setState(() => _photoError = 'Choose an image smaller than 3 MB.');
+      }
+      if (_profile.skills.length > 100 ||
+          _profile.searchingSkills.length > 100) {
+        setState(
+          () =>
+              _submitError = 'Skill limit reached. Remove a skill to continue.',
+        );
+      }
       if (_profile.skills.isEmpty) {
         await _move(-1);
         if (mounted) await _move(-1);
@@ -530,6 +542,7 @@ class _OnboardingFlowState extends State<OnboardingFlow>
                     onPressed: _busy
                         ? null
                         : () {
+                            setState(() => _photoError = null);
                             _controller.removePhoto();
                             unawaited(_saveDraft());
                           },
@@ -627,6 +640,14 @@ class _OnboardingField extends StatelessWidget {
   final ValueChanged<String>? onSubmitted;
   final Iterable<String>? autofillHints;
 
+  String? get _error {
+    if (required && controller.text.trim().isEmpty) return 'Required';
+    if (controller.text.characters.length > maxLength) {
+      return 'Use $maxLength characters or fewer.';
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -670,13 +691,13 @@ class _OnboardingField extends StatelessWidget {
         ),
       ),
       SvgPicture.asset('assets/icons/field-separator.svg'),
-      if (required && controller.text.trim().isEmpty)
-        const Padding(
-          padding: EdgeInsets.only(top: 8),
+      if (_error != null)
+        Padding(
+          padding: const EdgeInsets.only(top: 8),
           child: Text(
-            'Required',
+            _error!,
             textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 12, color: Color(0xFFFF645C)),
+            style: const TextStyle(fontSize: 12, color: Color(0xFFFF645C)),
           ),
         ),
     ],

@@ -53,6 +53,10 @@ class _OnboardingSkillsStepState extends State<OnboardingSkillsStep> {
       _focus.requestFocus();
       return;
     }
+    if (_input.text.characters.length > 64) {
+      setState(() => _error = 'Use 64 characters or fewer.');
+      return;
+    }
     if (_skills.length >= widget.maxSkills) {
       setState(() => _error = 'Skill limit reached');
       return;
