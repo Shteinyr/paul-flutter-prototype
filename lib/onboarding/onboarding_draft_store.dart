@@ -24,31 +24,41 @@ class OnboardingDraftStore implements ProfileStore {
 
   @override
   Future<UserProfile> read() async {
+    final source = await _preferences.getString(storageKey);
+    if (source != null) {
+      try {
+        return _restoreSaved(source);
+      } on FormatException {
+        if (_initialDraft == null) rethrow;
+      }
+    }
     final restored = _initialDraft;
     if (restored != null) {
       _initialDraft = null;
       step = 2;
       return restored;
     }
-    final source = await _preferences.getString(storageKey);
-    UserProfile profile = UserProfile.empty;
-    if (source != null) {
-      final data = jsonDecode(source);
-      if (data is! Map<String, dynamic> ||
-          data['version'] != 1 ||
-          data['step'] is! int ||
-          (data['step'] as int) < 0 ||
-          (data['step'] as int) > 2 ||
-          data['profile'] is! String ||
-          data['offeredInput'] is! String ||
-          data['searchingInput'] is! String) {
-        throw const FormatException('Invalid onboarding draft.');
-      }
-      profile = UserProfile.decode(data['profile'] as String);
-      step = data['step'] as int;
-      offeredInput = data['offeredInput'] as String;
-      searchingInput = data['searchingInput'] as String;
+    return UserProfile.empty;
+  }
+
+  UserProfile _restoreSaved(String source) {
+    final data = jsonDecode(source);
+    if (data is! Map<String, dynamic> ||
+        data['version'] != 1 ||
+        data['step'] is! int ||
+        (data['step'] as int) < 0 ||
+        (data['step'] as int) > 2 ||
+        data['profile'] is! String ||
+        data['offeredInput'] is! String ||
+        data['searchingInput'] is! String) {
+      throw const FormatException('Invalid onboarding draft.');
     }
+    final profile = UserProfile.decode(data['profile'] as String);
+    step = data['step'] as int;
+    offeredInput = data['offeredInput'] as String;
+    searchingInput = data['searchingInput'] as String;
+    // OAuth seeds may predate edits made after cancelling external sign-in.
+    _initialDraft = null;
     return profile;
   }
 
