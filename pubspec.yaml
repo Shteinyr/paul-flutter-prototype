@@ -13,11 +13,17 @@ dependencies:
   flutter_svg: ^2.2.3
   image_picker: ^1.2.4
   shared_preferences: ^2.5.6
+  supabase_flutter: 2.18.3
+  qr_flutter: 4.1.0
+  web: 1.1.2
+  crypto: 3.0.8
+  http: 1.6.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  yet_another_json_isolate: 2.1.1
 
 flutter:
   uses-material-design: true
