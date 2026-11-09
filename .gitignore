@@ -59,3 +59,16 @@ app.*.map.json
 *.p8
 *.pem
 android/key.properties
+
+# Private onboarding context stays outside this checkout
+/client/
+/sources/
+/operations/
+/context/
+/blocks/
+/research/
+/prompts/
+/Paul_Project_*.zip
+/01_START_CODEX.md
+/BOOTSTRAP_REPORT.md
+/.local/

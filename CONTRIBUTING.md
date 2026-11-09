@@ -4,19 +4,19 @@
 
 Источник требований — [PROJECT_SPEC](docs/PROJECT_SPEC.md). Одна issue содержит один законченный результат или явно обозначенный epic. В описании: ID блока P01–P16, ссылка Figma, проблема, границы, критерии приёмки, зависимости, согласованная оценка и способ проверки. Оценка до согласования — «не оценено».
 
-Статусы: Backlog → Ready → In progress → Review → Done. Blocked отмечается отдельно с причиной. Ready означает согласованные требования и доступы; Done — проверенную приёмку. Предлагаемые labels: type:feature, type:bug, type:docs, type:infra; priority:p0/p1/p2; status:blocked. Это соглашение, не утверждение о настроенных labels/Project automation.
+Статусы: Todo → Ready → In progress → Review → Awaiting acceptance → Accepted. Blocked отмечается отдельно с причиной. Ready означает согласованные требования и доступы. Accepted требует явной клиентской приёмки конкретной версии. Метки type, module, phase и status отражают назначение задачи. Scope и оценки предварительных этапов помечаются scope:draft.
 
 ## Ветки, commits и PR
 
 - main хранит проверяемую базовую версию. Одна задача → короткая ветка feature/<issue>-<topic>, fix/<issue>-<topic>, docs/<issue>-<topic> или chore/<issue>-<topic>.
 - Коммиты небольшие, с конкретным смыслом: feat(profile): persist photo; fix(chat): prevent duplicate connection; docs(scope): map Figma blocks. Не переписывать опубликованную историю main.
-- PR ссылается на issue; содержит проблему, результат, проверку и ограничения. Для UI — скриншот или короткая запись. Связь Closes #N используется только при полном выполнении критериев.
+- PR ссылается на issue; содержит проблему, результат, проверку и ограничения. Для UI — скриншот или короткая запись. До явной клиентской приёмки использовать Refs #N. Закрывать issue после принятия указанной версии.
 - До merge: анализ, форматирование, соответствующие тесты и build; проверить diff на секреты и лишние сгенерированные файлы. Для документации — проверить ссылки/полноту и preview.
 - Squash merge для одной задачи; удалить ветку после merge. Изменения scope фиксировать в issue и PROJECT_SPEC, не терять в устной переписке.
 
 ## Проверки
 
-См. .github/workflows/flutter-ci.yml: форматирование, flutter analyze, flutter test и web build. Запуск при PR и push main. CI не развёртывает production автоматически. Проверки branch protection/ruleset надо отдельно включить при наличии соответствующего тарифа и прав; этот документ не означает, что защита уже активна.
+См. .github/workflows/flutter-ci.yml: форматирование, flutter analyze, flutter test, проверки упаковки и web build. Workflow Flutter checks отключён 09.11.2026. Любой GitHub Actions run, включая автоматический при PR/push, требует отдельного текущего разрешения Александра с названием репозитория и workflow. До него выполнять проверки локально. Защиту main и доступные правила проверять по фактическому GitHub API.
 
 ## Доступ и конфигурация
 

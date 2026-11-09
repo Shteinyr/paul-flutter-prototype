@@ -38,7 +38,7 @@ Flutter-приложение для профессиональных связе�
 
 ## Порядок работы
 
-Issue → согласованные критерии и оценка → отдельная ветка → PR → проверки → приёмка. Статусы: Backlog → Ready → In progress → Review → Done. Срок 100 часов / две недели — ограничение клиента; окончательный состав поставки и оценки ещё не утверждены.
+Issue → согласованные критерии и оценка → отдельная ветка → PR → проверки → приёмка. Статусы: Todo → Ready → In progress → Review → Awaiting acceptance → Accepted. Первая очередь охватывает P01–P13. Предварительные M1/M2/M3 и их подзадачи отмечены draft. Клиентский ориентир 60 часов требует оценки по конкретным критериям. Сроки пока не утверждены.
 
 Репозиторий private. Платные облачные сервисы и production-доступы не подключены.
 
@@ -68,9 +68,13 @@ flutter test --no-pub --coverage
 bash scripts/build_demo.sh
 ```
 
-The build script produces the browser app in `dist/` and a source download at `dist/paul-demo-source.zip`. To review the release build locally, serve `dist/` with a local static server.
+The build script produces the browser app in `dist/`. To review the release build locally, serve `dist/` with a local static server.
 
-The GitHub Actions workflow runs formatting, analysis, tests and a release web build on pushes to `main` and pull requests. Browser and coverage outputs are retained as private repository artifacts for seven days. A configured workflow is not a claim that a remote run has already passed; check the Actions tab after the first push.
+For an explicit source handoff, run `bash scripts/build_demo.sh --include-source`. The separate archive is written to `build/paul-demo-source.zip`. It includes only tracked application paths. Project documents and local scratch files are excluded. Publish only `dist/` for a browser preview.
+
+Packaging regression checks run with `python3 -m unittest discover -s scripts -p 'test_*.py' -v`.
+
+The GitHub Actions workflow defines formatting, analysis, tests and a release web build. **Flutter checks is disabled as of 2026-11-09.** A hosted run requires Alexander's explicit approval naming this repository and workflow. Local checks remain available. When enabled for an authorized run, browser and coverage artifacts are retained for seven days. Record checks against the exact commit.
 
 ## Code map
 

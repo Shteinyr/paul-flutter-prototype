@@ -18,8 +18,14 @@ This is a local prototype: profile editing/persistence, contacts, public profile
 
 1. Inspect the latest repository state and the import pull request before making changes; work may have advanced since this checkpoint.
 2. Confirm that the complete Flutter source and `.github/workflows/flutter-ci.yml` are committed on the import branch or merged into `main`.
-3. Inspect GitHub Actions for that exact commit. The local checks above do not assert that remote CI passed.
-4. If CI fails, fix its reported cause in the same branch, run relevant checks and recheck CI. If CI passes, report the repository and PR links and the verified result to Alexander.
+3. Inspect existing GitHub Actions results for that exact commit. Flutter checks is disabled as of 2026-11-09. Starting or enabling a hosted run requires Alexander's explicit approval naming this repository and workflow. Use local checks until approval is available.
+4. Fix failures from available checks in the same branch and report their exact commit and origin. Keep local verification and hosted CI results distinct.
 5. Do not recreate the repository, duplicate issues #2–17 or reimplement the prototype. Do not send a client message or connect production services without a separate instruction.
 
 Keep source and checkpoints in Git. Transfer file contents directly between the filesystem and tools; return only concise summaries to the conversation, never Base64 data or full file dumps.
+
+## Repository setup on 2026-11-09
+
+The existing repository is private. The preserved P01–P16 epics have 33 technical sub-issues and three draft milestones. Native runners and real backend services remain outstanding. Main requires a pull request, resolved conversations and no force pushes or deletion. A second approving reviewer is not required for this single-developer setup. Required hosted status checks are not configured while Actions is disabled.
+
+Default browser packaging produces only `dist/`. Explicit source handoff uses `--include-source` and writes a tracked-source archive separately in `build/`. The private local onboarding package stays above the Git checkout.
