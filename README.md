@@ -32,7 +32,7 @@ Flutter-приложение для профессиональных связе�
 
 ## Текущая база
 
-Локальный Flutter-прототип покрывает Profile → Contacts, публичные профили, навыки, локальный chat и демонстрации QR/Connect/уведомлений. Серверная авторизация, обмен между реальными аккаунтами, native push и синхронизация адресной книги остаются отдельными работами.
+Локальный Flutter-прототип покрывает Profile → Contacts, публичные профили, навыки, локальный chat и демонстрации QR/Connect/уведомлений. В live-режиме подключены Supabase, серверные приглашения, профили и связи. Настройка Google/Apple, native push и адресной книги имеют отдельные статусы приёмки.
 
 В репозитории находятся исходники Flutter, документация, задачи, шаблоны и workflow GitHub Actions. Фактический результат автоматических проверок доступен во вкладке Actions. Локально прошли 29 тестов, анализ без замечаний, форматирование и release web build.
 
@@ -40,7 +40,7 @@ Flutter-приложение для профессиональных связе�
 
 Issue → согласованные критерии и оценка → отдельная ветка → PR → проверки → приёмка. Статусы: Todo → Ready → In progress → Review → Awaiting acceptance → Accepted. Первая очередь охватывает P01–P13. Предварительные M1/M2/M3 и их подзадачи отмечены draft. Клиентский ориентир 60 часов требует оценки по конкретным критериям. Сроки пока не утверждены.
 
-Репозиторий private. Платные облачные сервисы и production-доступы не подключены.
+Репозиторий private. Проверочный backend расположен в отдельной организации Paul на Supabase Free.
 
 ## Run locally
 
@@ -57,7 +57,7 @@ For a browser-independent development server:
 flutter run -d web-server --web-hostname 0.0.0.0 --web-port 8080
 ```
 
-No backend account or credentials are needed to run the current prototype.
+The default demo uses local data. The live configuration connects to the Paul Supabase project as described below.
 
 ## Checks and build
 
@@ -84,6 +84,9 @@ The GitHub Actions workflow defines formatting, analysis, tests and a release we
 | `lib/profile/` | Profile model, persistence interface, controller, sample migration and public views |
 | `lib/chat/` | Local chat state/store, connection rules, simulated replies and conversation UI |
 | `lib/demo_connect.dart` | Demonstration QR / Connect / invite flow |
+| `lib/live/` | Supabase integration, protected contacts, registration host and rotating live QR |
+| `lib/onboarding/` | P07–P09 steps and durable drafts |
+| `supabase/` | Migrations, invitation function and SQL regression |
 | `lib/demo_contacts.dart` | Fictional contact content |
 | `lib/photo_picker.dart` | Photo selection, validation and image normalisation |
 | `test/` | Interaction, persistence, connection, notification and failure-recovery tests |
@@ -99,9 +102,29 @@ The GitHub Actions workflow defines formatting, analysis, tests and a release we
 - An explicitly deleted profile remains empty after a restart. Fictional sample contacts remain available.
 - Data does not sync across devices or browser origins. Invite preparation is session-only.
 
+## Live invitations and registration
+
+The web integration uses **supabase_flutter 2.18.3**, Supabase Auth, Postgres, private avatar Storage and the `invitations` Edge function. Apply the SQL files in `supabase/migrations/` in order. Their versions match the verified hosted migration history. The function validates the user through Supabase Auth and alone can execute its service-role RPCs.
+
+Build with a local JSON configuration containing `PAUL_LIVE`, `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY` and `PAUL_APP_URL`. The URL must be the actual browser origin. Only the publishable key belongs in this configuration.
+
+```sh
+bash scripts/build_live.sh --dart-define-from-file=/absolute/path/to/live.json
+```
+
+The script produces `dist/` from an isolated build with its own asset manifest. Live portraits come from private Storage. The demo keeps its bundled example portraits and original build entrypoint.
+
+Invitations last exactly 15 minutes. An open QR screen automatically replaces expired QR and numeric code. Multiple users can redeem within that lifetime. Reissuing the same token retains the original deadline. The server checks expiry again after Auth, activates membership/profile and creates a unique connection atomically. First-owner bootstrap is a controlled one-use server invitation with no issuer. Keep its raw credential in a private local file.
+
+Supabase persists the main browser session across reopening. Pending invitation, profile snapshot and OAuth-finalization marker use sessionStorage. Logout clears the live pending state and onboarding draft. The current preview uses the SDK's JavaScript-readable browser storage.
+
+Google/Apple provider setup and their real OAuth acceptance remain pending. Client Terms/Privacy URLs and server account deletion remain open P06 criteria. Test fixture password sessions are confined to verification.
+
+Focused local checks include `test/invitation_controller_test.dart`, `test/live_app_auth_test.dart` and `supabase/tests/invitations.sql`. `scripts/test_live_invitations.py` runs against explicitly prepared disposable QA identities supplied through a private fixture. Its basic phase requires fresh inactive invitees. Keep fixture contents, tokens and invitation links out of command output and commits.
+
 ## Next production stage
 
-See the [proposed MVP backlog](docs/MVP_BACKLOG.md) for acceptance criteria, integration dependencies and the proposed Flutter + Supabase + FCM/APNs stack. No production cloud service has been connected or billed by this prototype.
+See the [MVP backlog](docs/MVP_BACKLOG.md) for the remaining acceptance criteria and integration dependencies.
 
 ## Design reference
 

@@ -65,21 +65,12 @@ class _DemoScreen extends StatefulWidget {
 }
 
 class _DemoScreenState extends State<_DemoScreen> with WidgetsBindingObserver {
-  late final TextEditingController _name;
-  late final TextEditingController _occupation;
-  late final TextEditingController _summary;
-  final _nameFocus = FocusNode();
-  final _occupationFocus = FocusNode();
-  final _summaryFocus = FocusNode();
-  final Set<String> _touched = {};
   int _tab = 0;
-  bool _picking = false;
   final _connectState = DemoConnectState();
   late final DemoChatController _chat;
   bool _askingNotifications = false;
 
   ProfileController get controller => widget.controller;
-  bool get _validationActive => controller.profile.photo != null;
 
   @override
   void initState() {
@@ -88,33 +79,12 @@ class _DemoScreenState extends State<_DemoScreen> with WidgetsBindingObserver {
     _chat.addListener(_chatChanged);
     _chat.onConnected = () => _showMessage('You’re connected!');
     _chat.onNotification = _showDemoNotification;
-    _name = TextEditingController(text: controller.profile.name);
-    _occupation = TextEditingController(text: controller.profile.occupation);
-    _summary = TextEditingController(text: controller.profile.summary);
-    _trackField('name', _nameFocus);
-    _trackField('occupation', _occupationFocus);
-    _trackField('summary', _summaryFocus);
     controller.addListener(_profileChanged);
     WidgetsBinding.instance.addObserver(this);
   }
 
-  void _trackField(String field, FocusNode focus) {
-    focus.addListener(() {
-      if (!focus.hasFocus && mounted) setState(() => _touched.add(field));
-    });
-  }
-
-  String? _required(String field, String value) =>
-      (_validationActive || _touched.contains(field)) && value.trim().isEmpty
-      ? 'Required'
-      : null;
-
   void _profileChanged() {
-    if (!mounted) return;
-    _sync(_name, controller.profile.name);
-    _sync(_occupation, controller.profile.occupation);
-    _sync(_summary, controller.profile.summary);
-    setState(() {});
+    if (mounted) setState(() {});
   }
 
   void _chatChanged() {
@@ -174,7 +144,7 @@ class _DemoScreenState extends State<_DemoScreen> with WidgetsBindingObserver {
         builder: (_) => DemoChatView(
           contact: contact,
           controller: _chat,
-          ownAvatar: _Avatar(photo: controller.profile.photo, size: 48),
+          ownAvatar: ProfileAvatar(photo: controller.profile.photo, size: 48),
         ),
       ),
     );
@@ -213,15 +183,6 @@ class _DemoScreenState extends State<_DemoScreen> with WidgetsBindingObserver {
     await _chat.flush();
   }
 
-  void _sync(TextEditingController field, String text) {
-    if (field.text != text) {
-      field.value = TextEditingValue(
-        text: text,
-        selection: TextSelection.collapsed(offset: text.length),
-      );
-    }
-  }
-
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state != AppLifecycleState.resumed) unawaited(controller.flush());
@@ -246,7 +207,7 @@ class _DemoScreenState extends State<_DemoScreen> with WidgetsBindingObserver {
           listenable: Listenable.merge([controller, _chat]),
           builder: (_, _) => PublicProfileView(
             profile: controller.profile,
-            avatar: _Avatar(photo: controller.profile.photo, size: 144),
+            avatar: ProfileAvatar(photo: controller.profile.photo, size: 144),
             contactCount: _chat.contacts.length,
             onEdit: () {
               Navigator.of(profileContext).pop();
@@ -265,7 +226,7 @@ class _DemoScreenState extends State<_DemoScreen> with WidgetsBindingObserver {
           listenable: _chat,
           builder: (_, _) => PublicProfileView(
             profile: contact.profile,
-            avatar: _Avatar(asset: contact.photoAsset, size: 144),
+            avatar: ProfileAvatar(asset: contact.photoAsset, size: 144),
             onChat: () => _openChat(contact),
             onDisconnect: _chat.isConnected(contact.id)
                 ? () => _deleteConnection(profileContext, contact)
@@ -283,32 +244,12 @@ class _DemoScreenState extends State<_DemoScreen> with WidgetsBindingObserver {
           listenable: controller,
           builder: (_, _) => DemoQrView(
             profile: controller.profile,
-            avatar: _Avatar(photo: controller.profile.photo, size: 144),
+            avatar: ProfileAvatar(photo: controller.profile.photo, size: 144),
             state: _connectState,
           ),
         ),
       ),
     );
-  }
-
-  Future<void> _choosePhoto() async {
-    if (_picking || controller.deleting) return;
-    final generation = controller.generation;
-    setState(() => _picking = true);
-    try {
-      final photo = await widget.pickPhoto();
-      if (!mounted || generation != controller.generation || photo == null) {
-        return;
-      }
-      controller.updatePhoto(photo);
-      await controller.flush();
-    } on PhotoSelectionException catch (e) {
-      _showMessage(e.message);
-    } catch (_) {
-      _showMessage('Could not select a photo. Please try again.');
-    } finally {
-      if (mounted) setState(() => _picking = false);
-    }
   }
 
   void _showMessage(String message) {
@@ -348,7 +289,6 @@ class _DemoScreenState extends State<_DemoScreen> with WidgetsBindingObserver {
       if (!mounted) return;
       setState(() {
         _tab = 0;
-        _touched.clear();
       });
     }
   }
@@ -370,7 +310,10 @@ class _DemoScreenState extends State<_DemoScreen> with WidgetsBindingObserver {
                 children: [
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 28),
-                    child: _Navigation(selected: _tab, onSelected: _selectTab),
+                    child: ProfileNavigation(
+                      selected: _tab,
+                      onSelected: _selectTab,
+                    ),
                   ),
                   if (controller.error != null &&
                       controller.loaded &&
@@ -438,11 +381,11 @@ class _DemoScreenState extends State<_DemoScreen> with WidgetsBindingObserver {
               padding: const EdgeInsets.fromLTRB(37.5, 47, 37.5, 24),
               children: [
                 for (final thread in _chat.conversations)
-                  _ContactRow(
+                  ContactRow(
                     key: Key('chat-thread-${thread.contactId}'),
                     name: demoPeople[thread.contactId]!.name,
                     occupation: demoPeople[thread.contactId]!.occupation,
-                    avatar: _Avatar(
+                    avatar: ProfileAvatar(
                       asset: demoPeople[thread.contactId]!.photoAsset,
                       size: 65,
                     ),
@@ -500,6 +443,130 @@ class _DemoScreenState extends State<_DemoScreen> with WidgetsBindingObserver {
         ],
       );
     }
+    return ProfileEditor(
+      key: ValueKey(controller.generation),
+      controller: controller,
+      pickPhoto: widget.pickPhoto,
+      onViewProfile: _viewOwnProfile,
+      onDelete: _deleteAccount,
+    );
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    controller.removeListener(_profileChanged);
+    unawaited(controller.flush());
+    _connectState.dispose();
+    _chat.removeListener(_chatChanged);
+    _chat.onConnected = null;
+    _chat.onNotification = null;
+    unawaited(_chat.flush());
+    if (widget.chatController == null) _chat.dispose();
+    super.dispose();
+  }
+}
+
+class ProfileEditor extends StatefulWidget {
+  const ProfileEditor({
+    super.key,
+    required this.controller,
+    this.pickPhoto,
+    this.onViewProfile,
+    this.onDelete,
+    this.occupationRequired = true,
+    this.footer,
+  });
+  final ProfileController controller;
+  final PickProfilePhoto? pickPhoto;
+  final VoidCallback? onViewProfile;
+  final VoidCallback? onDelete;
+  final bool occupationRequired;
+  final Widget? footer;
+  @override
+  State<ProfileEditor> createState() => _ProfileEditorState();
+}
+
+class _ProfileEditorState extends State<ProfileEditor> {
+  late final TextEditingController _name;
+  late final TextEditingController _occupation;
+  late final TextEditingController _summary;
+  final _nameFocus = FocusNode();
+  final _occupationFocus = FocusNode();
+  final _summaryFocus = FocusNode();
+  final Set<String> _touched = {};
+  bool _picking = false;
+  ProfileController get controller => widget.controller;
+  bool get _validationActive => controller.profile.photo != null;
+  @override
+  void initState() {
+    super.initState();
+    _name = TextEditingController(text: controller.profile.name);
+    _occupation = TextEditingController(text: controller.profile.occupation);
+    _summary = TextEditingController(text: controller.profile.summary);
+    _trackField('name', _nameFocus);
+    _trackField('occupation', _occupationFocus);
+    _trackField('summary', _summaryFocus);
+    controller.addListener(_profileChanged);
+  }
+
+  void _trackField(String field, FocusNode focus) {
+    focus.addListener(() {
+      if (!focus.hasFocus && mounted) setState(() => _touched.add(field));
+    });
+  }
+
+  String? _required(String field, String value) =>
+      (_validationActive || _touched.contains(field)) && value.trim().isEmpty
+      ? 'Required'
+      : null;
+
+  void _profileChanged() {
+    if (!mounted) return;
+    _sync(_name, controller.profile.name);
+    _sync(_occupation, controller.profile.occupation);
+    _sync(_summary, controller.profile.summary);
+    setState(() {});
+  }
+
+  void _sync(TextEditingController field, String text) {
+    if (field.text != text) {
+      field.value = TextEditingValue(
+        text: text,
+        selection: TextSelection.collapsed(offset: text.length),
+      );
+    }
+  }
+
+  Future<void> _choosePhoto() async {
+    if (_picking || controller.deleting) return;
+    final generation = controller.generation;
+    setState(() => _picking = true);
+    try {
+      final photo = await (widget.pickPhoto ?? pickProfilePhoto)();
+      if (!mounted || generation != controller.generation || photo == null) {
+        return;
+      }
+      controller.updatePhoto(photo);
+      await controller.flush();
+    } on PhotoSelectionException catch (e) {
+      _showMessage(e.message);
+    } catch (_) {
+      _showMessage('Could not select a photo. Please try again.');
+    } finally {
+      if (mounted) setState(() => _picking = false);
+    }
+  }
+
+  void _showMessage(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return AbsorbPointer(
       absorbing: controller.deleting,
       child: SingleChildScrollView(
@@ -514,7 +581,7 @@ class _DemoScreenState extends State<_DemoScreen> with WidgetsBindingObserver {
                       alignment: Alignment.centerRight,
                       child: TextButton(
                         key: const Key('view-own-profile'),
-                        onPressed: _viewOwnProfile,
+                        onPressed: widget.onViewProfile,
                         style: TextButton.styleFrom(
                           foregroundColor: _blue,
                           textStyle: const TextStyle(fontSize: 12),
@@ -540,7 +607,7 @@ class _DemoScreenState extends State<_DemoScreen> with WidgetsBindingObserver {
                       key: const Key('choose-photo'),
                       onTap: _choosePhoto,
                       radius: 72,
-                      child: _Avatar(
+                      child: ProfileAvatar(
                         photo: controller.profile.photo,
                         size: 144,
                         loading: _picking,
@@ -590,7 +657,9 @@ class _DemoScreenState extends State<_DemoScreen> with WidgetsBindingObserver {
               fieldKey: const Key('occupation-field'),
               controller: _occupation,
               focusNode: _occupationFocus,
-              errorText: _required('occupation', controller.profile.occupation),
+              errorText: widget.occupationRequired
+                  ? _required('occupation', controller.profile.occupation)
+                  : null,
               active: controller.profile.hasData,
               hint: 'What’s occupation?',
               label: 'Occupation',
@@ -649,7 +718,7 @@ class _DemoScreenState extends State<_DemoScreen> with WidgetsBindingObserver {
               onRemove: (value) =>
                   controller.removeSkill(value, searching: true),
             ),
-            if (controller.profile.hasData) ...[
+            if (controller.profile.hasData && widget.onDelete != null) ...[
               SizedBox(
                 height:
                     controller.profile.skills.isEmpty &&
@@ -659,7 +728,7 @@ class _DemoScreenState extends State<_DemoScreen> with WidgetsBindingObserver {
               ),
               TextButton(
                 key: const Key('delete-account'),
-                onPressed: controller.deleting ? null : _deleteAccount,
+                onPressed: controller.deleting ? null : widget.onDelete,
                 style: TextButton.styleFrom(
                   foregroundColor: _red,
                   textStyle: const TextStyle(
@@ -674,6 +743,7 @@ class _DemoScreenState extends State<_DemoScreen> with WidgetsBindingObserver {
                 ),
               ),
             ],
+            ?widget.footer,
           ],
         ),
       ),
@@ -682,7 +752,6 @@ class _DemoScreenState extends State<_DemoScreen> with WidgetsBindingObserver {
 
   @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
     controller.removeListener(_profileChanged);
     unawaited(controller.flush());
     _name.dispose();
@@ -691,20 +760,20 @@ class _DemoScreenState extends State<_DemoScreen> with WidgetsBindingObserver {
     _nameFocus.dispose();
     _occupationFocus.dispose();
     _summaryFocus.dispose();
-    _connectState.dispose();
-    _chat.removeListener(_chatChanged);
-    _chat.onConnected = null;
-    _chat.onNotification = null;
-    unawaited(_chat.flush());
-    if (widget.chatController == null) _chat.dispose();
     super.dispose();
   }
 }
 
-class _Navigation extends StatelessWidget {
-  const _Navigation({required this.selected, required this.onSelected});
+class ProfileNavigation extends StatelessWidget {
+  const ProfileNavigation({
+    super.key,
+    required this.selected,
+    required this.onSelected,
+    this.enabledTabs = const {0, 2, 3},
+  });
   final int selected;
   final ValueChanged<int> onSelected;
+  final Set<int> enabledTabs;
 
   @override
   Widget build(BuildContext context) => SizedBox(
@@ -743,7 +812,7 @@ class _Navigation extends StatelessWidget {
     double iconHeight,
   ) {
     final active = index == selected;
-    final enabled = index == 0 || index == 2 || index == 3;
+    final enabled = enabledTabs.contains(index);
     return Semantics(
       selected: active,
       button: true,
@@ -1186,27 +1255,27 @@ class _Contacts extends StatelessWidget {
     padding: const EdgeInsets.fromLTRB(37.5, 47, 37.5, 88),
     children: [
       if (profile.hasContact)
-        _ContactRow(
+        ContactRow(
           key: const Key('contact-row'),
           name: profile.name.trim(),
           occupation: profile.occupation.trim(),
-          avatar: _Avatar(photo: profile.photo, size: 65),
+          avatar: ProfileAvatar(photo: profile.photo, size: 65),
           onOpen: onOwnOpen,
         ),
       for (final contact in contacts)
-        _ContactRow(
+        ContactRow(
           key: Key('demo-contact-${contact.id}'),
           name: contact.name,
           occupation: contact.occupation,
-          avatar: _Avatar(asset: contact.photoAsset, size: 65),
+          avatar: ProfileAvatar(asset: contact.photoAsset, size: 65),
           onOpen: () => onOpen(contact),
         ),
     ],
   );
 }
 
-class _ContactRow extends StatelessWidget {
-  const _ContactRow({
+class ContactRow extends StatelessWidget {
+  const ContactRow({
     super.key,
     required this.name,
     required this.occupation,
@@ -1305,8 +1374,9 @@ class _ContactRow extends StatelessWidget {
   );
 }
 
-class _Avatar extends StatelessWidget {
-  const _Avatar({
+class ProfileAvatar extends StatelessWidget {
+  const ProfileAvatar({
+    super.key,
     this.photo,
     this.asset,
     required this.size,
