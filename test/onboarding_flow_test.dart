@@ -46,6 +46,61 @@ Future<void> _press(WidgetTester tester, String key) async {
 
 void main() {
   testWidgets(
+    'P09 explains overlong restored fields without losing their contents',
+    (tester) async {
+      final profile = (await _validProfile()).copyWith(name: 'a' * 121);
+      await tester.pumpWidget(
+        _app(
+          preferences: DraftPreferences(),
+          initialDraft: profile,
+          onComplete: (_) async => fail('Overlong draft must not submit'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await _press(tester, 'onboarding-complete');
+      expect(find.text('Use 120 characters or fewer.'), findsOneWidget);
+      expect(
+        tester
+            .widget<TextField>(find.byKey(const Key('onboarding-name')))
+            .controller!
+            .text,
+        profile.name,
+      );
+    },
+  );
+
+  testWidgets('P09 remains scrollable at 320 pixels with the keyboard open', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(320, 640);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetViewInsets);
+    final preferences = DraftPreferences();
+    await tester.pumpWidget(
+      _app(
+        preferences: preferences,
+        initialDraft: await _validProfile(),
+        onComplete: (_) async {},
+      ),
+    );
+    await tester.pumpAndSettle();
+    tester.view.viewInsets = const FakeViewPadding(bottom: 280);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('onboarding-summary')));
+    await tester.enterText(
+      find.byKey(const Key('onboarding-summary')),
+      'A longer summary that remains editable on a small screen.',
+    );
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('onboarding-complete')));
+    expect(tester.takeException(), isNull);
+    await _press(tester, 'onboarding-back');
+    expect(find.text('Searching Skills'), findsOneWidget);
+  });
+
+  testWidgets(
     'successful registration retries only draft cleanup after storage failure',
     (tester) async {
       final preferences = DraftPreferences();
