@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:paul_demo/app.dart';
+import 'package:paul_demo/chat/demo_chat_controller.dart';
 import 'package:paul_demo/demo_contacts.dart';
 import 'package:paul_demo/profile/profile_controller.dart';
 
@@ -327,6 +328,87 @@ void main() {
   );
 
   testWidgets(
+    'open own profile follows profile edits and contact changes through See More',
+    (tester) async {
+      tester.view.physicalSize = const Size(402, 1100);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final controller = ProfileController(MemoryProfileStore());
+      final chat = DemoChatController();
+      addTearDown(controller.dispose);
+      addTearDown(chat.dispose);
+      await controller.load();
+      controller.updateName('Owner Before');
+      controller.updateOccupation('Original occupation');
+      for (var index = 1; index <= 12; index++) {
+        controller.addSkill('Offered $index');
+        controller.addSkill('Needed $index', searching: true);
+      }
+      await controller.flush();
+      await tester.pumpWidget(
+        PaulDemoApp(controller: controller, chatController: chat),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('contact-row')));
+      await tester.pumpAndSettle();
+      expect(find.text('Owner Before'), findsOneWidget);
+      expect(find.text('Contacts  5'), findsOneWidget);
+
+      final photo = base64Decode(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=',
+      );
+      controller.updateName('Owner After');
+      controller.updateOccupation('Updated occupation');
+      controller.updateSummary('Latest profile summary');
+      controller.updatePhoto(photo);
+      controller.removeSkill('Offered 1');
+      controller.addSkill('Latest offered skill');
+      controller.removeSkill('Needed 1', searching: true);
+      controller.addSkill('Latest needed skill', searching: true);
+      chat.disconnect(demoContacts.first.id);
+      await controller.flush();
+      await chat.flush();
+      await tester.pumpAndSettle();
+      expect(find.text('Owner After'), findsOneWidget);
+      expect(find.text('Owner Before'), findsNothing);
+      expect(find.text('Updated occupation'), findsOneWidget);
+      expect(find.text('Latest profile summary'), findsOneWidget);
+      expect(find.text('Contacts  4'), findsOneWidget);
+      expect(find.byKey(const Key('open-profile-chat')), findsNothing);
+      expect(find.text('Searching skills'), findsOneWidget);
+      final avatar = tester.widget<Image>(
+        find.descendant(
+          of: find.byKey(const Key('public-profile-scroll')),
+          matching: find.byType(Image),
+        ),
+      );
+      expect((avatar.image as MemoryImage).bytes, photo);
+
+      for (final section in ['offered', 'searching']) {
+        final more = find.byKey(Key('see-more-$section'));
+        await tester.ensureVisible(more);
+        await tester.tap(more);
+        await tester.pumpAndSettle();
+        expect(
+          find.text(section == 'offered' ? 'Offer skills' : 'Network Hiring'),
+          findsOneWidget,
+        );
+        final skills = section == 'offered'
+            ? controller.profile.skills
+            : controller.profile.searchingSkills;
+        for (final skill in skills) {
+          expect(find.text(skill), findsOneWidget);
+        }
+        await tester.tap(find.byKey(const Key('profile-back')));
+        await tester.pumpAndSettle();
+        expect(find.text('Owner After'), findsOneWidget);
+      }
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets(
     'all five contacts open full profiles and both skill lists on a small screen',
     (tester) async {
       tester.view.physicalSize = const Size(320, 640);
@@ -352,6 +434,10 @@ void main() {
           await tester.ensureVisible(more);
           await tester.tap(more);
           await tester.pumpAndSettle();
+          expect(
+            find.text(section == 'offered' ? 'Offer skills' : 'Network Hiring'),
+            findsOneWidget,
+          );
           final skills = section == 'offered'
               ? contact.skills
               : contact.searchingSkills;
