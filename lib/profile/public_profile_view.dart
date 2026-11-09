@@ -55,7 +55,12 @@ class PublicProfileView extends StatelessWidget {
           Text(
             profile.name,
             textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+            style: const TextStyle(
+              fontSize: 15,
+              height: 22 / 15,
+              fontWeight: FontWeight.w400,
+              letterSpacing: .5,
+            ),
           ),
           const SizedBox(height: 8),
           Text(
@@ -63,8 +68,9 @@ class PublicProfileView extends StatelessWidget {
             textAlign: TextAlign.center,
             style: const TextStyle(
               fontSize: 12,
-              height: 1.6,
+              height: 20 / 12,
               fontWeight: FontWeight.w300,
+              letterSpacing: .5,
             ),
           ),
           const SizedBox(height: 24),
@@ -79,7 +85,11 @@ class PublicProfileView extends StatelessWidget {
               ],
             ),
             textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 12, letterSpacing: .5),
+            style: const TextStyle(
+              fontSize: 12,
+              height: 20 / 12,
+              letterSpacing: .5,
+            ),
           ),
           if (profile.summary.trim().isNotEmpty) ...[
             const SizedBox(height: 28),
@@ -90,19 +100,21 @@ class PublicProfileView extends StatelessWidget {
                 fontSize: 12,
                 height: 25 / 12,
                 fontWeight: FontWeight.w300,
-                letterSpacing: .2,
+                letterSpacing: .3,
               ),
             ),
           ],
           const SizedBox(height: 60),
           _SkillSection(
             title: 'Offer Skills',
+            detailTitle: 'Offer skills',
             values: profile.skills,
             sectionKey: 'offered',
           ),
           const SizedBox(height: 60),
           _SkillSection(
-            title: 'Network Hiring',
+            title: 'Searching skills',
+            detailTitle: 'Network Hiring',
             values: profile.searchingSkills,
             sectionKey: 'searching',
           ),
@@ -127,10 +139,12 @@ class PublicProfileView extends StatelessWidget {
 class _SkillSection extends StatelessWidget {
   const _SkillSection({
     required this.title,
+    required this.detailTitle,
     required this.values,
     required this.sectionKey,
   });
   final String title;
+  final String detailTitle;
   final List<String> values;
   final String sectionKey;
 
@@ -141,7 +155,11 @@ class _SkillSection extends StatelessWidget {
       Text(
         title,
         textAlign: TextAlign.center,
-        style: const TextStyle(fontSize: 12, letterSpacing: .5),
+        style: const TextStyle(
+          fontSize: 12,
+          height: 20 / 12,
+          letterSpacing: .5,
+        ),
       ),
       const SizedBox(height: 26),
       if (values.isEmpty)
@@ -168,7 +186,7 @@ class _SkillSection extends StatelessWidget {
                   onPressed: () => Navigator.of(context).push(
                     MaterialPageRoute<void>(
                       builder: (_) => ProfilePage(
-                        title: title,
+                        title: detailTitle,
                         child: SingleChildScrollView(
                           key: Key('all-$sectionKey-skills'),
                           padding: const EdgeInsets.fromLTRB(
@@ -210,9 +228,9 @@ class _SkillLabels extends StatelessWidget {
             textAlign: TextAlign.center,
             style: const TextStyle(
               fontSize: 12,
-              height: 1.5,
+              height: 20 / 12,
               fontWeight: FontWeight.w300,
-              letterSpacing: .2,
+              letterSpacing: .5,
             ),
           ),
         ),
@@ -264,7 +282,9 @@ class ProfilePage extends StatelessWidget {
                         textAlign: TextAlign.center,
                         style: const TextStyle(
                           fontSize: 16,
+                          height: 20 / 16,
                           fontWeight: FontWeight.w500,
+                          letterSpacing: .5,
                         ),
                       ),
                     ),

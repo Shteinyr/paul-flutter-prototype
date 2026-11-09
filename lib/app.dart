@@ -242,14 +242,17 @@ class _DemoScreenState extends State<_DemoScreen> with WidgetsBindingObserver {
     unawaited(controller.flush());
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (context) => PublicProfileView(
-          profile: controller.profile,
-          avatar: _Avatar(photo: controller.profile.photo, size: 144),
-          contactCount: _chat.contacts.length,
-          onEdit: () {
-            Navigator.of(context).pop();
-            _selectTab(3);
-          },
+        builder: (profileContext) => ListenableBuilder(
+          listenable: Listenable.merge([controller, _chat]),
+          builder: (_, _) => PublicProfileView(
+            profile: controller.profile,
+            avatar: _Avatar(photo: controller.profile.photo, size: 144),
+            contactCount: _chat.contacts.length,
+            onEdit: () {
+              Navigator.of(profileContext).pop();
+              _selectTab(3);
+            },
+          ),
         ),
       ),
     );
