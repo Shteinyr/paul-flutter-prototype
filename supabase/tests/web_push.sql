@@ -22,6 +22,7 @@ insert into public.connections(user_low,user_high) values
 create temp table threads as select
  (public.chat_open('78000000-0000-4000-8000-000000000001','78000000-0000-4000-8000-000000000002')->>'id')::uuid personal,
  (public.chat_open('78000000-0000-4000-8000-000000000001','78000000-0000-4000-8000-000000000005')->>'id')::uuid managed;
+grant select on threads to service_role;
 -- A newly enabled browser must never receive the old outbox as fresh pushes.
 select public.chat_send('78000000-0000-4000-8000-000000000001',(select personal from threads),gen_random_uuid(),'Old history');
 set local role service_role;
@@ -84,6 +85,16 @@ update public.profiles set disabled_at=clock_timestamp() where id='78000000-0000
 select pg_temp.assert_true(public.push_prepare((select delivery_id from disabled_claim),(select lease_token from disabled_claim)) is null,'Disabled managed profile blocks claimed send');
 update public.profiles set disabled_at=null where id='78000000-0000-4000-8000-000000000005';
 reset role;
+-- A notification shown yesterday still opens an authorized ordinary chat.
+select public.chat_send('78000000-0000-4000-8000-000000000001',(select personal from threads),gen_random_uuid(),'Old shown personal notification');
+set local role service_role;
+create temp table old_personal_claim as select * from jsonb_to_recordset(public.push_claim(20)) as c(delivery_id uuid,lease_token uuid);
+select pg_temp.assert_true((select count(*)=1 from old_personal_claim),'Only the active ordinary device is claimed');
+select pg_temp.assert_true(public.push_prepare((select delivery_id from old_personal_claim),(select lease_token from old_personal_claim)) is not null,'Ordinary notification prepared before delivery');
+select pg_temp.assert_true(public.push_finish((select delivery_id from old_personal_claim),(select lease_token from old_personal_claim),'sent',201),'Ordinary notification was sent');
+update private.notification_jobs set created_at=clock_timestamp()-interval '25 hours' where id=(select job_id from private.push_deliveries where id=(select delivery_id from old_personal_claim));
+select pg_temp.assert_true(public.push_resolve('78000000-0000-4000-8000-000000000002','78100000-0000-4000-8000-000000000002',(select delivery_id from old_personal_claim),'78200000-0000-4000-8000-000000000002')=jsonb_build_object('kind','chat','conversation_id',(select personal from threads)),'Old shown ordinary notification retains its authorized route');
+reset role;
 delete from auth.sessions where id='78100000-0000-4000-8000-000000000002';
 set local role service_role;
 select pg_temp.expect_error($q$select public.push_status('78000000-0000-4000-8000-000000000002','78100000-0000-4000-8000-000000000002','78200000-0000-4000-8000-000000000002')$q$,'session_revoked');
@@ -97,20 +108,69 @@ set local role service_role;
 create temp table expired_claim as select * from jsonb_to_recordset(public.push_claim(20)) as c(delivery_id uuid,lease_token uuid);
 update private.notification_jobs set created_at=clock_timestamp()-interval '24 hours 1 second' where id=(select job_id from private.push_deliveries where id=(select delivery_id from expired_claim));
 select pg_temp.assert_true(public.push_prepare((select delivery_id from expired_claim),(select lease_token from expired_claim)) is null,'Expired delivery cannot get endpoint or retry');
+select pg_temp.assert_true(public.push_resolve('78000000-0000-4000-8000-000000000003','78100000-0000-4000-8000-000000000003',(select delivery_id from expired_claim),'78200000-0000-4000-8000-000000000003')=jsonb_build_object('kind','operator','conversation_id',(select managed from threads),'managed_profile_id','78000000-0000-4000-8000-000000000005'::uuid),'Old operator notification retains its currently authorized route');
+-- Old notification clicks keep every current authorization check.
+update private.managed_profile_grants set can_reply=false where user_id='78000000-0000-4000-8000-000000000003';
 select pg_temp.expect_error($q$select public.push_resolve('78000000-0000-4000-8000-000000000003','78100000-0000-4000-8000-000000000003',(select delivery_id from expired_claim),'78200000-0000-4000-8000-000000000003')$q$,'push_forbidden');
+update private.managed_profile_grants set can_reply=true,revoked_at=clock_timestamp() where user_id='78000000-0000-4000-8000-000000000003';
+select pg_temp.expect_error($q$select public.push_resolve('78000000-0000-4000-8000-000000000003','78100000-0000-4000-8000-000000000003',(select delivery_id from expired_claim),'78200000-0000-4000-8000-000000000003')$q$,'push_forbidden');
+update private.managed_profile_grants set revoked_at=null where user_id='78000000-0000-4000-8000-000000000003';
+update public.profiles set disabled_at=clock_timestamp() where id='78000000-0000-4000-8000-000000000005';
+select pg_temp.expect_error($q$select public.push_resolve('78000000-0000-4000-8000-000000000003','78100000-0000-4000-8000-000000000003',(select delivery_id from expired_claim),'78200000-0000-4000-8000-000000000003')$q$,'push_forbidden');
+update public.profiles set disabled_at=null where id='78000000-0000-4000-8000-000000000005';
+select pg_temp.expect_error($q$select public.push_resolve('78000000-0000-4000-8000-000000000004','78100000-0000-4000-8000-000000000004',(select delivery_id from expired_claim),'78200000-0000-4000-8000-000000000003')$q$,'push_forbidden');
+update private.push_subscriptions set disabled_at=clock_timestamp() where binding_id='78200000-0000-4000-8000-000000000003';
+select pg_temp.expect_error($q$select public.push_resolve('78000000-0000-4000-8000-000000000003','78100000-0000-4000-8000-000000000003',(select delivery_id from expired_claim),'78200000-0000-4000-8000-000000000003')$q$,'push_forbidden');
+update private.push_subscriptions set disabled_at=null,expires_at=clock_timestamp()-interval '1 second' where binding_id='78200000-0000-4000-8000-000000000003';
+select pg_temp.expect_error($q$select public.push_resolve('78000000-0000-4000-8000-000000000003','78100000-0000-4000-8000-000000000003',(select delivery_id from expired_claim),'78200000-0000-4000-8000-000000000003')$q$,'push_forbidden');
+update private.push_subscriptions set expires_at=null where binding_id='78200000-0000-4000-8000-000000000003';
+create temp table old_operator_membership as select * from private.memberships where user_id='78000000-0000-4000-8000-000000000003';
+delete from private.memberships where user_id='78000000-0000-4000-8000-000000000003';
+select pg_temp.expect_error($q$select public.push_resolve('78000000-0000-4000-8000-000000000003','78100000-0000-4000-8000-000000000003',(select delivery_id from expired_claim),'78200000-0000-4000-8000-000000000003')$q$,'membership_required');
+insert into private.memberships select * from old_operator_membership;
+create temp table old_managed_participant as select * from public.conversation_members where conversation_id=(select managed from threads) and user_id='78000000-0000-4000-8000-000000000005';
+delete from public.conversation_members where conversation_id=(select managed from threads) and user_id='78000000-0000-4000-8000-000000000005';
+select pg_temp.expect_error($q$select public.push_resolve('78000000-0000-4000-8000-000000000003','78100000-0000-4000-8000-000000000003',(select delivery_id from expired_claim),'78200000-0000-4000-8000-000000000003')$q$,'push_forbidden');
+insert into public.conversation_members select * from old_managed_participant;
+reset role;
+create temp table old_operator_session as select * from auth.sessions where id='78100000-0000-4000-8000-000000000003';
+delete from auth.sessions where id='78100000-0000-4000-8000-000000000003';
+set local role service_role;
+select pg_temp.expect_error($q$select public.push_resolve('78000000-0000-4000-8000-000000000003','78100000-0000-4000-8000-000000000003',(select delivery_id from expired_claim),'78200000-0000-4000-8000-000000000003')$q$,'session_revoked');
+reset role;
+insert into auth.sessions select * from old_operator_session;
+set local role service_role;
+select pg_temp.assert_true((select public.push_resolve('78000000-0000-4000-8000-000000000003','78100000-0000-4000-8000-000000000003',(select delivery_id from expired_claim),'78200000-0000-4000-8000-000000000003'))->>'kind'='operator','Restoring access restores the old notification route');
+-- An old pending retry is cancelled at claim, while its route remains usable.
+update private.push_deliveries set status='pending',next_attempt_at=clock_timestamp()-interval '1 second' where id=(select delivery_id from expired_claim);
+select pg_temp.assert_true(jsonb_array_length(public.push_claim(20))=0,'Expired pending delivery cannot be claimed');
+select pg_temp.assert_true((select status='cancelled' from private.push_deliveries where id=(select delivery_id from expired_claim)),'Expired pending dispatch is cancelled explicitly');
 reset role;
 select public.chat_send('78000000-0000-4000-8000-000000000001',(select managed from threads),gen_random_uuid(),'Expiry margin check');
 set local role service_role;
 create temp table margin_claim as select * from jsonb_to_recordset(public.push_claim(20)) as c(delivery_id uuid,lease_token uuid);
 update private.notification_jobs set created_at=clock_timestamp()-interval '23 hours 59 minutes 40 seconds' where id=(select job_id from private.push_deliveries where id=(select delivery_id from margin_claim));
 select pg_temp.assert_true(public.push_prepare((select delivery_id from margin_claim),(select lease_token from margin_claim)) is null,'Final 30 seconds are never dispatched');
+-- A backlog older than the send window or within the final margin never expands.
+update private.push_subscriptions set bound_at=clock_timestamp()-interval '3 days' where binding_id='78200000-0000-4000-8000-000000000003';
+reset role;
+create temp table stale_unexpanded as select public.chat_send('78000000-0000-4000-8000-000000000001',(select managed from threads),gen_random_uuid(),'Expired unexpanded backlog') data;
+create temp table margin_unexpanded as select public.chat_send('78000000-0000-4000-8000-000000000001',(select managed from threads),gen_random_uuid(),'Final-margin unexpanded backlog') data;
+grant select on stale_unexpanded,margin_unexpanded to service_role;
+set local role service_role;
+update private.notification_jobs set created_at=clock_timestamp()-interval '25 hours' where message_id=(select (data->'message'->>'id')::uuid from stale_unexpanded);
+update private.notification_jobs set created_at=clock_timestamp()-interval '23 hours 59 minutes 40 seconds' where message_id=(select (data->'message'->>'id')::uuid from margin_unexpanded);
+select pg_temp.assert_true(jsonb_array_length(public.push_claim(20))=0,'Expired and final-margin backlog cannot be dispatched');
+select pg_temp.assert_true(not exists(select 1 from private.push_deliveries d join private.notification_jobs j on j.id=d.job_id where j.message_id in((select (data->'message'->>'id')::uuid from stale_unexpanded),(select (data->'message'->>'id')::uuid from margin_unexpanded))),'Expired and final-margin backlog creates no delivery');
+select pg_temp.assert_true((select bool_and(push_expanded_at is not null) from private.notification_jobs where message_id in((select (data->'message'->>'id')::uuid from stale_unexpanded),(select (data->'message'->>'id')::uuid from margin_unexpanded))),'Expired backlog is handled without deleting history');
 update private.admin_roles set revoked_at=clock_timestamp() where user_id='78000000-0000-4000-8000-000000000003';
-select pg_temp.expect_error($q$select public.push_resolve('78000000-0000-4000-8000-000000000003','78100000-0000-4000-8000-000000000003',(select delivery_id from operator_delivery),'78200000-0000-4000-8000-000000000003')$q$,'push_forbidden');
+select pg_temp.expect_error($q$select public.push_resolve('78000000-0000-4000-8000-000000000003','78100000-0000-4000-8000-000000000003',(select delivery_id from expired_claim),'78200000-0000-4000-8000-000000000003')$q$,'push_forbidden');
 update private.admin_roles set revoked_at=null where user_id='78000000-0000-4000-8000-000000000003';
 reset role;
 update auth.sessions set not_after=clock_timestamp()-interval '1 second' where id='78100000-0000-4000-8000-000000000003';
 set local role service_role;
 select pg_temp.expect_error($q$select public.push_status('78000000-0000-4000-8000-000000000003','78100000-0000-4000-8000-000000000003','78200000-0000-4000-8000-000000000003')$q$,'session_revoked');
+select pg_temp.expect_error($q$select public.push_resolve('78000000-0000-4000-8000-000000000003','78100000-0000-4000-8000-000000000003',(select delivery_id from expired_claim),'78200000-0000-4000-8000-000000000003')$q$,'session_revoked');
 -- Sixteen dead sessions must not permanently fill a member's active-device cap.
 insert into private.push_subscriptions(binding_id,user_id,session_id,endpoint,endpoint_hash,p256dh,auth)
 select gen_random_uuid(),'78000000-0000-4000-8000-000000000001',gen_random_uuid(),'https://fcm.googleapis.com/fcm/send/dead-'||n,n::text,'B'||repeat('A',86),repeat('B',22) from generate_series(1,16)n;
