@@ -13,6 +13,7 @@ import '../profile/user_profile.dart';
 import 'browser_storage.dart';
 import 'live_api.dart';
 import 'live_qr_view.dart';
+import 'guest_preview.dart';
 
 const _blue = Color(0xFF14679E);
 const _inviteKey = 'paul.live.pending.invitation.v1';
@@ -24,14 +25,18 @@ class PaulLiveApp extends StatefulWidget {
     super.key,
     required this.client,
     required this.appUrl,
-    required this.googleEnabled,
-    required this.appleEnabled,
+    this.googleEnabled = false,
+    this.appleEnabled = false,
+    this.loadAuthProviders,
+    this.authCallback = false,
     this.draftPreferences,
   });
   final SupabaseClient client;
   final Uri appUrl;
   final bool googleEnabled;
   final bool appleEnabled;
+  final Future<({bool google, bool apple})> Function()? loadAuthProviders;
+  final bool authCallback;
   final SharedPreferencesAsync? draftPreferences;
   @override
   State<PaulLiveApp> createState() => _PaulLiveAppState();
@@ -49,6 +54,9 @@ class _PaulLiveAppState extends State<PaulLiveApp> {
   String? _error;
   bool _loading = true;
   bool _acceptedInvite = false;
+  bool _entering = false;
+  bool _choosingProvider = false;
+  int _entryGeneration = 0;
   bool _checking = false;
   int _loadGeneration = 0;
   int _tab = 0;
@@ -72,12 +80,15 @@ class _PaulLiveAppState extends State<PaulLiveApp> {
       }
     }
     _identity = widget.client.auth.currentUser?.id;
+    _entering = widget.authCallback && readSessionValue(_finalizeKey) == '1';
+    if (!widget.authCallback) removeSessionValue(_finalizeKey);
     _auth = widget.client.auth.onAuthStateChange.listen(
       (event) {
         if (event.event == AuthChangeEvent.tokenRefreshed) return;
         unawaited(_load());
       },
       onError: (Object _) {
+        removeSessionValue(_finalizeKey);
         if (mounted) {
           setState(() {
             _loading = false;
@@ -132,7 +143,8 @@ class _PaulLiveAppState extends State<PaulLiveApp> {
             await _api.redeem(_credential!);
             await _clearPending();
             network = await _api.network();
-          } else if (identity != null &&
+          } else if (widget.authCallback &&
+              identity != null &&
               _draft != null &&
               readSessionValue(_finalizeKey) == '1') {
             try {
@@ -150,9 +162,6 @@ class _PaulLiveAppState extends State<PaulLiveApp> {
               preferences: widget.draftPreferences,
             ).clear();
             network = await _api.network();
-          } else {
-            await _api.check(_credential!);
-            _acceptedInvite = true;
           }
         }
       } on LiveApiException catch (error) {
@@ -188,8 +197,28 @@ class _PaulLiveAppState extends State<PaulLiveApp> {
     }
   }
 
+  void _beginEntry() {
+    _navigator.currentState?.popUntil((route) => route.isFirst);
+    setState(() {
+      _entering = true;
+    });
+    if (widget.client.auth.currentUser != null) unawaited(_load());
+  }
+
+  void _backToGuest() {
+    _entryGeneration++;
+    removeSessionValue(_finalizeKey);
+    setState(() {
+      _entering = false;
+      _acceptedInvite = false;
+      _checking = false;
+    });
+  }
+
   Future<void> _accept(String credential) async {
     if (_checking) return;
+    final generation = ++_entryGeneration;
+    final identity = widget.client.auth.currentUser?.id;
     setState(() {
       _checking = true;
       _error = null;
@@ -197,12 +226,18 @@ class _PaulLiveAppState extends State<PaulLiveApp> {
     try {
       final value = credential.trim();
       await _api.check(value);
+      if (!mounted ||
+          generation != _entryGeneration ||
+          identity != widget.client.auth.currentUser?.id) {
+        return;
+      }
       writeSessionValue(_inviteKey, value);
-      _credential = value;
-      _acceptedInvite = true;
-      await _load();
+      setState(() {
+        _credential = value;
+        _acceptedInvite = true;
+      });
     } catch (error) {
-      if (mounted) {
+      if (mounted && generation == _entryGeneration) {
         setState(
           () => _error = error is LiveApiException
               ? error.toString()
@@ -210,12 +245,22 @@ class _PaulLiveAppState extends State<PaulLiveApp> {
         );
       }
     } finally {
-      if (mounted) setState(() => _checking = false);
+      if (mounted && generation == _entryGeneration) {
+        setState(() => _checking = false);
+      }
     }
   }
 
-  Future<OAuthProvider?> _chooseProvider(BuildContext context) =>
-      showDialog<OAuthProvider>(
+  Future<OAuthProvider?> _chooseProvider(BuildContext context) async {
+    if (_choosingProvider) return null;
+    _choosingProvider = true;
+    final generation = _entryGeneration;
+    try {
+      final providers =
+          await widget.loadAuthProviders?.call() ??
+          (google: widget.googleEnabled, apple: widget.appleEnabled);
+      if (!context.mounted || generation != _entryGeneration) return null;
+      return await showDialog<OAuthProvider>(
         context: context,
         builder: (context) => AlertDialog(
           title: const Text('Sign in'),
@@ -223,18 +268,18 @@ class _PaulLiveAppState extends State<PaulLiveApp> {
             mainAxisSize: MainAxisSize.min,
             children: [
               TextButton(
-                onPressed: widget.googleEnabled
+                onPressed: providers.google
                     ? () => Navigator.pop(context, OAuthProvider.google)
                     : null,
                 child: const Text('Continue with Google'),
               ),
               TextButton(
-                onPressed: widget.appleEnabled
+                onPressed: providers.apple
                     ? () => Navigator.pop(context, OAuthProvider.apple)
                     : null,
                 child: const Text('Continue with Apple'),
               ),
-              if (!widget.googleEnabled && !widget.appleEnabled)
+              if (!providers.google && !providers.apple)
                 const Text(
                   'Sign-in is being configured. Your profile draft is saved.',
                   style: TextStyle(fontSize: 12),
@@ -249,6 +294,10 @@ class _PaulLiveAppState extends State<PaulLiveApp> {
           ],
         ),
       );
+    } finally {
+      _choosingProvider = false;
+    }
+  }
 
   Future<void> _signIn(OAuthProvider provider) async {
     final opened = await widget.client.auth.signInWithOAuth(
@@ -317,6 +366,8 @@ class _PaulLiveAppState extends State<PaulLiveApp> {
   }
 
   Future<void> _logout() async {
+    _entryGeneration++;
+    _entering = false;
     try {
       await _profile?.flush();
       await widget.client.auth.signOut(scope: SignOutScope.local);
@@ -385,6 +436,11 @@ class _PaulLiveAppState extends State<PaulLiveApp> {
   }
 
   Widget _home(BuildContext context) {
+    if (!_entering &&
+        _network.own == null &&
+        (_identity == null || !_loading)) {
+      return GuestPreview(onRequireSignIn: _beginEntry);
+    }
     if (_loading) {
       return const _EntryFrame(
         child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
@@ -435,11 +491,17 @@ class _PaulLiveAppState extends State<PaulLiveApp> {
       return OnboardingFlow(
         preferences: widget.draftPreferences,
         initialDraft: _draft,
-        onBack: () => setState(() => _acceptedInvite = false),
+        onBack: _backToGuest,
         onComplete: (draft) => _complete(context, draft),
       );
     }
     return _JoinView(
+      pendingCredential: _credential,
+      onBack: _backToGuest,
+      onClearInvite: () {
+        removeSessionValue(_inviteKey);
+        setState(() => _credential = null);
+      },
       error: _error,
       checking: _checking,
       onAccept: _accept,
@@ -449,16 +511,23 @@ class _PaulLiveAppState extends State<PaulLiveApp> {
           ? _load
           : null,
       onSignIn: () async {
+        if (_checking) return;
+        final generation = _entryGeneration;
         removeSessionValue(_finalizeKey);
-        final provider = await _chooseProvider(context);
-        if (provider == null || !mounted) return;
+        setState(() => _checking = true);
         try {
+          final provider = await _chooseProvider(context);
+          if (provider == null || !mounted) return;
           await _signIn(provider);
         } catch (_) {
-          if (mounted) {
+          if (mounted && generation == _entryGeneration) {
             setState(
               () => _error = 'Could not open sign-in. Please try again.',
             );
+          }
+        } finally {
+          if (mounted && generation == _entryGeneration) {
+            setState(() => _checking = false);
           }
         }
       },
@@ -514,7 +583,13 @@ class _JoinView extends StatefulWidget {
     required this.checking,
     this.error,
     this.onRetry,
+    this.pendingCredential,
+    required this.onBack,
+    required this.onClearInvite,
   });
+  final String? pendingCredential;
+  final VoidCallback onBack;
+  final VoidCallback onClearInvite;
   final Future<void> Function(String) onAccept;
   final VoidCallback onSignIn;
   final bool checking;
@@ -544,31 +619,34 @@ class _JoinViewState extends State<_JoinView> {
             ),
           ),
           const SizedBox(height: 44),
-          const Text(
-            'Enter your invitation code',
+          Text(
+            widget.pendingCredential == null
+                ? 'Enter your invitation code'
+                : 'Continue with this invitation.',
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 15, fontWeight: FontWeight.w300),
           ),
           const SizedBox(height: 24),
-          TextField(
-            key: const Key('invite-code-input'),
-            controller: _code,
-            textAlign: TextAlign.center,
-            keyboardType: TextInputType.number,
-            maxLength: 8,
-            enabled: !widget.checking,
-            decoration: const InputDecoration(
-              hintText: 'Invite code',
-              counterText: '',
+          if (widget.pendingCredential == null)
+            TextField(
+              key: const Key('invite-code-input'),
+              controller: _code,
+              textAlign: TextAlign.center,
+              keyboardType: TextInputType.number,
+              maxLength: 8,
+              enabled: !widget.checking,
+              decoration: const InputDecoration(
+                hintText: 'Invite code',
+                counterText: '',
+              ),
+              onSubmitted: (value) =>
+                  widget.checking ? null : unawaited(widget.onAccept(value)),
             ),
-            onSubmitted: (value) =>
-                widget.checking ? null : unawaited(widget.onAccept(value)),
-          ),
           const SizedBox(height: 24),
           FilledButton(
             onPressed: widget.checking
                 ? null
-                : () => widget.onAccept(_code.text),
+                : () => widget.onAccept(widget.pendingCredential ?? _code.text),
             child: Text(widget.checking ? 'Checking…' : 'Join'),
           ),
           if (widget.error != null) ...[
@@ -584,9 +662,18 @@ class _JoinViewState extends State<_JoinView> {
             if (widget.onRetry != null)
               TextButton(onPressed: widget.onRetry, child: const Text('Retry')),
           ],
+          if (widget.pendingCredential != null)
+            TextButton(
+              onPressed: widget.checking ? null : widget.onClearInvite,
+              child: const Text('Use another invitation code'),
+            ),
+          TextButton(
+            onPressed: widget.onBack,
+            child: const Text('Back to preview'),
+          ),
           const SizedBox(height: 40),
           TextButton(
-            onPressed: widget.onSignIn,
+            onPressed: widget.checking ? null : widget.onSignIn,
             child: const Text('Already a member? Sign in'),
           ),
         ],
