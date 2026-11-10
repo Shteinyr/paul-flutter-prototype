@@ -7,6 +7,7 @@ memory. This runner never rewrites shared fixture sessions or profile fields.
 import argparse
 from concurrent.futures import ThreadPoolExecutor
 import json
+import secrets
 from pathlib import Path
 import ssl
 import urllib.error
@@ -18,6 +19,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', type=Path, required=True)
     parser.add_argument('--fixture', type=Path, required=True)
+    parser.add_argument('--connections', action='store_true')
     args = parser.parse_args()
     config = json.loads(args.config.read_text())
     fixture = json.loads(args.fixture.read_text())
@@ -104,6 +106,35 @@ def main():
               400, 'invalid live Unicode text rejected', 'invalid_message')
     check(request('/functions/v1/chat', {'action': 'list', 'oversize': 'x' * 71000}, sa),
           413, 'oversized live request rejected before parsing', 'request_too_large')
+    if args.connections:
+        token = secrets.token_hex(32)
+        invitation = check(request('/functions/v1/invitations', {'action': 'issue', 'token': token}, sa),
+                           200, 'fresh QA invitation for explicit re-invite concurrency contract')
+        check(request('/functions/v1/invitations', {'action': 'redeem', 'credential': token}, sb),
+              200, 'current participant explicitly accepts invitation')
+        operation = str(uuid.uuid4())
+        try:
+            check(api('disconnect', sa, peer_id=b['id'], client_operation_id=operation), 200, 'connection removed with operation ID')
+            replay = check(request('/functions/v1/invitations', {'action': 'redeem', 'credential': token}, sb),
+                           200, 'old invitation replay remains safe after removal')
+            assert replay['replayed'] and not replay['connected']
+            old = check(api('send', sa, **payload), 200, 'old message retry cannot reconnect')
+            assert old['replayed'] and not old['connected']
+            fresh_a = check(api('send', sa, conversation_id=conversation, client_message_id=str(uuid.uuid4()), text='Fresh disposable A'),
+                            200, 'first fresh message after removal')
+            assert not fresh_a['connected']
+            fresh_b = check(api('send', sb, conversation_id=conversation, client_message_id=str(uuid.uuid4()), text='Fresh disposable B'),
+                            200, 'second fresh sender reconnects atomically')
+            assert fresh_b['connected']
+            repeated = check(api('disconnect', sa, peer_id=b['id'], client_operation_id=operation), 200, 'old removal replay is idempotent')
+            assert repeated['replayed']
+            network = check(request('/functions/v1/invitations', {'action': 'network'}, sa), 200, 'original QA direct connection restored')
+            assert any(peer['id'] == b['id'] for peer in network['contacts'])
+        finally:
+            # Restore the approved QA pair through its normal fresh-exchange rule.
+            check(api('send', sa, conversation_id=conversation, client_message_id=str(uuid.uuid4()), text='QA restore A'), 200, 'QA pair restore message A')
+            check(api('send', sb, conversation_id=conversation, client_message_id=str(uuid.uuid4()), text='QA restore B'), 200, 'QA pair restore message B')
+            check(request('/functions/v1/invitations', {'action': 'revoke', 'id': invitation['id']}, sa), 200, 'own QA invitation revoked')
     print('PASS live chat gate complete without shared fixture or profile mutations', flush=True)
 
 
