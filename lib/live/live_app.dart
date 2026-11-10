@@ -8,6 +8,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../app.dart';
 import '../admin/admin_api.dart';
 import '../admin/admin_view.dart';
+import '../admin/operator_inbox_view.dart';
+import '../push/push_browser.dart';
+import '../push/push_api.dart';
+import '../push/push_controller.dart';
+import '../push/push_settings.dart';
 import '../onboarding/onboarding_draft_store.dart';
 import '../onboarding/onboarding_flow.dart';
 import '../profile/profile_controller.dart';
@@ -43,6 +48,8 @@ class PaulLiveApp extends StatefulWidget {
     this.draftPreferences,
     this.chatRepositoryFor,
     this.searchRepositoryFor,
+    this.pushBrowser,
+    this.pushRepositoryFor,
   });
   final SupabaseClient client;
   final Uri appUrl;
@@ -53,6 +60,9 @@ class PaulLiveApp extends StatefulWidget {
   final SharedPreferencesAsync? draftPreferences;
   final ChatRepository Function(String userId)? chatRepositoryFor;
   final SkillSearchRepository Function(String userId)? searchRepositoryFor;
+  final PushBrowser? pushBrowser;
+  final PushRepository Function(String userId, String sessionId)?
+  pushRepositoryFor;
   @override
   State<PaulLiveApp> createState() => _PaulLiveAppState();
 }
@@ -67,6 +77,13 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
   set _network(MemberNetwork value) => _networkUpdates.value = value;
   LiveChatController? _chat;
   SkillSearchController? _search;
+  late final PushBrowser _pushBrowser;
+  late final StreamSubscription<PushClick> _pushClicks;
+  PushController? _push;
+  PushClick? _pendingPushClick;
+  BuildContext? _homeContext;
+  bool _openingPush = false;
+  bool _signingOut = false;
   Future<bool>? _networkRefresh;
   bool _openingChat = false;
   bool _resumed = true;
@@ -104,6 +121,15 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
       }
     }
     _identity = widget.client.auth.currentUser?.id;
+    _pushBrowser = widget.pushBrowser ?? createPushBrowser();
+    final click = _pushBrowser.takeClick();
+    if (click?.recipientId == _identity) _pendingPushClick = click;
+    if (_identity == null) unawaited(_setPushIdentity(null));
+    _pushClicks = _pushBrowser.clicks.listen((click) {
+      if (click.recipientId != widget.client.auth.currentUser?.id) return;
+      _pendingPushClick = click;
+      unawaited(_drainPushClick());
+    });
     _entering = widget.authCallback && readSessionValue(_finalizeKey) == '1';
     if (!widget.authCallback) removeSessionValue(_finalizeKey);
     _auth = widget.client.auth.onAuthStateChange.listen(
@@ -143,6 +169,10 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
       _error = null;
     });
     if (_identity != identity) {
+      _pendingPushClick = null;
+      _push?.dispose();
+      _push = null;
+      unawaited(_setPushIdentity(identity));
       _navigator.currentState?.popUntil((route) => route.isFirst);
       _disposeChat();
       _disposeSearch();
@@ -215,6 +245,12 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
         _profile?.dispose();
         _profile = null;
       }
+      if (network.own == null && _push != null) {
+        _pendingPushClick = null;
+        _push?.dispose();
+        _push = null;
+        unawaited(_setPushIdentity(null));
+      }
       _network = network;
       if (network.own != null && (_profile == null || !_profile!.loaded)) {
         final controller = ProfileController(
@@ -230,6 +266,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
       }
       if (network.own != null && _profile?.loaded == true) {
         _ensureChat();
+        unawaited(_ensurePush());
         _search ??= SkillSearchController(
           widget.searchRepositoryFor?.call(identity!) ??
               SupabaseSkillSearchApi(widget.client, identity!),
@@ -247,7 +284,124 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     } finally {
       if (mounted && generation == _loadGeneration) {
         setState(() => _loading = false);
+        unawaited(_drainPushClick());
       }
+    }
+  }
+
+  Future<void> _setPushIdentity(String? userId) async {
+    try {
+      await _pushBrowser.identity(userId, pushSessionId(widget.client));
+    } catch (_) {
+      /* A supported browser can retry storage/worker failures in settings. */
+    }
+  }
+
+  Future<void> _ensurePush() async {
+    final userId = _identity;
+    final session = pushSessionId(widget.client);
+    if (userId == null || session == null) return;
+    if (_push?.repository.sessionId == session &&
+        _push?.repository.userId == userId) {
+      return;
+    }
+    _push?.dispose();
+    final controller = PushController(
+      _pushBrowser,
+      widget.pushRepositoryFor?.call(userId, session) ??
+          SupabasePushApi(widget.client, userId, session),
+    );
+    _push = controller;
+    await controller.initialize();
+    if (!mounted || !identical(_push, controller)) return;
+    setState(() {});
+    await _drainPushClick();
+  }
+
+  Future<void> _drainPushClick() async {
+    final click = _pendingPushClick;
+    final push = _push;
+    if (click == null ||
+        push == null ||
+        !push.ready ||
+        _loading ||
+        _openingPush) {
+      return;
+    }
+    _pendingPushClick = null;
+    if (click.recipientId != _identity || !push.repository.current) return;
+    final generation = _loadGeneration;
+    bool current() =>
+        mounted &&
+        generation == _loadGeneration &&
+        identical(_push, push) &&
+        push.repository.current;
+    _openingPush = true;
+    try {
+      final local = await _pushBrowser.inspect();
+      if (!current() || !local.active || local.bindingId != click.bindingId) {
+        return;
+      }
+      final route = await push.repository.resolve(click);
+      if (!current()) return;
+      _navigator.currentState?.popUntil((route) => route.isFirst);
+      await WidgetsBinding.instance.endOfFrame;
+      if (!current()) return;
+      if (route.kind == 'operator') {
+        final admin = SupabaseAdminApi(widget.client, click.recipientId);
+        final access = await admin.context();
+        if (!current()) return;
+        final profile = access.profiles
+            .where(
+              (profile) =>
+                  profile.id == route.managedProfileId &&
+                  profile.canReply &&
+                  profile.disabledAt == null,
+            )
+            .firstOrNull;
+        if (profile == null) throw const PushException('push_forbidden');
+        unawaited(
+          _navigator.currentState!.push(
+            MaterialPageRoute<void>(
+              builder: (_) => OperatorInboxView(
+                repository: admin.operatorFor(profile.id),
+                actorId: click.recipientId,
+                profile: profile,
+                initialConversationId: route.conversationId,
+              ),
+            ),
+          ),
+        );
+      } else {
+        final threads = await _chat!.repository.list();
+        if (!current()) return;
+        final thread = threads
+            .where((thread) => thread.id == route.conversationId)
+            .firstOrNull;
+        final origin = _homeContext;
+        if (thread == null || origin == null || !origin.mounted) {
+          throw const PushException('push_forbidden');
+        }
+        final opening = Completer<void>();
+        unawaited(
+          _openChat(
+            origin,
+            thread.peer,
+            conversationId: thread.id,
+            opening: opening,
+          ),
+        );
+        await opening.future;
+      }
+    } catch (_) {
+      if (current()) {
+        _showMessage(
+          'This notification is no longer available. Open your current chats.',
+        );
+      }
+    } finally {
+      _openingPush = false;
+      if (_pendingPushClick != null) unawaited(_drainPushClick());
     }
   }
 
@@ -293,6 +447,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _resumed = state == AppLifecycleState.resumed;
     if (_resumed) {
+      unawaited(_push?.refresh());
       _chat?.resume();
     } else {
       _chat?.pause();
@@ -386,6 +541,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     BuildContext origin,
     ChatPeer peer, {
     String? conversationId,
+    Completer<void>? opening,
   }) async {
     final chat = _chat;
     final profile = _profile;
@@ -396,6 +552,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
         identity == null ||
         peer.id == identity ||
         _openingChat) {
+      opening?.complete();
       return;
     }
     _openingChat = true;
@@ -426,7 +583,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
           ModalRoute.of(origin)?.isCurrent != true) {
         return;
       }
-      await _navigator.currentState!.push(
+      final route = _navigator.currentState!.push(
         MaterialPageRoute<void>(
           builder: (_) => ListenableBuilder(
             listenable: Listenable.merge([profile, _networkUpdates]),
@@ -441,7 +598,10 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
           ),
         ),
       );
+      opening?.complete();
+      await route;
     } finally {
+      if (opening != null && !opening.isCompleted) opening.complete();
       if (identical(chat, _chat)) {
         chat.closeConversation();
         _openingChat = false;
@@ -653,10 +813,14 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
   }
 
   Future<void> _logout() async {
+    if (_signingOut) return;
+    _signingOut = true;
+    _pendingPushClick = null;
     _entryGeneration++;
     _entering = false;
     try {
       await _profile?.flush();
+      await _push?.disable();
       await widget.client.auth.signOut(scope: SignOutScope.local);
       await _clearPending();
       await OnboardingDraftStore(preferences: widget.draftPreferences).clear();
@@ -667,6 +831,8 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
           () => _error = 'Could not sign out. Check your connection and retry.',
         );
       }
+    } finally {
+      _signingOut = false;
     }
   }
 
@@ -789,6 +955,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
   }
 
   Widget _home(BuildContext context) {
+    _homeContext = context;
     if (!_entering &&
         _network.own == null &&
         (_identity == null || !_loading)) {
@@ -824,6 +991,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
         },
         adminRepository: SupabaseAdminApi(widget.client, _identity!),
         onLogout: _logout,
+        push: _push,
         onQr: () => _navigator.currentState!.push(
           MaterialPageRoute<void>(
             builder: (_) => LiveQrView(
@@ -918,6 +1086,9 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
   void dispose() {
     _loadGeneration++;
     unawaited(_auth.cancel());
+    unawaited(_pushClicks.cancel());
+    _push?.dispose();
+    if (widget.pushBrowser == null) _pushBrowser.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _disposeChat();
     _disposeSearch();
@@ -1062,6 +1233,7 @@ class _LiveContacts extends StatelessWidget {
     required this.onRefresh,
     required this.onProfile,
     required this.onLogout,
+    this.push,
     required this.adminRepository,
     required this.onQr,
     required this.onDismissInvite,
@@ -1081,6 +1253,7 @@ class _LiveContacts extends StatelessWidget {
   final Future<void> Function() onRefresh;
   final Future<void> Function(MemberProfile) onProfile;
   final VoidCallback onLogout;
+  final PushController? push;
   final AdminRepository adminRepository;
   final VoidCallback onQr;
   final VoidCallback onDismissInvite;
@@ -1166,6 +1339,7 @@ class _LiveContacts extends StatelessWidget {
                         padding: const EdgeInsets.only(top: 40),
                         child: Column(
                           children: [
+                            if (push != null) PushSettings(controller: push!),
                             AdminEntry(
                               key: ValueKey(network.own!.id),
                               repository: adminRepository,
