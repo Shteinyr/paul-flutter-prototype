@@ -17,10 +17,12 @@ class OperatorInboxView extends StatefulWidget {
     required this.repository,
     required this.actorId,
     required this.profile,
+    this.initialConversationId,
   });
   final ChatRepository repository;
   final String actorId;
   final ManagedProfile profile;
+  final String? initialConversationId;
   @override
   State<OperatorInboxView> createState() => _OperatorInboxViewState();
 }
@@ -48,7 +50,18 @@ class _OperatorInboxViewState extends State<OperatorInboxView>
           : widget.profile.disabledAt == null,
       drafts: OperatorChatStateStore(widget.profile.id),
     );
-    unawaited(_chat.load());
+    unawaited(_loadInbox());
+  }
+
+  Future<void> _loadInbox() async {
+    await _chat.load();
+    if (!mounted || _repository.currentUserId != widget.actorId) return;
+    final id = widget.initialConversationId;
+    if (id == null) return;
+    final thread = _chat.conversations
+        .where((thread) => thread.id == id)
+        .firstOrNull;
+    if (thread != null) await _open(thread);
   }
 
   @override
