@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../profile/public_profile_view.dart';
 import 'admin_api.dart';
 import 'managed_profile_editor.dart';
+import 'operator_inbox_view.dart';
 import '../live/chat_api.dart';
 
 /// Each mount belongs to the host's current Auth identity. The repository pins
@@ -88,6 +89,23 @@ class _AdminViewState extends State<AdminView> {
       MaterialPageRoute(
         builder: (_) => ManagedProfileEditor(
           repository: widget.repository,
+          profile: profile,
+        ),
+      ),
+    );
+    if (mounted) {
+      setState(() {
+        _access = widget.repository.context();
+      });
+    }
+  }
+
+  Future<void> _inbox(ManagedProfile profile) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => OperatorInboxView(
+          repository: widget.repository.operatorFor(profile.id),
+          actorId: widget.repository.userId,
           profile: profile,
         ),
       ),
@@ -244,30 +262,36 @@ class _AdminViewState extends State<AdminView> {
                 ListTile(
                   contentPadding: EdgeInsets.zero,
                   title: Text(profile.name),
-                  trailing: profile.canManage
-                      ? Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            IconButton(
-                              tooltip: 'Edit user',
-                              onPressed: () => _edit(profile),
-                              icon: const Icon(Icons.edit_outlined, size: 20),
-                            ),
-                            IconButton(
-                              tooltip: profile.disabledAt == null
-                                  ? 'Disable user'
-                                  : 'Restore user',
-                              onPressed: () => _status(profile),
-                              icon: Icon(
-                                profile.disabledAt == null
-                                    ? Icons.pause_circle_outline
-                                    : Icons.play_circle_outline,
-                                size: 20,
-                              ),
-                            ),
-                          ],
-                        )
-                      : null,
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (profile.canReply)
+                        IconButton(
+                          tooltip: 'Open inbox',
+                          onPressed: () => _inbox(profile),
+                          icon: const Icon(Icons.chat_bubble_outline, size: 20),
+                        ),
+                      if (profile.canManage) ...[
+                        IconButton(
+                          tooltip: 'Edit user',
+                          onPressed: () => _edit(profile),
+                          icon: const Icon(Icons.edit_outlined, size: 20),
+                        ),
+                        IconButton(
+                          tooltip: profile.disabledAt == null
+                              ? 'Disable user'
+                              : 'Restore user',
+                          onPressed: () => _status(profile),
+                          icon: Icon(
+                            profile.disabledAt == null
+                                ? Icons.pause_circle_outline
+                                : Icons.play_circle_outline,
+                            size: 20,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
                   subtitle: Text(
                     profile.disabledAt == null ? 'Active' : 'Disabled',
                   ),

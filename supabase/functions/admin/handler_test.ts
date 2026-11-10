@@ -16,12 +16,8 @@ function setup(denied = false, anonymous = false) {
           url,
           body: options?.body ? JSON.parse(String(options.body)) : null,
         });
-        const isPrivileged = [
-          "/admin_context",
-          "/admin_prepare_create",
-          "/admin_authorize_save",
-          "/admin_save_profile",
-        ].some((path) => url.endsWith(path));
+        const isPrivileged = url.includes("/rest/v1/rpc/") &&
+          !url.endsWith("/invite_request_limit");
         const body = url.endsWith("/auth/v1/user")
           ? {
             id: actor,
@@ -158,4 +154,85 @@ Deno.test("photo upload requires a fresh server authorization", async () => {
     calls.every((call) => !call.url.includes("/storage/")),
     "No file upload before authorization",
   );
+});
+
+Deno.test("operator send pins Auth actor and validates managed sender and raw text", async () => {
+  const { database, calls } = setup();
+  const text = "e\u0301".repeat(2000);
+  const response = await handleAdmin(
+    request({
+      action: "send",
+      profile_id: "45000000-0000-4000-8000-000000000001",
+      conversation_id: actor,
+      client_message_id: actor,
+      text,
+    }),
+    database,
+  );
+  check(response.status === 200, "2000 graphemes allowed");
+  const args = calls.find((call) => call.url.endsWith("/operator_send"))
+    ?.body as Record<string, unknown>;
+  check(
+    args.p_actor === actor &&
+      args.p_profile === "45000000-0000-4000-8000-000000000001" &&
+      args.p_text === text,
+    "Verified actor and exact text reach RPC",
+  );
+  for (
+    const extra of [
+      { sender_profile_id: "45000000-0000-4000-8000-000000000001" },
+      { actor_user_id: actor },
+      {
+        p_actor: actor,
+      },
+    ]
+  ) {
+    const forged = await handleAdmin(
+      request({
+        action: "send",
+        profile_id: "45000000-0000-4000-8000-000000000001",
+        conversation_id: actor,
+        client_message_id: actor,
+        text: "Test",
+        ...extra,
+      }),
+      database,
+    );
+    check(forged.status === 400, "Unapproved identity fields rejected");
+  }
+});
+Deno.test("operator send denies oversized blank and NUL payloads", async () => {
+  for (const text of [" \n", "bad\0text", "e\u0301".repeat(2001)]) {
+    const { database, calls } = setup();
+    const response = await handleAdmin(
+      request({
+        action: "send",
+        profile_id: actor,
+        conversation_id: actor,
+        client_message_id: actor,
+        text,
+      }),
+      database,
+    );
+    check(response.status === 400, "Invalid message rejected");
+    check(
+      calls.every((call) => !call.url.endsWith("/operator_send")),
+      "No invalid send reaches SQL",
+    );
+  }
+});
+Deno.test("operator inbox history and read preserve server access denial", async () => {
+  for (
+    const fields of [{ action: "inbox" }, {
+      action: "history",
+      conversation_id: actor,
+    }, { action: "read", conversation_id: actor, through_seq: 0 }]
+  ) {
+    const { database } = setup(true);
+    const response = await handleAdmin(
+      request({ profile_id: actor, ...fields }),
+      database,
+    );
+    check(response.status === 403, "Server role denial preserved");
+  }
 });

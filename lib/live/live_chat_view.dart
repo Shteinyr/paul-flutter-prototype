@@ -17,12 +17,16 @@ class LiveChatView extends StatefulWidget {
     required this.peer,
     required this.ownAvatar,
     required this.peerAvatar,
+    this.canSend = true,
+    this.replyingAs,
   });
   final LiveChatController controller;
   final String conversationId;
   final ChatPeer peer;
   final Widget ownAvatar;
   final Widget peerAvatar;
+  final bool canSend;
+  final String? replyingAs;
 
   @override
   State<LiveChatView> createState() => _LiveChatViewState();
@@ -38,6 +42,8 @@ class _LiveChatViewState extends State<LiveChatView> {
       widget.controller.repository.currentUserId == widget.controller.userId;
   bool get _ready =>
       _identityValid &&
+      widget.canSend &&
+      widget.controller.canSend &&
       widget.controller.loaded &&
       !widget.controller.stateLoadFailed;
 
@@ -119,6 +125,19 @@ class _LiveChatViewState extends State<LiveChatView> {
       title: widget.peer.name,
       child: Column(
         children: [
+          if (widget.replyingAs != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
+              child: Text(
+                'Replying as ${widget.replyingAs}',
+                style: const TextStyle(fontSize: 12, color: _blue),
+              ),
+            ),
+          if (!widget.canSend || !controller.canSend)
+            const Padding(
+              padding: EdgeInsets.all(12),
+              child: Text('Profile disabled', style: TextStyle(fontSize: 12)),
+            ),
           if (controller.error != null || _validation != null)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -188,7 +207,8 @@ class _LiveChatViewState extends State<LiveChatView> {
                           messages[messages.length -
                               1 -
                               (index - pending.length)];
-                      final outgoing = item.senderId == controller.userId;
+                      final outgoing =
+                          item.senderId == controller.senderProfileId;
                       return _MessageBubble(
                         key: ValueKey('message:${item.id}'),
                         text: item.text,

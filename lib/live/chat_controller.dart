@@ -35,7 +35,11 @@ class LiveChatController extends ChangeNotifier {
     this.repository,
     this.userId, {
     required ChatStateStore drafts,
-  }) : _draftStore = drafts {
+    String? senderProfileId,
+    bool Function()? canSend,
+  }) : _draftStore = drafts,
+       senderProfileId = senderProfileId ?? userId,
+       _canSend = canSend {
     _identity = repository.identityChanges.listen(
       (id) {
         if (id != userId) _invalidateIdentity();
@@ -54,6 +58,9 @@ class LiveChatController extends ChangeNotifier {
   }
   final ChatRepository repository;
   final String userId;
+  final String senderProfileId;
+  final bool Function()? _canSend;
+  bool get canSend => _canSend?.call() ?? true;
   final ChatStateStore _draftStore;
   final _messages = <String, List<ChatMessage>>{};
   final _pending = <String, List<PendingChatMessage>>{};
@@ -292,7 +299,9 @@ class LiveChatController extends ChangeNotifier {
     };
     for (final item in incoming) {
       if (item.conversationId == id) bySequence[item.sequence] = item;
-      if (item.conversationId == id && item.senderId == userId) {
+      if (item.conversationId == id &&
+          item.senderId == senderProfileId &&
+          item.actorUserId == userId) {
         final acknowledged = _pending[id]
             ?.where(
               (pending) => pending.clientMessageId == item.clientMessageId,
@@ -382,6 +391,7 @@ class LiveChatController extends ChangeNotifier {
     if (!_valid ||
         !loaded ||
         stateLoadFailed ||
+        !canSend ||
         text.trim().isEmpty ||
         text.contains('\u0000') ||
         text.characters.length > 2000 ||
@@ -414,6 +424,7 @@ class LiveChatController extends ChangeNotifier {
   }
 
   Future<bool> _send(String id, PendingChatMessage item) async {
+    if (!canSend) return false;
     final generation = _generation;
     error = null;
     _notify();
@@ -426,7 +437,8 @@ class LiveChatController extends ChangeNotifier {
       final result = await repository.send(id, item.clientMessageId, item.text);
       if (!_current(generation)) return false;
       if (result.message.clientMessageId != item.clientMessageId ||
-          result.message.senderId != userId ||
+          result.message.senderId != senderProfileId ||
+          result.message.actorUserId != userId ||
           result.message.conversationId != id) {
         throw const ChatException('server_unavailable');
       }

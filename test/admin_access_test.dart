@@ -5,10 +5,17 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:paul_demo/admin/admin_api.dart';
+import 'package:paul_demo/live/chat_api.dart';
+import 'package:paul_demo/live/chat_controller.dart';
+import 'package:paul_demo/admin/operator_inbox_view.dart';
 import 'package:paul_demo/admin/admin_view.dart';
 import 'package:paul_demo/admin/managed_profile_editor.dart';
 
 class _AdminRepository implements AdminRepository {
+  @override
+  String get userId => 'admin-qa';
+  @override
+  ChatRepository operatorFor(String profileId) => throw UnimplementedError();
   Future<AdminAccess> Function() load = () async =>
       const AdminAccess('admin', []);
   @override
@@ -25,6 +32,23 @@ class _AdminRepository implements AdminRepository {
 }
 
 void main() {
+  test(
+    'operator journal is separately scoped by Auth actor and managed sender',
+    () async {
+      final first = OperatorChatStateStore('managed-first');
+      final second = OperatorChatStateStore('managed-second');
+      final normal = SessionChatStateStore();
+      await first.write('operator-a', 'First');
+      await second.write('operator-a', 'Second');
+      await first.write('operator-b', 'Other actor');
+      await normal.write('operator-a', 'Personal');
+      expect(await first.read('operator-a'), 'First');
+      expect(await second.read('operator-a'), 'Second');
+      expect(await first.read('operator-b'), 'Other actor');
+      expect(await normal.read('operator-a'), 'Personal');
+    },
+  );
+
   testWidgets('ordinary member never sees Admin entry', (tester) async {
     final repository = _AdminRepository()
       ..load = () async => throw const AdminException('admin_forbidden');

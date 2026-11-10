@@ -9,6 +9,7 @@ import 'package:paul_demo/live/browser_storage.dart';
 ChatMessage message(
   int seq, {
   String sender = 'a',
+  String? actor,
   String? clientId,
   String text = 'Test',
 }) => ChatMessage(
@@ -16,6 +17,7 @@ ChatMessage message(
   conversationId: 'chat',
   sequence: seq,
   senderId: sender,
+  actorUserId: actor,
   clientMessageId: clientId ?? 'client-$seq',
   text: text,
   createdAt: DateTime.utc(2026),
@@ -524,6 +526,103 @@ void main() {
       expect(controller.draft('chat'), 'Newest');
       expect(jsonDecode(drafts.saved['a']!)['drafts']['chat'], 'Newest');
       expect(drafts.saved.containsKey('b'), false);
+    },
+  );
+  test(
+    'managed sender ACK retains real actor and cannot acknowledge another operator operation',
+    () async {
+      controller.dispose();
+      controller = LiveChatController(
+        repository,
+        'a',
+        senderProfileId: 'managed',
+        drafts: drafts,
+      );
+      await controller.load();
+      repository.sending = (clientId, text) async {
+        repository.server.add(
+          message(
+            1,
+            sender: 'managed',
+            actor: 'b',
+            clientId: clientId,
+            text: text,
+          ),
+        );
+        throw TimeoutException('Own ACK lost');
+      };
+      expect(await controller.send('chat', 'Manual draft'), false);
+      final operation = controller.pending('chat').single.clientMessageId;
+      await controller.openConversation('chat');
+      expect(controller.messages('chat').single.actorUserId, 'b');
+      expect(controller.pending('chat'), hasLength(1));
+      expect(controller.draft('chat'), 'Manual draft');
+      repository.server.add(
+        message(
+          2,
+          sender: 'managed',
+          actor: 'a',
+          clientId: operation,
+          text: 'Manual draft',
+        ),
+      );
+      await controller.refresh();
+      expect(controller.pending('chat'), isEmpty);
+      expect(controller.draft('chat'), isEmpty);
+      expect(repository.currentUserId, 'a');
+    },
+  );
+
+  test(
+    'managed ACK is accepted only for the initiating Auth actor and sender profile',
+    () async {
+      controller.dispose();
+      controller = LiveChatController(
+        repository,
+        'a',
+        senderProfileId: 'managed',
+        drafts: drafts,
+      );
+      await controller.load();
+      repository.sending = (clientId, text) async {
+        final item = message(
+          1,
+          sender: 'managed',
+          actor: 'a',
+          clientId: clientId,
+          text: text,
+        );
+        repository.server.add(item);
+        return ChatAcknowledgement(item, replayed: false, connected: false);
+      };
+      expect(await controller.send('chat', 'Manual reply'), true);
+      expect(controller.pending('chat'), isEmpty);
+      expect(controller.messages('chat').single.senderId, 'managed');
+      expect(controller.messages('chat').single.actorUserId, 'a');
+      expect(repository.currentUserId, 'a');
+    },
+  );
+  test(
+    'read-only managed state blocks new sends without losing private history or creating pending operations',
+    () async {
+      controller.dispose();
+      var allowed = false;
+      controller = LiveChatController(
+        repository,
+        'a',
+        senderProfileId: 'managed',
+        drafts: drafts,
+        canSend: () => allowed,
+      );
+      repository.server.add(message(1, sender: 'managed', actor: 'a'));
+      await controller.load();
+      await controller.openConversation('chat');
+      expect(await controller.send('chat', 'Disabled draft'), false);
+      expect(repository.sends, isEmpty);
+      expect(controller.pending('chat'), isEmpty);
+      expect(controller.messages('chat'), hasLength(1));
+      allowed = true;
+      expect(controller.canSend, true);
     },
   );
 }

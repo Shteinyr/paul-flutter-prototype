@@ -424,4 +424,77 @@ void main() {
       await _close(tester, controller, repository);
     },
   );
+  testWidgets(
+    'operator chat shows intended managed sender and becomes read-only without hiding history',
+    (tester) async {
+      final repository = _Repository();
+      final store = _Store();
+      var allowed = false;
+      final controller = LiveChatController(
+        repository,
+        'actor',
+        senderProfileId: 'managed',
+        canSend: () => allowed,
+        drafts: store,
+      );
+      repository.server.addAll([
+        ChatMessage(
+          id: 'incoming',
+          conversationId: 'chat',
+          sequence: 1,
+          senderId: 'peer',
+          actorUserId: 'peer',
+          clientMessageId: 'incoming-id',
+          text: 'Incoming QA',
+          createdAt: DateTime.utc(2026),
+        ),
+        ChatMessage(
+          id: 'manual',
+          conversationId: 'chat',
+          sequence: 2,
+          senderId: 'managed',
+          actorUserId: 'actor',
+          clientMessageId: 'manual-id',
+          text: 'Manual managed QA',
+          createdAt: DateTime.utc(2026),
+        ),
+      ]);
+      await controller.load();
+      await controller.openConversation('chat');
+      await tester.pumpWidget(
+        MaterialApp(
+          home: LiveChatView(
+            controller: controller,
+            conversationId: 'chat',
+            peer: _peer,
+            ownAvatar: const Icon(Icons.person),
+            peerAvatar: const Icon(Icons.face),
+            replyingAs: 'Managed QA',
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Replying as Managed QA'), findsOneWidget);
+      expect(find.text('Manual managed QA'), findsOneWidget);
+      expect(find.text('Incoming QA'), findsOneWidget);
+      expect(find.text('Sent'), findsOneWidget);
+      expect(find.text('Profile disabled'), findsOneWidget);
+      expect(
+        tester
+            .widget<TextField>(find.byKey(const Key('live-chat-message-field')))
+            .enabled,
+        false,
+      );
+      allowed = true;
+      await controller.refresh();
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<TextField>(find.byKey(const Key('live-chat-message-field')))
+            .enabled,
+        true,
+      );
+      await _close(tester, controller, repository);
+    },
+  );
 }
