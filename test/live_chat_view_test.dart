@@ -7,6 +7,7 @@ import 'package:paul_demo/live/chat_api.dart';
 import 'package:paul_demo/live/chat_controller.dart';
 import 'package:paul_demo/live/live_chat_list.dart';
 import 'package:paul_demo/live/live_chat_view.dart';
+import 'package:paul_demo/live/live_disconnect_dialog.dart';
 
 const _peer = ChatPeer(
   id: 'peer',
@@ -34,6 +35,8 @@ class _Repository implements ChatRepository {
   final signals = StreamController<String>.broadcast(sync: true);
   final server = <ChatMessage>[];
   final sends = <(String, String)>[];
+  final removals = <(String, String)>[];
+  Future<void> Function()? removing;
   Future<ChatAcknowledgement> Function(String, String)? sending;
   @override
   Stream<String?> get identityChanges => identities.stream;
@@ -97,7 +100,11 @@ class _Repository implements ChatRepository {
   @override
   Future<void> read(String id, int through) async {}
   @override
-  Future<void> disconnect(String peerId, String operationId) async {}
+  Future<void> disconnect(String peerId, String operationId) async {
+    removals.add((peerId, operationId));
+    await removing?.call();
+  }
+
   Future<void> close() async {
     await identities.close();
     await signals.close();
@@ -155,7 +162,6 @@ void main() {
         find.byKey(const Key('live-chat-message-field')),
         'First message',
       );
-      await tester.pump();
       await tester.pump();
       await tester.tap(find.byKey(const Key('send-live-chat-message')));
       await tester.pump();
@@ -274,7 +280,6 @@ void main() {
         'Private pending',
       );
       await tester.pump();
-      await tester.pump();
       await tester.tap(find.byKey(const Key('send-live-chat-message')));
       await tester.pump();
       repository.currentUserId = 'other-account';
@@ -322,6 +327,100 @@ void main() {
       repository.identities.add(null);
       await tester.pumpAndSettle();
       expect(find.text('Synthetic Peer'), findsNothing);
+      await _close(tester, controller, repository);
+    },
+  );
+
+  testWidgets(
+    'removal retry keeps its operation id and new confirmation creates a new id',
+    (tester) async {
+      final repository = _Repository()
+        ..removing = () async =>
+            throw StateError('Synthetic lost acknowledgement');
+      bool? confirmed;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: TextButton(
+                child: const Text('Remove contact'),
+                onPressed: () async => confirmed = await showDialog<bool>(
+                  context: context,
+                  builder: (_) => LiveDisconnectDialog(
+                    repository: repository,
+                    peer: _peer,
+                    userId: 'actor',
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('Remove contact'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('confirm-live-disconnect')));
+      await tester.pumpAndSettle();
+      expect(confirmed, isNull);
+      expect(find.text('Retry removal'), findsOneWidget);
+      final original = repository.removals.single;
+      repository.removing = null;
+      await tester.tap(find.byKey(const Key('confirm-live-disconnect')));
+      await tester.pumpAndSettle();
+      expect(confirmed, true);
+      expect(repository.removals, [original, original]);
+      await tester.tap(find.text('Remove contact'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('confirm-live-disconnect')));
+      await tester.pumpAndSettle();
+      expect(repository.removals.last.$1, 'peer');
+      expect(repository.removals.last.$2, isNot(original.$2));
+      await tester.pumpWidget(const SizedBox.shrink());
+      await repository.close();
+    },
+  );
+
+  testWidgets(
+    'earlier history is reachable on a small screen and loads the missing page',
+    (tester) async {
+      tester.view.physicalSize = const Size(320, 720);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final repository = _Repository();
+      for (var seq = 1; seq <= 101; seq++) {
+        repository.server.add(
+          ChatMessage(
+            id: 'history-$seq',
+            conversationId: 'chat',
+            sequence: seq,
+            senderId: 'peer',
+            clientMessageId: 'history-client-$seq',
+            text: 'History message $seq',
+            createdAt: DateTime.utc(2026),
+          ),
+        );
+      }
+      final controller = LiveChatController(
+        repository,
+        'actor',
+        drafts: _Store(),
+      );
+      await controller.load();
+      await controller.openConversation('chat');
+      await _view(tester, controller);
+      await tester.fling(
+        find.byKey(const Key('live-chat-messages')),
+        const Offset(0, 20000),
+        10000,
+      );
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(const Key('load-older-chat')));
+      await tester.tap(find.byKey(const Key('load-older-chat')));
+      await tester.pumpAndSettle();
+      expect(controller.messages('chat'), hasLength(101));
+      expect(controller.hasOlder('chat'), false);
+      expect(tester.takeException(), isNull);
       await _close(tester, controller, repository);
     },
   );

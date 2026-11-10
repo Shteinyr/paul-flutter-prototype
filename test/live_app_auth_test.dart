@@ -17,6 +17,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:yet_another_json_isolate/yet_another_json_isolate.dart';
 
 import 'support/onboarding_preferences.dart';
+import 'support/quiet_chat_repository.dart';
 
 const _a = '00000000-0000-4000-8000-000000000001';
 const _b = '00000000-0000-4000-8000-000000000002';
@@ -216,6 +217,7 @@ void main() {
         await tester.pumpWidget(
           PaulLiveApp(
             client: client,
+            chatRepositoryFor: (_) => QuietChatRepository(client),
             appUrl: Uri.parse('https://test.example'),
             googleEnabled: false,
             appleEnabled: false,
@@ -392,6 +394,7 @@ void main() {
         await tester.pumpWidget(
           PaulLiveApp(
             client: client,
+            chatRepositoryFor: (_) => QuietChatRepository(client),
             appUrl: Uri.parse('https://test.example'),
             googleEnabled: false,
             appleEnabled: false,
