@@ -37,9 +37,21 @@ class LiveChatController extends ChangeNotifier {
     this.userId, {
     required ChatStateStore drafts,
   }) : _draftStore = drafts {
-    _identity = repository.identityChanges.listen((id) {
-      if (id != userId) _invalidateIdentity();
-    });
+    _identity = repository.identityChanges.listen(
+      (id) {
+        if (id != userId) _invalidateIdentity();
+      },
+      onError: (Object _) {
+        if (_disposed) return;
+        if (repository.currentUserId != userId) {
+          _invalidateIdentity();
+        } else {
+          error =
+              'Could not refresh your session. Check your connection and retry.';
+          _notify();
+        }
+      },
+    );
   }
   final ChatRepository repository;
   final String userId;
@@ -305,6 +317,10 @@ class LiveChatController extends ChangeNotifier {
     while (_current(generation) && activeConversationId == id) {
       final page = await repository.history(id, after: after);
       if (!_current(generation) || activeConversationId != id) return;
+      if (after == null) {
+        _olderAvailable[id] =
+            page.messages.isNotEmpty && page.messages.first.sequence > 1;
+      }
       _merge(id, page.messages);
       if (page.messages.isEmpty) break;
       after = page.messages.last.sequence;
@@ -441,6 +457,10 @@ class LiveChatController extends ChangeNotifier {
     _messages.clear();
     _pending.clear();
     _drafts.clear();
+    _olderAvailable.clear();
+    _loadedThrough.clear();
+    _readThrough.clear();
+    loaded = false;
     conversations = const [];
     activeConversationId = null;
     _notify();
