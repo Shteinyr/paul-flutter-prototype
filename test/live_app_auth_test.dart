@@ -53,6 +53,16 @@ String _jwt(String id) {
   return 'e30.${base64Url.encode(utf8.encode(jsonEncode(claims))).replaceAll('=', '')}.signature';
 }
 
+class _IdentityChatRepository extends QuietChatRepository {
+  _IdentityChatRepository(super.client);
+  String? openedBy;
+  @override
+  Future<String> open(String peerId) async {
+    openedBy = currentUserId;
+    return 'latest-identity-conversation';
+  }
+}
+
 void main() {
   setUpAll(() async {
     await (FontLoader(
@@ -433,4 +443,113 @@ void main() {
       },
     );
   }
+
+  testWidgets(
+    'a delayed previous identity cleanup cannot replace the latest account',
+    (tester) async {
+      final preferences = DraftPreferences();
+      late SupabaseClient client;
+      late _IdentityChatRepository latestChat;
+      final transport = MockClient((request) async {
+        if (request.url.path.endsWith('/token')) {
+          final email = (jsonDecode(request.body) as Map)['email'];
+          final id = email == 'a@example.invalid'
+              ? _a
+              : email == 'b@example.invalid'
+              ? _b
+              : _c;
+          return http.Response(
+            jsonEncode({
+              'access_token': _jwt(id),
+              'refresh_token': 'synthetic-refresh',
+              'token_type': 'bearer',
+              'expires_in': 3600,
+              'user': {
+                'id': id,
+                'aud': 'authenticated',
+                'email': email,
+                'created_at': DateTime.utc(2026).toIso8601String(),
+                'app_metadata': {},
+                'user_metadata': {},
+              },
+            }),
+            200,
+          );
+        }
+        return http.Response(
+          jsonEncode({
+            'profile': _profile(
+              client.auth.currentUser!.id,
+              client.auth.currentUser!.id == _c
+                  ? 'Latest member C'
+                  : 'Earlier member',
+            ),
+            'contacts': client.auth.currentUser!.id == _c
+                ? [_profile(_b, 'Latest account contact')]
+                : [],
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      });
+      client = SupabaseClient(
+        'https://test.supabase.co',
+        'test-key',
+        httpClient: transport,
+        isolate: _Json(),
+        authOptions: const AuthClientOptions(autoRefreshToken: false),
+      );
+      await client.auth.signInWithPassword(
+        email: 'a@example.invalid',
+        password: 'synthetic',
+      );
+      await tester.pumpWidget(
+        PaulLiveApp(
+          client: client,
+          appUrl: Uri.parse('https://paul.example'),
+          draftPreferences: preferences,
+          chatRepositoryFor: (_) =>
+              latestChat = _IdentityChatRepository(client),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final previousCleanup = Completer<void>(),
+          latestCleanup = Completer<void>();
+      preferences.writeGate = previousCleanup;
+      await client.auth.signInWithPassword(
+        email: 'b@example.invalid',
+        password: 'synthetic',
+      );
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('Earlier member'), findsNothing);
+      preferences.writeGate = latestCleanup;
+      await client.auth.signInWithPassword(
+        email: 'c@example.invalid',
+        password: 'synthetic',
+      );
+      await tester.pump();
+      latestCleanup.complete();
+      await tester.pumpAndSettle();
+      expect(find.text('Latest member C'), findsOneWidget);
+      previousCleanup.complete();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Latest member C'));
+      await tester.pumpAndSettle();
+      expect(find.byType(PublicProfileView), findsOneWidget);
+      expect(find.text('Latest member C'), findsOneWidget);
+      expect(find.byKey(const Key('edit-public-profile')), findsOneWidget);
+      expect(find.byKey(const Key('open-profile-chat')), findsNothing);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Latest account contact'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('open-profile-chat')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('live-chat-message-field')), findsOneWidget);
+      expect(latestChat.openedBy, _c);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.runAsync(client.dispose);
+    },
+  );
 }

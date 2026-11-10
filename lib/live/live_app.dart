@@ -127,8 +127,13 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
   }
 
   Future<void> _load() async {
+    if (!mounted) return;
     final generation = ++_loadGeneration;
     final identity = widget.client.auth.currentUser?.id;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     if (_identity != identity) {
       _navigator.currentState?.popUntil((route) => route.isFirst);
       _disposeChat();
@@ -145,13 +150,18 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
           preferences: widget.draftPreferences,
         ).clear();
       }
+      if (!mounted ||
+          generation != _loadGeneration ||
+          widget.client.auth.currentUser?.id != identity) {
+        return;
+      }
       _identity = identity;
     }
-    if (!mounted || generation != _loadGeneration) return;
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+    if (!mounted ||
+        generation != _loadGeneration ||
+        widget.client.auth.currentUser?.id != identity) {
+      return;
+    }
     try {
       var network = identity == null
           ? const MemberNetwork()
