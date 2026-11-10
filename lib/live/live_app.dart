@@ -6,6 +6,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../app.dart';
+import '../admin/admin_api.dart';
+import '../admin/admin_view.dart';
 import '../onboarding/onboarding_draft_store.dart';
 import '../onboarding/onboarding_flow.dart';
 import '../profile/profile_controller.dart';
@@ -742,6 +744,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
           if (value == 0) unawaited(_load());
           if (value == 2) unawaited(_chat?.refresh());
         },
+        adminRepository: SupabaseAdminApi(widget.client, _identity!),
         onLogout: _logout,
         onQr: () => _navigator.currentState!.push(
           MaterialPageRoute<void>(
@@ -980,6 +983,7 @@ class _LiveContacts extends StatelessWidget {
     required this.onRefresh,
     required this.onProfile,
     required this.onLogout,
+    required this.adminRepository,
     required this.onQr,
     required this.onDismissInvite,
     required this.selectedTab,
@@ -995,6 +999,7 @@ class _LiveContacts extends StatelessWidget {
   final Future<void> Function() onRefresh;
   final Future<void> Function(MemberProfile) onProfile;
   final VoidCallback onLogout;
+  final AdminRepository adminRepository;
   final VoidCallback onQr;
   final VoidCallback onDismissInvite;
   final String? error;
@@ -1074,9 +1079,17 @@ class _LiveContacts extends StatelessWidget {
                       onViewProfile: () => onProfile(network.own!),
                       footer: Padding(
                         padding: const EdgeInsets.only(top: 40),
-                        child: TextButton(
-                          onPressed: onLogout,
-                          child: const Text('Sign out'),
+                        child: Column(
+                          children: [
+                            AdminEntry(
+                              key: ValueKey(network.own!.id),
+                              repository: adminRepository,
+                            ),
+                            TextButton(
+                              onPressed: onLogout,
+                              child: const Text('Sign out'),
+                            ),
+                          ],
                         ),
                       ),
                     ),
