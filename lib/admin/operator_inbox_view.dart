@@ -28,21 +28,23 @@ class OperatorInboxView extends StatefulWidget {
 class _OperatorInboxViewState extends State<OperatorInboxView>
     with WidgetsBindingObserver {
   late final LiveChatController _chat;
+  late final ChatRepository _repository;
   bool _opening = false;
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    final repository = widget.repository;
+    _repository = widget.repository;
+    final repository = _repository;
     if (repository is OperatorChatApi) {
       repository.disabled = widget.profile.disabledAt != null;
     }
     _chat = LiveChatController(
-      widget.repository,
+      repository,
       widget.actorId,
       senderProfileId: widget.profile.id,
-      canSend: () => widget.repository is OperatorChatApi
-          ? !(widget.repository as OperatorChatApi).disabled
+      canSend: () => repository is OperatorChatApi
+          ? !repository.disabled
           : widget.profile.disabledAt == null,
       drafts: OperatorChatStateStore(widget.profile.id),
     );
@@ -64,7 +66,7 @@ class _OperatorInboxViewState extends State<OperatorInboxView>
     _opening = true;
     try {
       await _chat.openConversation(thread.id);
-      if (!mounted || widget.repository.currentUserId != widget.actorId) return;
+      if (!mounted || _repository.currentUserId != widget.actorId) return;
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => LiveChatView(
@@ -112,7 +114,7 @@ class _OperatorInboxViewState extends State<OperatorInboxView>
     WidgetsBinding.instance.removeObserver(this);
     unawaited(_chat.flushDrafts());
     _chat.dispose();
-    final repository = widget.repository;
+    final repository = _repository;
     if (repository is OperatorChatApi) unawaited(repository.dispose());
     super.dispose();
   }

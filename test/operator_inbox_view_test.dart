@@ -93,6 +93,65 @@ class _Repository extends OperatorChatApi {
 
 void main() {
   testWidgets(
+    'rebuilt inbox keeps authorization bound to its active repository',
+    (tester) async {
+      final client = _Client();
+      final first = _Repository(client)..serverDisabled = false;
+      final replacement = _Repository(client)..serverDisabled = false;
+      final selected = ValueNotifier<_Repository>(first);
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pumpAndSettle();
+        selected.dispose();
+        if (!first.signals.isClosed) await first.dispose();
+        if (!replacement.signals.isClosed) await replacement.dispose();
+      });
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ValueListenableBuilder<_Repository>(
+            valueListenable: selected,
+            builder: (context, repository, _) => OperatorInboxView(
+              repository: repository,
+              actorId: _actor,
+              profile: const ManagedProfile(
+                id: _managed,
+                name: 'Rebuilt managed QA',
+                canManage: true,
+                canReply: true,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Restore peer QA'));
+      await tester.pumpAndSettle();
+      final field = find.byKey(const Key('live-chat-message-field'));
+      expect(tester.widget<TextField>(field).enabled, true);
+      selected.value = replacement;
+      await tester.pumpAndSettle();
+      final previous = first.listCalls;
+      first.serverDisabled = true;
+      first.signals.add('changed');
+      await tester.pumpAndSettle();
+      expect(first.listCalls, greaterThan(previous));
+      expect(first.disabled, true);
+      expect(tester.widget<TextField>(field).enabled, false);
+      expect(find.text('Profile disabled'), findsOneWidget);
+      first.serverDisabled = false;
+      first.signals.add('changed');
+      await tester.pumpAndSettle();
+      expect(tester.widget<TextField>(field).enabled, true);
+      expect(find.text('Profile disabled'), findsNothing);
+      expect(find.text('Preserved incoming QA'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+      expect(first.signals.isClosed, true);
+      expect(replacement.signals.isClosed, false);
+    },
+  );
+
+  testWidgets(
     'mounted disabled history becomes send-ready after restoration hint and fresh inbox',
     (tester) async {
       final client = _Client();

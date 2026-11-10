@@ -101,11 +101,13 @@ class _AdminViewState extends State<AdminView> {
   }
 
   Future<void> _inbox(ManagedProfile profile) async {
+    final repository = widget.repository.operatorFor(profile.id);
+    final actorId = widget.repository.userId;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => OperatorInboxView(
-          repository: widget.repository.operatorFor(profile.id),
-          actorId: widget.repository.userId,
+          repository: repository,
+          actorId: actorId,
           profile: profile,
         ),
       ),
