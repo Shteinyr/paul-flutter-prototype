@@ -3,23 +3,22 @@ import 'dart:convert';
 
 import 'package:characters/characters.dart';
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import 'chat_api.dart';
+import 'browser_storage.dart';
 
 abstract interface class ChatStateStore {
   Future<String?> read(String userId);
   Future<void> write(String userId, String state);
 }
 
-class PreferencesChatStateStore implements ChatStateStore {
-  final _preferences = SharedPreferencesAsync();
+class SessionChatStateStore implements ChatStateStore {
   String _key(String userId) => 'paul.live.chat.state.v1.$userId';
   @override
-  Future<String?> read(String userId) => _preferences.getString(_key(userId));
+  Future<String?> read(String userId) async => readSessionValue(_key(userId));
   @override
-  Future<void> write(String userId, String state) =>
-      _preferences.setString(_key(userId), state);
+  Future<void> write(String userId, String state) async =>
+      writeSessionValue(_key(userId), state);
 }
 
 enum ChatDelivery { pending, failed }

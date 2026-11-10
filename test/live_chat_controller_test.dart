@@ -123,6 +123,64 @@ void main() {
     await repository.close();
   });
   test(
+    'independent tab journals retain different operation IDs across reload with the same identity',
+    () async {
+      final tabOne = Drafts(), tabTwo = Drafts();
+      repository.sending = (_, _) async => throw StateError('Offline');
+      var one = LiveChatController(repository, 'a', drafts: tabOne);
+      var two = LiveChatController(repository, 'a', drafts: tabTwo);
+      try {
+        await one.load();
+        await two.load();
+        await one.send('chat', 'Tab one payload');
+        await two.send('chat', 'Tab two payload');
+        await one.flushDrafts();
+        await two.flushDrafts();
+        final firstId = one.pending('chat').single.clientMessageId;
+        final secondId = two.pending('chat').single.clientMessageId;
+        expect(firstId, isNot(secondId));
+        one.dispose();
+        two.dispose();
+        one = LiveChatController(repository, 'a', drafts: tabOne);
+        two = LiveChatController(repository, 'a', drafts: tabTwo);
+        await one.load();
+        await two.load();
+        expect(one.pending('chat').single.clientMessageId, firstId);
+        expect(two.pending('chat').single.clientMessageId, secondId);
+        expect(one.draft('chat'), 'Tab one payload');
+        expect(two.draft('chat'), 'Tab two payload');
+      } finally {
+        one.dispose();
+        two.dispose();
+      }
+    },
+  );
+  test(
+    'copied opener journal retries the identical operation and payload',
+    () async {
+      await controller.load();
+      repository.sending = (_, _) async => throw StateError('Response lost');
+      await controller.send('chat', 'Copied opener payload');
+      await controller.flushDrafts();
+      final original = repository.sends.single;
+      final copied = Drafts()..saved['a'] = drafts.saved['a']!;
+      final child = LiveChatController(repository, 'a', drafts: copied);
+      try {
+        await child.load();
+        repository.sending = (id, text) async => ChatAcknowledgement(
+          message(1, clientId: id, text: text),
+          replayed: true,
+          connected: false,
+        );
+        expect(await child.send('chat', 'Copied opener payload'), true);
+        expect(repository.sends.last, original);
+      } finally {
+        child.dispose();
+        await child.flushDrafts();
+      }
+    },
+  );
+  test(
     'initial history failure recovers older-page availability from fetched sequence',
     () async {
       repository.server.addAll(
