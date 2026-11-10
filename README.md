@@ -123,6 +123,22 @@ Google/Apple provider setup and their real OAuth acceptance remain pending. Clie
 
 Focused local checks include `test/invitation_controller_test.dart`, `test/live_app_auth_test.dart` and `supabase/tests/invitations.sql`. `scripts/test_live_invitations.py` runs against explicitly prepared disposable QA identities supplied through a private fixture. Its basic phase requires fresh inactive invitees. Keep fixture contents, tokens and invitation links out of command output and commits.
 
+## Browser Web Push server
+
+The `push` Edge Function provides public `config` discovery and authenticated `subscribe`, `status`, `unsubscribe` and `resolve` actions. The server verifies Auth identity, the JWT session against `auth.sessions`, active membership and current per-conversation permissions. Managed recipients resolve to current operators with an active role and `can_reply` grant. Each browser binding belongs to one Auth user and session. Repeated registration preserves its canonical ID and original history cutoff.
+
+Push payloads contain `version: 1`, `delivery_id`, `binding_id` and `recipient_user_id`. The service worker displays fixed generic text, checks its current local binding and resolves the route through the server on click. The original message text and profile details stay in the authorized chat API.
+
+Private server configuration uses `PAUL_PUSH_ENABLED`, `PAUL_VAPID_PUBLIC_KEY`, `PAUL_VAPID_PRIVATE_KEY`, `PAUL_VAPID_SUBJECT`, `PAUL_PUSH_ALLOWED_ORIGINS` and `PAUL_PUSH_WORKER_SECRET`. Only the public VAPID key appears in discovery. A disabled or incomplete configuration returns `enabled: false`. Store secret values outside Git and pass them through the platform secret manager. Both functions use application-level authorization and require deployment with gateway JWT verification disabled.
+
+`push-worker` requires the private worker bearer. A request processes at most four claims, two concurrently, with five-second SQL HTTP and provider timeouts. The initial lease is 60 seconds. A fresh authorization preflight fences each claim, renews its lease to 30 seconds and supplies a conservative remaining-time budget. Stale or expired fences cannot disclose endpoints or complete work. Failed transient deliveries retry up to five attempts with bounded backoff. HTTP 404/410 disables the exact binding. Endpoints use the explicit HTTPS FCM/Mozilla/Apple allowlist, with redirects disabled.
+
+Notification delivery expires 24 hours after its outbox event, and the final 30 seconds are excluded from dispatch. Provider TTL is 300 seconds. The browser deduplication ledger retains IDs for 26 hours, with an 8192-entry fail-closed cap and age-based pruning. Messages, outbox rows and audit remain stored. Unknown network commits reuse the delivery ID and provider topic. Client-side deduplication covers repeated delivery, while fresh binding and click authorization guard queued notifications across logout or permission changes.
+
+After reviewed migrations and functions are deployed, provision Vault names `paul_push_worker_url` and `paul_push_worker_secret` privately. The latter matches the Edge worker secret. The reviewed `supabase/ops/schedule_web_push.sql` schedules the existing project worker every minute through `pg_cron` and `pg_net`. It replaces only the job named `paul-web-push-worker`. Disable that exact cron job and the enabled flag to stop delivery.
+
+Local checks use `supabase/tests/web_push.sql`, `scripts/test_push_concurrency.py`, and `supabase/functions/push/handler_test.ts`. The concurrency script accepts only isolated Paul push database names. Deno dependency locks pin the push library and transitive dependencies. Real background browser delivery has a separate joint acceptance gate.
+
 ## Live text chat
 
 The `chat` Edge function verifies every bearer with Auth and calls service-only RPCs. Apply the chat migrations in order, then deploy `supabase/functions/chat/index.ts` together with `handler.ts`. Participants alone can read persistent conversations, roster and messages. A conversation starts with a direct contact. Self-chat is rejected. Message text supports 2000 grapheme clusters within 64 KiB of UTF-8, preserves its original payload and excludes NUL or blank-only input.
