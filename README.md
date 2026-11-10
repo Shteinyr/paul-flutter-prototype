@@ -32,9 +32,9 @@ Flutter-приложение для профессиональных связе�
 
 ## Текущая база
 
-Локальный Flutter-прототип покрывает Profile → Contacts, публичные профили, навыки, локальный chat и демонстрации QR/Connect/уведомлений. В live-режиме подключены Supabase, серверные приглашения, профили и связи. Настройка Google/Apple, native push и адресной книги имеют отдельные статусы приёмки.
+Локальный Flutter-прототип покрывает Profile → Contacts, публичные профили, навыки, локальный chat и демонстрации QR/Connect/уведомлений. Live-версия включает гостевой просмотр, контекстный вход, серверные приглашения, браузерные Clipboard/Share/Contact Picker, профили, связи и личную текстовую переписку на приёмке. Настройка Google/Apple, background push и аппаратная проверка системных диалогов имеют отдельные критерии.
 
-В репозитории находятся исходники Flutter, документация, задачи, шаблоны и workflow GitHub Actions. Фактический результат автоматических проверок доступен во вкладке Actions. Локально прошли 29 тестов, анализ без замечаний, форматирование и release web build.
+В репозитории находятся исходники Flutter, документация, задачи, шаблоны и workflow GitHub Actions. Локально прошли 108 Flutter VM tests, 6 Chrome tests, 2 packaging checks, анализ без замечаний, форматирование и release web build. Hosted Actions запускаются по отдельному разрешению.
 
 ## Порядок работы
 
@@ -112,7 +112,7 @@ Build with a local JSON configuration containing `PAUL_LIVE`, `SUPABASE_URL`, `S
 bash scripts/build_live.sh --dart-define-from-file=/absolute/path/to/live.json
 ```
 
-The script produces `dist/` from an isolated build with its own asset manifest. Live portraits come from private Storage. The demo keeps its bundled example portraits and original build entrypoint.
+The script produces `dist/` from an isolated build with its own asset manifest. The guest preview bundles the provided Paul and Julia portraits. Member portraits load from private Storage.
 
 Invitations last exactly 15 minutes. An open QR screen automatically replaces expired QR and numeric code. Multiple users can redeem within that lifetime. Reissuing the same token retains the original deadline. The server checks expiry again after Auth, activates membership/profile and creates a unique connection atomically. First-owner bootstrap is a controlled one-use server invitation with no issuer. Keep its raw credential in a private local file.
 
@@ -130,9 +130,9 @@ Realtime Settings must have Allow public access disabled. The Paul project is co
 
 `lib/live/chat_api.dart` exposes list/open/history/send/read/disconnect. History uses strict sequence cursors and bounded pages. Repeating an author/conversation/client-message ID returns the same message. Changing its text conflicts. A private notification event is stored in the same transaction as each new message. Deleting a connection retains the existing dialogue. Reconnecting requires fresh messages from both participants after removal. Repeated removal uses its original operation ID, and cannot delete a connection recreated since that operation.
 
-`LiveChatController` persists the operation ID, exact text and account-scoped drafts in the current tab’s sessionStorage before sending. A failed acknowledgement remains retryable across reload of that tab. Different tabs keep independent journals. A new tab that copies its opener’s session state safely retries the same operation ID. Private Realtime inboxes send metadata-only invalidations, and the client fetches authorized history again on subscription/reconnect. The host must call pause/resume with visibility, closeConversation when leaving the chat, and dispose the controller on account replacement. Pending text becomes sent only after server acknowledgement or recovery of the persisted message.
+`LiveChatController` persists the operation ID, exact text and account-scoped drafts in the current tab’s sessionStorage before sending. A failed acknowledgement remains retryable across reload of that tab. Different tabs keep independent journals. A new tab that copies its opener’s session state safely retries the same operation ID. Private Realtime inboxes send metadata-only invalidations, and the client fetches authorized history again on subscription/reconnect. The membership host calls pause/resume with visibility, closes the active conversation on departure and disposes the controller on account replacement. Pending text becomes sent only after server acknowledgement or recovery of the persisted message.
 
-The isolated SQL gates are `supabase/tests/chat.sql` and `chat_realtime.sql`. `bootstrap.sql` is a minimal stand-in for an empty local Postgres container and must stay local. `scripts/test_chat_concurrency.py` accepts its explicit container name. Live HTTP and Realtime runners require public configuration and a private, explicitly assigned disposable QA fixture. UI connection and browser background push delivery have separate acceptance criteria. The outbox currently records events, with delivery remaining unconfigured.
+The isolated SQL gates are `supabase/tests/chat.sql` and `chat_realtime.sql`. `bootstrap.sql` is a minimal stand-in for an empty local Postgres container and must stay local. `scripts/test_chat_concurrency.py` accepts its explicit container name. Live HTTP and Realtime runners require public configuration and a private, explicitly assigned disposable QA fixture. The browser UI is integrated and under acceptance. Its two-account HTTPS gate passed history, unread/read, lost acknowledgement, manual same-UUID retry, independent tab journals/drafts, connection removal/restoration and cross-tab logout with zero page errors. Browser background push delivery has separate acceptance criteria. The outbox records events for that later delivery integration.
 
 ## Next production stage
 
