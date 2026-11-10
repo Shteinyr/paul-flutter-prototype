@@ -1,5 +1,17 @@
 # Continuation checkpoint
 
+## Current P11 checkpoint, 2026-11-10
+
+P11 #42–#44 is technically accepted and merged in main `101f703d4191b9dc5d521072e493bcc127d3f4a4`. Its Git tree matches reviewed source `797b141edf33407d09769b3444b6f246966f152a`. The live browser runtime SHA256 is `a45deb2ab76e8907cbc04b5c61e388d2c5ff7648e5824565691b976a81d71e21`.
+
+Admin roles, assigned managed-profile commands, private photos, audit, reversible disable and the operator inbox/manual reply-as are implemented. Every request uses current server authorization. Messages retain both the real Auth actor and managed sender. Existing identities, ordinary chat visibility and history are preserved.
+
+Local verification passed 144 VM tests, 6 Chrome tests, 19 Deno endpoint tests, 2 packaging checks, analysis, formatting and demo/live release builds. The fresh 11-migration chain, nine SQL suites and concurrent ordinary/admin/operator operations passed, including real service-role execution. Independent full browser runs by the second reviewer and coordinator both passed with zero page errors. They covered actual binary Realtime delivery, lost ACK and exact retry after reload, mounted disable/restore, private denials, actor/sender persistence, Contacts search and logout/identity guards.
+
+Final browser-only publication uses the existing test Site. The QA cleanup contract removes temporary roles, grants and two isolated connections after the coordinator closes the public verification window. QA identities, conversations and audit are retained. Client acceptance remains open. Real Paul access awaits verified Auth identity. Managed-profile audience, presentation, material rights and final deletion require client decisions. Google/Apple OAuth, Terms/Privacy and background push retain their separate criteria. Paul has created an Apple Developer account, while Program membership, account type, agreements and developer access remain unverified.
+
+Alexander requested a pause after P11 publication and cleanup. P13 and further services require a new instruction. Continue from current main and the P11 section of [PROJECT_SPEC.md](PROJECT_SPEC.md#p11). The older import checkpoint below is historical.
+
 ## Goal and sources
 
 - Repository: https://github.com/Shteinyr/paul-flutter-prototype
