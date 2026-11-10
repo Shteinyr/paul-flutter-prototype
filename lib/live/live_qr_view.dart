@@ -1,13 +1,11 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../app.dart';
 import '../profile/profile_controller.dart';
 import '../profile/public_profile_view.dart';
 import 'invitation_controller.dart';
+import 'live_connect_view.dart';
 
 const _blue = Color(0xFF14679E);
 
@@ -60,7 +58,7 @@ class _LiveQrViewState extends State<LiveQrView> with WidgetsBindingObserver {
           icon: const Icon(Icons.link, size: 22),
           onPressed: () => Navigator.of(context).push(
             MaterialPageRoute<void>(
-              builder: (_) => _LiveConnectView(
+              builder: (_) => LiveConnectView(
                 invitation: _invitation,
                 appUrl: widget.appUrl,
               ),
@@ -172,158 +170,4 @@ class _LiveQrViewState extends State<LiveQrView> with WidgetsBindingObserver {
     _invitation.dispose();
     super.dispose();
   }
-}
-
-class _LiveConnectView extends StatelessWidget {
-  const _LiveConnectView({required this.invitation, required this.appUrl});
-  final InvitationController invitation;
-  final Uri appUrl;
-
-  Future<void> _share(BuildContext context) async {
-    var copying = false;
-    String? copyError;
-    await showDialog<void>(
-      context: context,
-      builder: (_) => StatefulBuilder(
-        builder: (context, setDialogState) => ListenableBuilder(
-          listenable: invitation,
-          builder: (context, _) => AlertDialog(
-            title: const Text('Share invitation'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (invitation.usable)
-                  SelectableText(
-                    _message(),
-                    style: const TextStyle(fontSize: 13, height: 1.7),
-                  )
-                else
-                  const Text('Your invitation is being renewed. Please wait.'),
-                if (copyError != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 12),
-                    child: Text(
-                      copyError!,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Theme.of(context).colorScheme.error,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('Close'),
-              ),
-              TextButton(
-                key: const Key('copy-live-invitation'),
-                onPressed: copying || !invitation.usable
-                    ? null
-                    : () async {
-                        setDialogState(() {
-                          copying = true;
-                          copyError = null;
-                        });
-                        try {
-                          await Clipboard.setData(
-                            ClipboardData(text: _message()),
-                          );
-                          if (!context.mounted ||
-                              ModalRoute.of(context)?.isCurrent != true) {
-                            return;
-                          }
-                          Navigator.of(context).pop();
-                        } catch (_) {
-                          if (!context.mounted ||
-                              ModalRoute.of(context)?.isCurrent != true) {
-                            return;
-                          }
-                          setDialogState(() {
-                            copying = false;
-                            copyError =
-                                'Could not copy invitation. Please try again.';
-                          });
-                        }
-                      },
-                child: const Text('Copy invitation'),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  String _message() {
-    final current = invitation.invitation!;
-    final link = appUrl.replace(fragment: 'invite=${current.token}');
-    return 'Hey, let’s connect in Paul.\n$link\nUse invite code: ${current.code}\nValid for 15 minutes from generation.';
-  }
-
-  @override
-  Widget build(BuildContext context) => ProfilePage(
-    title: 'Connect',
-    child: ListenableBuilder(
-      listenable: invitation,
-      builder: (context, _) => SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(37.5, 36, 37.5, 48),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Hey, let’s connect in Paul.',
-                        style: TextStyle(
-                          fontSize: 11,
-                          height: 2.1,
-                          fontWeight: FontWeight.w300,
-                        ),
-                      ),
-                      const Text(
-                        'Open the invitation in your browser.',
-                        style: TextStyle(
-                          fontSize: 11,
-                          height: 2.1,
-                          fontWeight: FontWeight.w300,
-                        ),
-                      ),
-                      Text(
-                        invitation.usable
-                            ? 'Use invite code: ${invitation.invitation!.code}'
-                            : 'Generating a new invitation…',
-                        style: const TextStyle(
-                          fontSize: 11,
-                          height: 2.1,
-                          fontWeight: FontWeight.w300,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                TextButton(
-                  onPressed: invitation.usable
-                      ? () => unawaited(_share(context))
-                      : null,
-                  child: const Text(
-                    'Share',
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w300),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 20),
-            const Divider(color: Color(0x2214679E), height: 1),
-          ],
-        ),
-      ),
-    ),
-  );
 }
