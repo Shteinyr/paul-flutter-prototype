@@ -13,6 +13,9 @@ import '../onboarding/onboarding_flow.dart';
 import '../profile/profile_controller.dart';
 import '../profile/public_profile_view.dart';
 import '../profile/user_profile.dart';
+import '../search/skill_search_api.dart';
+import '../search/skill_search_controller.dart';
+import '../search/skill_search_view.dart';
 import 'browser_storage.dart';
 import 'live_api.dart';
 import 'live_qr_view.dart';
@@ -39,6 +42,7 @@ class PaulLiveApp extends StatefulWidget {
     this.authCallback = false,
     this.draftPreferences,
     this.chatRepositoryFor,
+    this.searchRepositoryFor,
   });
   final SupabaseClient client;
   final Uri appUrl;
@@ -48,6 +52,7 @@ class PaulLiveApp extends StatefulWidget {
   final bool authCallback;
   final SharedPreferencesAsync? draftPreferences;
   final ChatRepository Function(String userId)? chatRepositoryFor;
+  final SkillSearchRepository Function(String userId)? searchRepositoryFor;
   @override
   State<PaulLiveApp> createState() => _PaulLiveAppState();
 }
@@ -61,6 +66,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
   MemberNetwork get _network => _networkUpdates.value;
   set _network(MemberNetwork value) => _networkUpdates.value = value;
   LiveChatController? _chat;
+  SkillSearchController? _search;
   Future<bool>? _networkRefresh;
   bool _openingChat = false;
   bool _resumed = true;
@@ -139,6 +145,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     if (_identity != identity) {
       _navigator.currentState?.popUntil((route) => route.isFirst);
       _disposeChat();
+      _disposeSearch();
       _networkRefresh = null;
       _peerPhotos.clear();
       _openingChat = false;
@@ -204,6 +211,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
       if (network.own == null && _network.own != null) {
         _navigator.currentState?.popUntil((route) => route.isFirst);
         _disposeChat();
+        _disposeSearch();
         _profile?.dispose();
         _profile = null;
       }
@@ -220,7 +228,14 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
         _profile?.dispose();
         _profile = controller;
       }
-      if (network.own != null && _profile?.loaded == true) _ensureChat();
+      if (network.own != null && _profile?.loaded == true) {
+        _ensureChat();
+        _search ??= SkillSearchController(
+          widget.searchRepositoryFor?.call(identity!) ??
+              SupabaseSkillSearchApi(widget.client, identity!),
+        );
+        if (!_search!.idle) unawaited(_search!.retry());
+      }
     } catch (error) {
       if (!mounted || generation != _loadGeneration) return;
       _error = error is LiveApiException
@@ -267,6 +282,11 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     chat.onConnected = null;
     chat.dispose();
     unawaited(chat.flushDrafts());
+  }
+
+  void _disposeSearch() {
+    _search?.dispose();
+    _search = null;
   }
 
   @override
@@ -317,6 +337,12 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
           .map((member) => member.id)
           .toSet();
       setState(() => _network = next);
+      if (added.isNotEmpty ||
+          previous.any(
+            (id) => !next.contacts.any((member) => member.id == id),
+          )) {
+        unawaited(_search?.retry());
+      }
       final active = chat.conversations
           .where((thread) => thread.id == chat.activeConversationId)
           .firstOrNull;
@@ -644,6 +670,55 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _openSearchProfile(SkillSearchHit hit) async {
+    final search = _search;
+    final identity = _identity;
+    final generation = _loadGeneration;
+    // A background snapshot may have started before a connection was removed.
+    // Settle it before initiating this card's authorization read.
+    await _networkRefresh;
+    if (!mounted ||
+        identity != _identity ||
+        generation != _loadGeneration ||
+        !identical(search, _search) ||
+        widget.client.auth.currentUser?.id != identity) {
+      return;
+    }
+    final refreshed = await _refreshNetwork();
+    if (!mounted ||
+        identity != _identity ||
+        generation != _loadGeneration ||
+        !identical(search, _search) ||
+        widget.client.auth.currentUser?.id != identity) {
+      return;
+    }
+    if (!refreshed) {
+      _showMessage(
+        'Could not check this profile. Check your connection and retry.',
+      );
+      return;
+    }
+    final member = hit.id == _network.own?.id
+        ? _network.own
+        : _network.contacts.where((member) => member.id == hit.id).firstOrNull;
+    if (member == null) {
+      _showMessage('This profile is no longer available in your contacts.');
+      await search?.retry();
+      return;
+    }
+    await _openProfile(member);
+  }
+
+  Widget _searchAvatar(SkillSearchHit hit) {
+    if (hit.id == _identity) {
+      return ProfileAvatar(photo: _profile?.profile.photo, size: 65);
+    }
+    return _peerAvatar(
+      ChatPeer(id: hit.id, name: hit.name, occupation: hit.occupation),
+      size: 65,
+    );
+  }
+
   Future<void> _openProfile(MemberProfile member) async {
     final identity = _identity;
     final generation = _loadGeneration;
@@ -737,6 +812,9 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
           _openChat(context, thread.peer, conversationId: thread.id),
         ),
         chatAvatar: (peer) => _peerAvatar(peer, size: 65),
+        search: _search!,
+        onSearchProfile: _openSearchProfile,
+        searchAvatar: _searchAvatar,
         selectedTab: _tab,
         onSelected: (value) {
           unawaited(_profile!.flush());
@@ -842,6 +920,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     unawaited(_auth.cancel());
     WidgetsBinding.instance.removeObserver(this);
     _disposeChat();
+    _disposeSearch();
     _networkUpdates.dispose();
     _profile?.dispose();
     super.dispose();
@@ -991,6 +1070,9 @@ class _LiveContacts extends StatelessWidget {
     required this.chat,
     required this.onChat,
     required this.chatAvatar,
+    required this.search,
+    required this.onSearchProfile,
+    required this.searchAvatar,
     this.error,
   });
   final ProfileController profile;
@@ -1008,6 +1090,9 @@ class _LiveContacts extends StatelessWidget {
   final LiveChatController chat;
   final ValueChanged<ChatSummary> onChat;
   final Widget Function(ChatPeer) chatAvatar;
+  final SkillSearchController search;
+  final Future<void> Function(SkillSearchHit) onSearchProfile;
+  final Widget Function(SkillSearchHit) searchAvatar;
 
   @override
   Widget build(BuildContext context) => _EntryFrame(
@@ -1102,32 +1187,37 @@ class _LiveContacts extends StatelessWidget {
           Expanded(
             child: Stack(
               children: [
-                RefreshIndicator(
-                  onRefresh: onRefresh,
-                  child: ListView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.fromLTRB(37.5, 47, 37.5, 80),
-                    children: [
-                      ListenableBuilder(
-                        listenable: profile,
-                        builder: (context, _) => ContactRow(
-                          name: profile.profile.name,
-                          occupation: profile.profile.occupation,
-                          avatar: ProfileAvatar(
-                            photo: profile.profile.photo,
-                            size: 65,
+                SkillSearchView(
+                  controller: search,
+                  onOpen: onSearchProfile,
+                  avatarFor: searchAvatar,
+                  contacts: RefreshIndicator(
+                    onRefresh: onRefresh,
+                    child: ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.fromLTRB(37.5, 26, 37.5, 80),
+                      children: [
+                        ListenableBuilder(
+                          listenable: profile,
+                          builder: (context, _) => ContactRow(
+                            name: profile.profile.name,
+                            occupation: profile.profile.occupation,
+                            avatar: ProfileAvatar(
+                              photo: profile.profile.photo,
+                              size: 65,
+                            ),
+                            onOpen: () => onProfile(network.own!),
                           ),
-                          onOpen: () => onProfile(network.own!),
                         ),
-                      ),
-                      for (final member in network.contacts)
-                        _MemberRow(
-                          key: ValueKey('${member.id}:${member.avatarPath}'),
-                          member: member,
-                          api: api,
-                          onOpen: () => onProfile(member),
-                        ),
-                    ],
+                        for (final member in network.contacts)
+                          _MemberRow(
+                            key: ValueKey('${member.id}:${member.avatarPath}'),
+                            member: member,
+                            api: api,
+                            onOpen: () => onProfile(member),
+                          ),
+                      ],
+                    ),
                   ),
                 ),
                 Positioned(
