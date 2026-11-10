@@ -10,14 +10,14 @@ import uuid
 
 def run_sql(container, statement):
     result = subprocess.run(
-        ['docker', 'exec', '-i', container, 'psql', '-U', 'postgres', '-X', '-At', '-v', 'ON_ERROR_STOP=1'],
+        ['docker', 'exec', '-i', container, 'psql', '-U', 'postgres', '-d', sys.argv[2] if len(sys.argv) == 3 else 'postgres', '-X', '-At', '-v', 'ON_ERROR_STOP=1'],
         input=statement, text=True, capture_output=True, check=True,
     )
     return result.stdout.strip()
 
 
 def main():
-    if len(sys.argv) != 2 or not sys.argv[1].startswith('paul-'):
+    if len(sys.argv) not in (2, 3) or not sys.argv[1].startswith('paul-') or (len(sys.argv) == 3 and not sys.argv[2].startswith('paul_')):
         raise SystemExit('Pass the explicit isolated Paul test database container name.')
     container = sys.argv[1]
     a = '30000000-0000-4000-8000-000000000001'
