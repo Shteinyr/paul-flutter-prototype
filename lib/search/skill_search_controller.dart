@@ -11,7 +11,7 @@ class SkillSearchController extends ChangeNotifier {
   }) {
     _identity = repository.identityChanges.listen((userId) {
       if (userId != repository.userId) _invalidate();
-    }, onError: (Object _) => _invalidate());
+    }, onError: (Object _) => _identityError());
   }
   final SkillSearchRepository repository;
   final Duration debounce;
@@ -61,6 +61,19 @@ class SkillSearchController extends ChangeNotifier {
     error = null;
     pageError = null;
     selected = null;
+  }
+
+  void _identityError() {
+    if (_disposed || !_authorized) return;
+    if (repository.currentUserId != repository.userId) {
+      _invalidate();
+      return;
+    }
+    final skill = selected;
+    _reset();
+    selected = skill;
+    error = const SkillSearchException('server_unavailable').toString();
+    notifyListeners();
   }
 
   void setQuery(String value) {

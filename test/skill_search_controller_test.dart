@@ -235,6 +235,42 @@ void main() {
   );
 
   test(
+    'temporary identity stream error allows same-user recovery and retry',
+    () async {
+      await controller.select(marketing);
+      repository.identities.addError(StateError('Temporary stream failure'));
+      expect(controller.results, isEmpty);
+      expect(controller.error, isNotNull);
+      expect(controller.selected, marketing);
+      repository.identities.add('a');
+      await controller.retry();
+      expect(controller.error, isNull);
+      expect(controller.results.single.id, '1');
+      controller.setQuery('design');
+      await settle();
+      expect(repository.suggestions.last.$1, 'design');
+    },
+  );
+
+  test(
+    'stream error after a real identity switch cannot unlock old controller',
+    () async {
+      repository.currentUserId = 'b';
+      repository.identities.add('b');
+      repository.currentUserId = 'a';
+      repository.identities.addError(StateError('Temporary stream failure'));
+      repository.identities.add('a');
+      await controller.select(marketing);
+      await controller.retry();
+      controller.setQuery('mar');
+      await settle();
+      expect(repository.searches, isEmpty);
+      expect(repository.suggestions, isEmpty);
+      expect(controller.results, isEmpty);
+    },
+  );
+
+  test(
     'unknown exact skill is submitted unchanged and never substituted',
     () async {
       controller.setQuery('Unknown skill');
