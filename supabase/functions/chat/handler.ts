@@ -29,6 +29,7 @@ const statuses: Record<string, number> = {
   invalid_request: 400,
   invalid_message: 400,
   message_id_conflict: 409,
+  operation_id_conflict: 409,
   rate_limited: 429,
 };
 
@@ -88,6 +89,7 @@ export async function handleChat(request: Request, database: SupabaseClient) {
       history: ["conversation_id", "before_seq", "after_seq", "limit"],
       send: ["conversation_id", "client_message_id", "text"],
       read: ["conversation_id", "through_seq"],
+      disconnect: ["peer_id", "client_operation_id"],
     };
     const action = String(body.action);
     if (
@@ -109,7 +111,7 @@ export async function handleChat(request: Request, database: SupabaseClient) {
     if (budgetError) return reply(503, { code: "server_unavailable" });
     if (!withinBudget) return reply(429, { code: "rate_limited" });
     const args: Record<string, unknown> = { p_user: auth.user.id };
-    if (action === "open") {
+    if (action === "open" || action === "disconnect") {
       if (!uuid(body.peer_id)) return reply(400, { code: "invalid_request" });
       args.p_peer = body.peer_id;
     } else if (action !== "list") {
@@ -117,6 +119,12 @@ export async function handleChat(request: Request, database: SupabaseClient) {
         return reply(400, { code: "invalid_request" });
       }
       args.p_conversation = body.conversation_id;
+    }
+    if (action === "disconnect") {
+      if (!uuid(body.client_operation_id)) {
+        return reply(400, { code: "invalid_request" });
+      }
+      args.p_client_operation = body.client_operation_id;
     }
     if (action === "history") {
       if (
