@@ -29,7 +29,7 @@
 | P07 | [Getting Started — offered skills 1/3](https://www.figma.com/design/8tCP0Pg2UghSOPP5bIg9Ra/UI?node-id=61852-2320) | Реализовано в main |
 | P08 | [Searching Skills — 2/3](https://www.figma.com/design/8tCP0Pg2UghSOPP5bIg9Ra/UI?node-id=61852-2436) | Реализовано в main |
 | P09 | [About You — 3/3](https://www.figma.com/design/8tCP0Pg2UghSOPP5bIg9Ra/UI?node-id=61852-2551) | Подключён server callback |
-| P10 | [Chat — Push → Firebase / WebSocket setup](https://www.figma.com/design/8tCP0Pg2UghSOPP5bIg9Ra/UI?node-id=61825-5087) | Демонстрация |
+| P10 | [Chat — Push → Firebase / WebSocket setup](https://www.figma.com/design/8tCP0Pg2UghSOPP5bIg9Ra/UI?node-id=61825-5087) | Серверная приёмка, UI отдельно |
 | P11 | [Admin + User management](https://www.figma.com/design/8tCP0Pg2UghSOPP5bIg9Ra/UI?node-id=61818-2313) | Запланировано |
 | P12 | [Skill search + Filter](https://www.figma.com/design/8tCP0Pg2UghSOPP5bIg9Ra/UI?node-id=61818-2317) | Запланировано |
 | P13 | [Community reach out — Local](https://www.figma.com/design/8tCP0Pg2UghSOPP5bIg9Ra/UI?node-id=61818-2319) | Запланировано |
@@ -141,13 +141,15 @@ Google и Apple в проверяемом проекте ещё не настр�
 
 ## P10. Chat — Push → Firebase / WebSocket setup
 
-**Статус:** Демонстрация. [Макет](https://www.figma.com/design/8tCP0Pg2UghSOPP5bIg9Ra/UI?node-id=61825-5087).
+Серверная основа и клиентский API проверяются. Подключение интерфейса ведётся отдельно. [Макет](https://www.figma.com/design/8tCP0Pg2UghSOPP5bIg9Ra/UI?node-id=61825-5087).
 
 **Состав:** Список чатов, unread, входящие/исходящие сообщения, composer, аватары, уведомления. После одного сообщения с каждой стороны — связь и toast You're connected!
 
 **Приёмка:** Демо: ответить Julia → связь появляется один раз → открыть чат и сбросить unread. Продукт: обмен между двумя аккаунтами, повторная доставка, reconnect и push на реальном устройстве.
 
-**Граница и оставшаяся работа:** История, черновики, unread, локальные ответы и toast реализованы. Firebase/WebSocket, реальная доставка и FCM/APNs не подключены. Диалог с собой запрещён.
+Supabase сохраняет личные текстовые диалоги, участников, сообщения и read cursor. Третий аккаунт не читает и не пишет чужой диалог. Повтор client_message_id возвращает исходное сообщение, изменённый текст с тем же ID отклоняется. Удаление связи сохраняет историю и участие. Для повторного соединения нужны новые сообщения обеих сторон после удаления. Старые повторы сообщений, приглашений и удаления эту границу не меняют. Private Realtime передаёт только сигнал для повторной загрузки истории под серверными правами.
+
+Клиентский API/controller сохраняет pending ID и исходный текст до отправки, восстанавливает безопасный Retry после перезагрузки и разделяет локальное состояние по аккаунтам. Интерфейс текущей серверной переписки подключает отдельная задача. Outbox записывается атомарно с новым сообщением, браузерная доставка background push ещё не настроена. Native FCM/APNs отложены. Политика удаления аккаунта с историей требует отдельного решения, текущие FK блокируют такое удаление.
 
 <a id="p11"></a>
 

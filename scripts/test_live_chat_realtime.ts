@@ -64,7 +64,7 @@ async function subscribe(
       () => reject(new Error("Private channel subscription timed out")),
       20000,
     );
-    channel.subscribe((status) => {
+    channel.subscribe((status, error) => {
       if (status === "SUBSCRIBED") {
         clearTimeout(timer);
         denied
@@ -72,7 +72,13 @@ async function subscribe(
           : resolve();
       } else if (status === "CHANNEL_ERROR") {
         clearTimeout(timer);
-        denied ? resolve() : reject(new Error("Authorized inbox was rejected"));
+        const detail = String(error?.message ?? error ?? "").replace(
+          /https?:\/\/\S+/g,
+          "[url]",
+        ).replace(/[A-Za-z0-9_-]{30,}/g, "[redacted]");
+        denied
+          ? resolve()
+          : reject(new Error("Authorized inbox rejected " + detail));
       } else if (status === "TIMED_OUT") {
         clearTimeout(timer);
         reject(new Error("Channel timed out, authorization not verified"));
