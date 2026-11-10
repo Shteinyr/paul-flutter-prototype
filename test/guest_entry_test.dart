@@ -76,6 +76,15 @@ void main() {
       );
       await _previewReady(tester);
       expect(find.text('Join'), findsNothing);
+      await tester.tap(find.byKey(const Key('tab-0')));
+      await tester.pumpAndSettle();
+      expect(find.byType(GuestPreview), findsOneWidget);
+      expect(find.text('Join'), findsNothing);
+      expect(
+        tester.widget<InkWell>(find.byKey(const Key('tab-1'))).onTap,
+        isNull,
+      );
+      expect(requests, isEmpty);
       expect(find.text('Julia Robinson'), findsOneWidget);
       await tester.tap(find.text('Julia Robinson'));
       await tester.pumpAndSettle();
@@ -146,10 +155,7 @@ void main() {
       expect(actions, isEmpty);
       await tester.tap(find.byKey(const Key('tab-2')));
       await tester.pumpAndSettle();
-      expect(
-        find.text('Your invitation is ready. Continue to create your profile.'),
-        findsOneWidget,
-      );
+      expect(find.text('Continue with this invitation.'), findsOneWidget);
       expect(find.byKey(const Key('invite-code-input')), findsNothing);
       expect(actions, isEmpty);
       await tester.tap(find.text('Join').last);

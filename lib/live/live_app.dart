@@ -622,7 +622,7 @@ class _JoinViewState extends State<_JoinView> {
           Text(
             widget.pendingCredential == null
                 ? 'Enter your invitation code'
-                : 'Your invitation is ready. Continue to create your profile.',
+                : 'Continue with this invitation.',
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 15, fontWeight: FontWeight.w300),
           ),

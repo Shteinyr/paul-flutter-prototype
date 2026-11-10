@@ -48,7 +48,10 @@ class _GuestPreviewState extends State<GuestPreview> {
                   padding: const EdgeInsets.symmetric(horizontal: 28),
                   child: ProfileNavigation(
                     selected: 0,
-                    onSelected: (_) => widget.onRequireSignIn(),
+                    enabledTabs: const {0, 2, 3},
+                    onSelected: (index) {
+                      if (index != 0) widget.onRequireSignIn();
+                    },
                   ),
                 ),
                 const Padding(
