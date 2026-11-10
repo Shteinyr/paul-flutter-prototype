@@ -32,9 +32,9 @@ Flutter-приложение для профессиональных связе�
 
 ## Текущая база
 
-Локальный Flutter-прототип покрывает Profile → Contacts, публичные профили, навыки, локальный chat и демонстрации QR/Connect/уведомлений. Live-версия включает гостевой просмотр, контекстный вход, серверные приглашения, браузерные Clipboard/Share/Contact Picker, профили, связи и личную текстовую переписку на приёмке. Настройка Google/Apple, background push и аппаратная проверка системных диалогов имеют отдельные критерии.
+Локальный Flutter-прототип покрывает Profile → Contacts, публичные профили, навыки, локальный chat и демонстрации QR/Connect/уведомлений. Live-версия включает гостевой просмотр, контекстный вход, серверные приглашения, браузерные Clipboard/Share/Contact Picker, профили, связи, личную текстовую переписку и поиск навыков среди собственного профиля и прямых контактов. Техническая приёмка поиска и её границы зафиксированы в [P12](docs/PROJECT_SPEC.md#p12). Настройка Google/Apple, background push и аппаратная проверка системных диалогов имеют отдельные критерии.
 
-В репозитории находятся исходники Flutter, документация, задачи, шаблоны и workflow GitHub Actions. Локально прошли 108 Flutter VM tests, 6 Chrome tests, 2 packaging checks, анализ без замечаний, форматирование и release web build. Hosted Actions запускаются по отдельному разрешению.
+В репозитории находятся исходники Flutter, документация, задачи, шаблоны и workflow GitHub Actions. Для принятой версии поиска `5db83ad` прошли 132 Flutter VM tests, 6 Chrome tests, 2 packaging checks, 14 Deno tests, анализ без замечаний, форматирование и demo/live release web builds. Hosted Actions запускаются по отдельному разрешению.
 
 ## Порядок работы
 
@@ -85,6 +85,7 @@ The GitHub Actions workflow defines formatting, analysis, tests and a release we
 | `lib/chat/` | Local chat state/store, connection rules, simulated replies and conversation UI |
 | `lib/demo_connect.dart` | Demonstration QR / Connect / invite flow |
 | `lib/live/` | Supabase integration, protected contacts, registration host and rotating live QR |
+| `lib/search/` | RLS-scoped skill suggestions, All/Offering/Hiring, pagination and search state |
 | `lib/onboarding/` | P07–P09 steps and durable drafts |
 | `supabase/` | Migrations, invitation function and SQL regression |
 | `lib/demo_contacts.dart` | Fictional contact content |
