@@ -1,15 +1,27 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:paul_demo/admin/admin_api.dart';
 import 'package:paul_demo/admin/admin_view.dart';
+import 'package:paul_demo/admin/managed_profile_editor.dart';
 
 class _AdminRepository implements AdminRepository {
   Future<AdminAccess> Function() load = () async =>
       const AdminAccess('admin', []);
   @override
   Future<AdminAccess> context() => load();
+  @override
+  Future<Uint8List?> photo(ManagedProfile profile) async => null;
+  final commands = <String>[];
+  bool failSave = false;
+  @override
+  Future<void> command(Map<String, dynamic> fields) async {
+    commands.add(jsonEncode(fields));
+    if (failSave) throw TimeoutException('Lost response');
+  }
 }
 
 void main() {
@@ -81,6 +93,59 @@ void main() {
         find.text('Administrative access is unavailable for this account.'),
         findsOneWidget,
       );
+    },
+  );
+  testWidgets(
+    'managed draft cancel writes nothing and failed Save retries the original operation',
+    (tester) async {
+      final repository = _AdminRepository();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: TextButton(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => ManagedProfileEditor(
+                      repository: repository,
+                      profile: const ManagedProfile(
+                        id: 'managed-qa',
+                        name: 'Managed QA',
+                        canManage: true,
+                        canReply: true,
+                        summary: 'QA summary',
+                        skills: ['Design'],
+                        updatedAt: '2026-11-10T00:00:00Z',
+                      ),
+                    ),
+                  ),
+                ),
+                child: const Text('Open editor'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('Open editor'));
+      await tester.pumpAndSettle();
+      expect(repository.commands, isEmpty);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(repository.commands, isEmpty);
+      await tester.tap(find.text('Open editor'));
+      await tester.pumpAndSettle();
+      repository.failSave = true;
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+      expect(repository.commands, hasLength(1));
+      expect(find.text('Retry save'), findsOneWidget);
+      repository.failSave = false;
+      await tester.tap(find.text('Retry save'));
+      await tester.pumpAndSettle();
+      expect(repository.commands, hasLength(2));
+      expect(repository.commands[0], repository.commands[1]);
+      expect(find.text('Open editor'), findsOneWidget);
     },
   );
 }

@@ -16,7 +16,12 @@ function setup(denied = false, anonymous = false) {
           url,
           body: options?.body ? JSON.parse(String(options.body)) : null,
         });
-        const isContext = url.endsWith("/admin_context");
+        const isPrivileged = [
+          "/admin_context",
+          "/admin_prepare_create",
+          "/admin_authorize_save",
+          "/admin_save_profile",
+        ].some((path) => url.endsWith(path));
         const body = url.endsWith("/auth/v1/user")
           ? {
             id: actor,
@@ -27,10 +32,12 @@ function setup(denied = false, anonymous = false) {
           ? true
           : denied
           ? { message: "admin_forbidden", code: "P0001" }
+          : url.endsWith("/admin_prepare_create")
+          ? "43000000-0000-4000-8000-000000000010"
           : { role: "admin", profiles: [] };
         return Promise.resolve(
           new Response(JSON.stringify(body), {
-            status: isContext && denied ? 400 : 200,
+            status: isPrivileged && denied ? 400 : 200,
             headers: { "Content-Type": "application/json" },
           }),
         );
@@ -92,5 +99,63 @@ Deno.test("missing or anonymous Auth cannot access administration", async () => 
     (await handleAdmin(request({ action: "context" }, ""), database)).status ===
       401,
     "Bearer required",
+  );
+});
+
+Deno.test("create profile ID is allocated by the server and never chosen by the browser", async () => {
+  const { database, calls } = setup();
+  const response = await handleAdmin(
+    request({
+      action: "save",
+      create: true,
+      client_operation_id: actor,
+      profile: {
+        name: "Managed QA",
+        occupation: "",
+        summary: "Test",
+        skills: ["Design"],
+        searching_skills: [],
+      },
+    }),
+    database,
+  );
+  check(response.status === 200, "Create succeeds");
+  const args = calls.find((call) => call.url.endsWith("/admin_save_profile"))
+    ?.body as Record<string, unknown>;
+  check(
+    args.p_profile === "43000000-0000-4000-8000-000000000010",
+    "Only the reserved UUID reaches save",
+  );
+  const forged = await handleAdmin(
+    request({
+      action: "save",
+      create: true,
+      profile_id: actor,
+      client_operation_id: actor,
+      profile: {},
+    }),
+    database,
+  );
+  check(forged.status === 400, "Browser cannot reserve an Auth UUID");
+});
+Deno.test("photo upload requires a fresh server authorization", async () => {
+  const { database, calls } = setup(true);
+  const photo = new Uint8Array(24);
+  photo.set([137, 80, 78, 71, 13, 10, 26, 10]);
+  const response = await handleAdmin(
+    request({
+      action: "save",
+      create: false,
+      profile_id: actor,
+      client_operation_id: actor,
+      profile: {},
+      photo_base64: btoa(String.fromCharCode(...photo)),
+    }),
+    database,
+  );
+  check(response.status === 403, "Role denial prevents upload");
+  check(
+    calls.every((call) => !call.url.includes("/storage/")),
+    "No file upload before authorization",
   );
 });

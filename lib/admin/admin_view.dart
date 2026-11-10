@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../profile/public_profile_view.dart';
 import 'admin_api.dart';
+import 'managed_profile_editor.dart';
+import '../live/chat_api.dart';
 
 /// Each mount belongs to the host's current Auth identity. The repository pins
 /// that identity and the screen rechecks server access when it is opened.
@@ -81,6 +83,98 @@ class _AdminViewState extends State<AdminView> {
     _access = widget.repository.context();
   }
 
+  Future<void> _edit([ManagedProfile? profile]) async {
+    await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => ManagedProfileEditor(
+          repository: widget.repository,
+          profile: profile,
+        ),
+      ),
+    );
+    if (mounted) {
+      setState(() {
+        _access = widget.repository.context();
+      });
+    }
+  }
+
+  Future<void> _status(ManagedProfile profile) async {
+    final enabled = profile.disabledAt != null;
+    final command = <String, dynamic>{
+      'action': 'status',
+      'profile_id': profile.id,
+      'enabled': enabled,
+      'client_operation_id': newChatOperationId(),
+      'expected_updated_at': profile.updatedAt,
+    };
+    bool busy = false;
+    String? error;
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, update) => PopScope(
+          canPop: !busy,
+          child: AlertDialog(
+            title: Text(enabled ? 'Restore user?' : 'Disable user?'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(profile.name),
+                if (error != null)
+                  Text(error!, style: const TextStyle(fontSize: 12)),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: busy ? null : () => Navigator.pop(dialogContext),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: busy
+                    ? null
+                    : () async {
+                        update(() {
+                          busy = true;
+                          error = null;
+                        });
+                        try {
+                          await widget.repository.command(command);
+                          if (dialogContext.mounted) {
+                            Navigator.pop(dialogContext);
+                          }
+                        } catch (failure) {
+                          if (dialogContext.mounted) {
+                            update(() {
+                              busy = false;
+                              error = failure is AdminException
+                                  ? failure.toString()
+                                  : 'Could not update this profile. Please retry.';
+                            });
+                          }
+                        }
+                      },
+                child: Text(
+                  busy
+                      ? 'Saving…'
+                      : enabled
+                      ? 'Restore'
+                      : 'Disable',
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (mounted) {
+      setState(() {
+        _access = widget.repository.context();
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) => ProfilePage(
     title: 'Admin',
@@ -135,12 +229,45 @@ class _AdminViewState extends State<AdminView> {
                 'User management',
                 style: TextStyle(fontSize: 20, color: Color(0xFF14679E)),
               ),
-              const SizedBox(height: 28),
+              const SizedBox(height: 16),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: _edit,
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('Create user'),
+                ),
+              ),
+              const SizedBox(height: 20),
               if (access.profiles.isEmpty) const Text('No assigned profiles.'),
               for (final profile in access.profiles)
                 ListTile(
                   contentPadding: EdgeInsets.zero,
                   title: Text(profile.name),
+                  trailing: profile.canManage
+                      ? Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              tooltip: 'Edit user',
+                              onPressed: () => _edit(profile),
+                              icon: const Icon(Icons.edit_outlined, size: 20),
+                            ),
+                            IconButton(
+                              tooltip: profile.disabledAt == null
+                                  ? 'Disable user'
+                                  : 'Restore user',
+                              onPressed: () => _status(profile),
+                              icon: Icon(
+                                profile.disabledAt == null
+                                    ? Icons.pause_circle_outline
+                                    : Icons.play_circle_outline,
+                                size: 20,
+                              ),
+                            ),
+                          ],
+                        )
+                      : null,
                   subtitle: Text(
                     profile.disabledAt == null ? 'Active' : 'Disabled',
                   ),
