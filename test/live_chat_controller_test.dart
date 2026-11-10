@@ -123,6 +123,47 @@ void main() {
     await repository.close();
   });
   test(
+    'initial history failure recovers older-page availability from fetched sequence',
+    () async {
+      repository.server.addAll(
+        List.generate(150, (index) => message(index + 1, sender: 'b')),
+      );
+      await controller.load();
+      repository.historyLoading = (_, _, _) async =>
+          throw StateError('Temporary history failure');
+      await controller.openConversation('chat');
+      repository.historyLoading = null;
+      await controller.refresh();
+      expect(controller.messages('chat'), hasLength(100));
+      expect(controller.hasOlder('chat'), true);
+      await controller.loadOlder();
+      expect(controller.messages('chat'), hasLength(150));
+      expect(controller.hasOlder('chat'), false);
+    },
+  );
+  test(
+    'auth stream network error preserves draft and actual identity loss clears private UI',
+    () async {
+      await controller.load();
+      repository.sending = (_, _) async => throw StateError('Offline');
+      await controller.send('chat', 'Keep private draft');
+      repository.identities.addError(
+        StateError('Session refresh network error'),
+      );
+      expect(controller.draft('chat'), 'Keep private draft');
+      expect(controller.pending('chat'), hasLength(1));
+      expect(controller.error, isNotNull);
+      repository.identities.add('a');
+      await controller.refresh();
+      expect(controller.draft('chat'), 'Keep private draft');
+      repository.currentUserId = null;
+      repository.identities.addError(StateError('Identity unavailable'));
+      expect(controller.draft('chat'), '');
+      expect(controller.pending('chat'), isEmpty);
+      expect(controller.loaded, false);
+    },
+  );
+  test(
     'unreadable local journal blocks sending until it can be restored',
     () async {
       drafts.saved['a'] = '{broken';
