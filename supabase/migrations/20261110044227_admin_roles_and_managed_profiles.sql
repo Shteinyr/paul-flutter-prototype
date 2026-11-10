@@ -76,10 +76,13 @@ create function private.require_managed_profile(p_actor uuid,p_profile uuid,p_re
 returns void language plpgsql set search_path = '' as $$
 begin
   perform private.require_admin(p_actor);
-  perform 1 from private.managed_profile_grants g join public.profiles p on p.id=g.profile_id
+  -- Fixed role -> grant -> profile order also serializes disable/edit/reply.
+  perform 1 from private.managed_profile_grants g
     where g.user_id=p_actor and g.profile_id=p_profile and g.revoked_at is null
-      and p.profile_kind='managed' and (case when p_reply then g.can_reply else g.can_manage end)
-    for share of g;
+      and (case when p_reply then g.can_reply else g.can_manage end) for share;
+  if not found then raise exception 'managed_profile_forbidden'; end if;
+  perform 1 from public.profiles p where p.id=p_profile and p.profile_kind='managed'
+    and (not p_reply or p.disabled_at is null) for update;
   if not found then raise exception 'managed_profile_forbidden'; end if;
 end;
 $$;

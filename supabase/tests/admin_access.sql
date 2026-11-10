@@ -27,6 +27,12 @@ select pg_temp.assert_true(jsonb_array_length(public.admin_context('42000000-000
 select private.require_managed_profile('42000000-0000-4000-8000-000000000001','42000000-0000-4000-8000-000000000004');
 select pg_temp.expect_error($q$select private.require_managed_profile('42000000-0000-4000-8000-000000000001','42000000-0000-4000-8000-000000000005')$q$,'managed_profile_forbidden');
 select pg_temp.expect_error($q$select private.require_managed_profile('42000000-0000-4000-8000-000000000001','42000000-0000-4000-8000-000000000004',true)$q$,'managed_profile_forbidden');
+update private.managed_profile_grants set can_reply=true;
+update public.profiles set disabled_at=clock_timestamp() where id='42000000-0000-4000-8000-000000000004';
+select pg_temp.expect_error($q$select private.require_managed_profile('42000000-0000-4000-8000-000000000001','42000000-0000-4000-8000-000000000004',true)$q$,'managed_profile_forbidden');
+select private.require_managed_profile('42000000-0000-4000-8000-000000000001','42000000-0000-4000-8000-000000000004',false);
+update public.profiles set disabled_at=null where id='42000000-0000-4000-8000-000000000004';
+select private.require_managed_profile('42000000-0000-4000-8000-000000000001','42000000-0000-4000-8000-000000000004',true);
 update private.managed_profile_grants set revoked_at=clock_timestamp();
 select pg_temp.assert_true(jsonb_array_length(public.admin_context('42000000-0000-4000-8000-000000000001')->'profiles')=0,'Grant revocation is immediate');
 select pg_temp.expect_error($q$select private.require_managed_profile('42000000-0000-4000-8000-000000000001','42000000-0000-4000-8000-000000000004')$q$,'managed_profile_forbidden');
