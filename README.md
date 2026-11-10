@@ -32,7 +32,7 @@ Flutter-приложение для профессиональных связе�
 
 ## Текущая база
 
-Локальный Flutter-прототип покрывает Profile → Contacts, публичные профили, навыки, локальный chat и демонстрации QR/Connect/уведомлений. Live-версия включает гостевой просмотр, контекстный вход, серверные приглашения, браузерные Clipboard/Share/Contact Picker, профили, связи, личную текстовую переписку и поиск навыков среди собственного профиля и прямых контактов. Техническая приёмка поиска и её границы зафиксированы в [P12](docs/PROJECT_SPEC.md#p12). Настройка Google/Apple, background push и аппаратная проверка системных диалогов имеют отдельные критерии.
+Локальный Flutter-прототип покрывает Profile → Contacts, публичные профили, навыки, локальный chat и демонстрации QR/Connect/уведомлений. Live-версия включает гостевой просмотр, контекстный вход, серверные приглашения, браузерные Clipboard/Share/Contact Picker, профили, связи, личную текстовую переписку и поиск навыков среди собственного профиля и прямых контактов. Техническая приёмка поиска и её границы зафиксированы в [P12](docs/PROJECT_SPEC.md#p12). Браузерные Web Push подключены к серверной очереди Supabase. Реальная доставка в Chrome проверена, системное нажатие и окончательная матрица устройств имеют отдельную приёмку. Google/Apple OAuth остаётся внешней зависимостью.
 
 В репозитории находятся исходники Flutter, документация, задачи, шаблоны и workflow GitHub Actions. Для принятой версии поиска `5db83ad` прошли 132 Flutter VM tests, 6 Chrome tests, 2 packaging checks, 14 Deno tests, анализ без замечаний, форматирование и demo/live release web builds. Hosted Actions запускаются по отдельному разрешению.
 
@@ -105,7 +105,7 @@ The GitHub Actions workflow defines formatting, analysis, tests and a release we
 
 ## Live invitations and registration
 
-The web integration uses **supabase_flutter 2.18.3**, Supabase Auth, Postgres, private avatar Storage and the `invitations` Edge function. Apply the SQL files in `supabase/migrations/` in order. Their versions match the verified hosted migration history. The function validates the user through Supabase Auth and alone can execute its service-role RPCs.
+The web integration uses **supabase_flutter 2.18.3**, Supabase Auth, Postgres, private avatar Storage and the `invitations` Edge function. Use the staged schema and worker activation sequence described in Browser Web Push below. Their versions match the verified hosted migration history. The function validates the user through Supabase Auth and alone can execute its service-role RPCs.
 
 Build with a local JSON configuration containing `PAUL_LIVE`, `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY` and `PAUL_APP_URL`. The URL must be the actual browser origin. Only the publishable key belongs in this configuration.
 
@@ -139,7 +139,7 @@ Hosted activation is staged. Apply the 13 application-schema migrations through 
 
 The empty plain-Postgres unit bootstrap runs the 13 application migrations and excludes only `20261110154303_schedule_web_push_worker.sql`. That activation migration has a separate hosted gate checking the actual cron run and worker HTTP response. Both stages remain recorded in the complete hosted migration history.
 
-Local checks use `supabase/tests/web_push.sql`, `scripts/test_push_concurrency.py`, and `supabase/functions/push/handler_test.ts`. The concurrency script accepts only isolated Paul push database names. Deno dependency locks pin the push library and transitive dependencies. Real background browser delivery has a separate joint acceptance gate.
+Local checks use `supabase/tests/web_push.sql`, `scripts/test_push_concurrency.py`, and `supabase/functions/push/handler_test.ts`. The concurrency script accepts only isolated Paul push database names. Deno dependency locks pin the push library and transitive dependencies. Real Chrome provider delivery passed for ordinary and operator recipients, including closed application tabs while Chrome remained running. The application click handlers passed synthetic-event and URL tests. A genuine operating-system notification tap and the final browser/device matrix remain open acceptance criteria in #69/#41.
 
 ## Live text chat
 
@@ -151,7 +151,7 @@ Realtime Settings must have Allow public access disabled. The Paul project is co
 
 `LiveChatController` persists the operation ID, exact text and account-scoped drafts in the current tab’s sessionStorage before sending. A failed acknowledgement remains retryable across reload of that tab. Different tabs keep independent journals. A new tab that copies its opener’s session state safely retries the same operation ID. Private Realtime inboxes send metadata-only invalidations, and the client fetches authorized history again on subscription/reconnect. The membership host calls pause/resume with visibility, closes the active conversation on departure and disposes the controller on account replacement. Pending text becomes sent only after server acknowledgement or recovery of the persisted message.
 
-The isolated SQL gates are `supabase/tests/chat.sql` and `chat_realtime.sql`. `bootstrap.sql` is a minimal stand-in for an empty local Postgres container and must stay local. `scripts/test_chat_concurrency.py` accepts its explicit container name. Live HTTP and Realtime runners require public configuration and a private, explicitly assigned disposable QA fixture. The browser UI is integrated and under acceptance. Its two-account HTTPS gate passed history, unread/read, lost acknowledgement, manual same-UUID retry, independent tab journals/drafts, connection removal/restoration and cross-tab logout with zero page errors. Browser background push delivery has separate acceptance criteria. The outbox records events for that later delivery integration.
+The isolated SQL gates are `supabase/tests/chat.sql` and `chat_realtime.sql`. `bootstrap.sql` is a minimal stand-in for an empty local Postgres container and must stay local. `scripts/test_chat_concurrency.py` accepts its explicit container name. Live HTTP and Realtime runners require public configuration and a private, explicitly assigned disposable QA fixture. The browser UI is integrated and under acceptance. Its two-account HTTPS gate passed history, unread/read, lost acknowledgement, manual same-UUID retry, independent tab journals/drafts, connection removal/restoration and cross-tab logout with zero page errors. The outbox feeds the browser Web Push worker described above. System notification activation and the final device matrix retain separate acceptance criteria.
 
 ## Next production stage
 
