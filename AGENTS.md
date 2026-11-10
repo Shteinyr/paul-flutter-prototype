@@ -14,4 +14,4 @@ Use Refs in PRs while client acceptance is outstanding. A merge or successful ch
 
 A fresh live session opens read-only demonstration Contacts, profiles and skill lists. Protected actions open contextual Join. An incoming invitation remains pending until deliberate continuation. Registration follows invitation → P07 → optional P08 → P09 → OAuth → server finalization. An active membership session opens the real product. Logout returns to guest preview. Guest sample data and the onboarding draft have separate state. P16 remains a broader separate scope.
 
-Paul has no Apple Developer account yet. Google consent and actual external-provider acceptance remain external P06 criteria. QA Auth sessions verify the application and server flow.
+Paul has created an Apple Developer account. Active Program membership, account type, agreements and developer access remain unverified. Google consent and actual external-provider acceptance remain external P06 criteria. QA Auth sessions verify the application and server flow.
