@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/material.dart';
+import 'package:paul_demo/push/push_settings.dart';
 import 'package:paul_demo/push/push_api.dart';
 import 'package:paul_demo/push/push_browser_types.dart';
 import 'package:paul_demo/push/push_controller.dart';
@@ -15,6 +17,7 @@ class Browser implements PushBrowser {
     permission: 'default',
   );
   String consent = 'granted';
+  bool failIdentity = false;
   int prompts = 0;
   int prepares = 0;
   int commits = 0;
@@ -25,7 +28,10 @@ class Browser implements PushBrowser {
   @override
   PushClick? takeClick() => null;
   @override
-  Future<void> identity(String? userId, String? sessionId) async {}
+  Future<void> identity(String? userId, String? sessionId) async {
+    if (failIdentity) throw StateError('Synthetic storage failure');
+  }
+
   @override
   Future<BrowserPushState> inspect() async => state;
   @override
@@ -253,6 +259,25 @@ void main() {
       controller.dispose();
     },
   );
+  testWidgets('initial browser storage failure offers a working retry', (
+    tester,
+  ) async {
+    final browser = Browser()..failIdentity = true;
+    final controller = PushController(browser, Repository());
+    await controller.initialize();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: PushSettings(controller: controller)),
+      ),
+    );
+    expect(find.text('Retry notifications'), findsOneWidget);
+    browser.failIdentity = false;
+    await tester.tap(find.text('Retry notifications'));
+    await tester.pumpAndSettle();
+    expect(find.text('Enable notifications'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+    controller.dispose();
+  });
   test(
     'untrusted click identifiers and older unreleased payload are rejected',
     () {

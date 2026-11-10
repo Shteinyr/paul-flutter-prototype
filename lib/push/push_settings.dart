@@ -14,6 +14,8 @@ class PushSettings extends StatelessWidget {
           state.supported && controller.configuration?.enabled == true;
       final status = !controller.ready
           ? 'Checking notification support…'
+          : controller.error != null
+          ? 'Notification setup did not finish.'
           : !state.supported
           ? 'Notifications are unavailable in this browser.'
           : denied
@@ -46,7 +48,8 @@ class PushSettings extends StatelessWidget {
                 textAlign: TextAlign.center,
                 style: const TextStyle(fontSize: 12),
               ),
-            if (controller.ready && state.supported)
+            if (controller.ready &&
+                (state.supported || controller.error != null))
               TextButton(
                 key: const Key('push-settings-action'),
                 onPressed: controller.busy

@@ -13,7 +13,7 @@
   function supported() {
     return window.isSecureContext && window.top === window &&
       'Notification' in window && 'PushManager' in window &&
-      'serviceWorker' in navigator && 'locks' in navigator && 'indexedDB' in window;
+      'serviceWorker' in navigator && 'locks' in navigator && 'indexedDB' in window && !!window.crypto?.subtle;
   }
   function record(change) {
     return new Promise((resolve, reject) => {
@@ -67,11 +67,25 @@
     if (bytes.length !== 65 || bytes[0] !== 4) throw new Error('invalid_configuration');
     return bytes;
   }
+  async function fingerprint(subscription) {
+    const value = subscription.toJSON();
+    const source = JSON.stringify([value.endpoint, value.expirationTime, value.keys?.p256dh, value.keys?.auth]);
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(source));
+    return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+  }
   async function inspect() {
     if (!supported()) return {supported: false, permission: 'unsupported'};
     const reg = await registration();
     const subscription = reg ? await reg.pushManager.getSubscription() : null;
-    const binding = await record();
+    let binding = await record();
+    if (subscription && binding?.user_id === identity && binding?.session_id === session) {
+      const hash = await fingerprint(subscription);
+      if (binding.subscription_hash !== hash) {
+        const expected = binding;
+        binding = await record(current => current?.binding_id === expected.binding_id &&
+          current?.session_id === expected.session_id ? {...current, active: false} : current);
+      }
+    }
     return {supported: true, permission: Notification.permission,
       binding: subscription && binding?.user_id === identity && binding?.session_id === session ? binding : null};
   }
@@ -108,7 +122,8 @@
       let binding = await record();
       let expectedRevision = binding?.revision;
       let subscription = await reg.pushManager.getSubscription();
-      if (!subscription || binding?.user_id !== userId || binding?.session_id !== session || binding?.public_key !== publicKey) {
+      const priorHash = subscription ? await fingerprint(subscription) : null;
+      if (!subscription || binding?.user_id !== userId || binding?.session_id !== session || binding?.public_key !== publicKey || binding?.subscription_hash !== priorHash) {
         // A new identity receives a fresh endpoint, never the prior account's endpoint.
         const cleared = await record(() => ({user_id: null, active: false, revision: crypto.randomUUID()}));
         expectedRevision = cleared.revision;
@@ -119,8 +134,9 @@
       current(userId, version);
       subscription ||= await reg.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: keyBytes(publicKey)});
       current(userId, version);
+      const hash = await fingerprint(subscription);
       binding ||= {user_id: userId, session_id: session, binding_id: crypto.randomUUID(), public_key: publicKey,
-        active: false, revision: crypto.randomUUID()};
+        active: false, subscription_hash: hash, revision: crypto.randomUUID()};
       await record(old => {
         current(userId, version);
         if (old?.revision !== expectedRevision) throw new Error('identity_changed');
