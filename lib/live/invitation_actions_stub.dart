@@ -6,6 +6,17 @@ InvitationActions createInvitationActions() => _FallbackActions();
 
 class _FallbackActions implements InvitationActions {
   @override
+  bool get canPickContacts => false;
+
+  @override
+  Future<InvitationContactSelection> pickContacts() async =>
+      const InvitationContactSelection(InvitationActionResult.unavailable);
+
+  @override
+  Future<InvitationActionResult> openSms(String number) async =>
+      InvitationActionResult.unavailable;
+
+  @override
   bool get canShare => false;
 
   @override

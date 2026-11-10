@@ -14,6 +14,7 @@ void _run(String code) => _eval(code.toJS);
 void main() {
   setUp(
     () => _run('''
+    globalThis.originalContacts = Object.getOwnPropertyDescriptor(navigator, 'contacts');
     globalThis.originalShare = Object.getOwnPropertyDescriptor(navigator, 'share');
     globalThis.originalClipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
     globalThis.sharedText = null;
@@ -22,13 +23,18 @@ void main() {
   );
   tearDown(
     () => _run('''
-    for (const [key, descriptor] of [['share', originalShare], ['clipboard', originalClipboard]]) {
+    for (const [key, descriptor] of [['share', originalShare], ['clipboard', originalClipboard], ['contacts', originalContacts]]) {
       if (descriptor) Object.defineProperty(navigator, key, descriptor);
       else delete navigator[key];
     }
     delete globalThis.sharedText;
     delete globalThis.copiedText;
     delete globalThis.originalShare;
+    delete globalThis.originalContacts;
+    if (globalThis.smsInterceptor) document.removeEventListener('click', smsInterceptor, true);
+    delete globalThis.smsInterceptor;
+    delete globalThis.smsHref;
+    delete globalThis.contactProperties;
     delete globalThis.originalClipboard;
   '''),
   );
@@ -78,6 +84,48 @@ void main() {
       }});
     ''');
       expect(await actions.copy('synthetic'), InvitationActionResult.denied);
+    },
+  );
+
+  test('embedded context refuses contact access even if API exists', () async {
+    _run('''
+      Object.defineProperty(navigator, 'contacts', {configurable: true, value: {
+        select: () => { throw new Error('Embedded context must not request contacts'); }
+      }});
+    ''');
+    final actions = createInvitationActions();
+    expect(actions.canPickContacts, isFalse);
+    expect(
+      (await actions.pickContacts()).result,
+      InvitationActionResult.unavailable,
+    );
+  });
+
+  test(
+    'SMS request uses one recipient without body and is intercepted before OS launch',
+    () async {
+      _run('''
+      globalThis.smsHref = null;
+      globalThis.smsInterceptor = event => {
+        const link = event.target.closest('a');
+        if (link && link.protocol === 'sms:') {
+          event.preventDefault();
+          globalThis.smsHref = link.getAttribute('href');
+        }
+      };
+      document.addEventListener('click', smsInterceptor, true);
+    ''');
+      final actions = createInvitationActions();
+      expect(
+        await actions.openSms('+1 (202) 555-0101'),
+        InvitationActionResult.completed,
+      );
+      expect((_eval('smsHref'.toJS) as JSString).toDart, 'sms:+12025550101');
+      expect(
+        await actions.openSms('123;456?body=synthetic'),
+        InvitationActionResult.failed,
+      );
+      expect((_eval('smsHref'.toJS) as JSString).toDart, 'sms:+12025550101');
     },
   );
 }
