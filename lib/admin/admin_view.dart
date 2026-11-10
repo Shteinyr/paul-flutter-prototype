@@ -6,6 +6,14 @@ import 'managed_profile_editor.dart';
 import 'operator_inbox_view.dart';
 import '../live/chat_api.dart';
 
+Future<AdminAccess> _loadAccess(AdminRepository repository) {
+  final future = Future<AdminAccess>.sync(repository.context);
+  // Route-return refreshes can finish before FutureBuilder subscribes or after
+  // its route is removed. Handle errors now and retain the result for the UI.
+  future.ignore();
+  return future;
+}
+
 /// Each mount belongs to the host's current Auth identity. The repository pins
 /// that identity and the screen rechecks server access when it is opened.
 class AdminEntry extends StatefulWidget {
@@ -20,7 +28,7 @@ class _AdminEntryState extends State<AdminEntry> {
   @override
   void initState() {
     super.initState();
-    _access = widget.repository.context();
+    _access = _loadAccess(widget.repository);
   }
 
   @override
@@ -36,7 +44,7 @@ class _AdminEntryState extends State<AdminEntry> {
         }
         return TextButton(
           onPressed: () => setState(() {
-            _access = widget.repository.context();
+            _access = _loadAccess(widget.repository);
           }),
           child: const Text('Retry Admin access'),
         );
@@ -52,7 +60,7 @@ class _AdminEntryState extends State<AdminEntry> {
           );
           if (mounted) {
             setState(() {
-              _access = widget.repository.context();
+              _access = _loadAccess(widget.repository);
             });
           }
         },
@@ -81,7 +89,7 @@ class _AdminViewState extends State<AdminView> {
   @override
   void initState() {
     super.initState();
-    _access = widget.repository.context();
+    _access = _loadAccess(widget.repository);
   }
 
   Future<void> _edit([ManagedProfile? profile]) async {
@@ -95,7 +103,7 @@ class _AdminViewState extends State<AdminView> {
     );
     if (mounted) {
       setState(() {
-        _access = widget.repository.context();
+        _access = _loadAccess(widget.repository);
       });
     }
   }
@@ -114,7 +122,7 @@ class _AdminViewState extends State<AdminView> {
     );
     if (mounted) {
       setState(() {
-        _access = widget.repository.context();
+        _access = _loadAccess(widget.repository);
       });
     }
   }
@@ -190,7 +198,7 @@ class _AdminViewState extends State<AdminView> {
     );
     if (mounted) {
       setState(() {
-        _access = widget.repository.context();
+        _access = _loadAccess(widget.repository);
       });
     }
   }
@@ -219,7 +227,7 @@ class _AdminViewState extends State<AdminView> {
                   ),
                   TextButton(
                     onPressed: () => setState(() {
-                      _access = widget.repository.context();
+                      _access = _loadAccess(widget.repository);
                     }),
                     child: const Text('Retry'),
                   ),
@@ -231,7 +239,7 @@ class _AdminViewState extends State<AdminView> {
         final access = snapshot.requireData;
         return RefreshIndicator(
           onRefresh: () async {
-            final future = widget.repository.context();
+            final future = _loadAccess(widget.repository);
             setState(() {
               _access = future;
             });
