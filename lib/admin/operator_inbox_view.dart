@@ -33,6 +33,10 @@ class _OperatorInboxViewState extends State<OperatorInboxView>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    final repository = widget.repository;
+    if (repository is OperatorChatApi) {
+      repository.disabled = widget.profile.disabledAt != null;
+    }
     _chat = LiveChatController(
       widget.repository,
       widget.actorId,
@@ -70,7 +74,6 @@ class _OperatorInboxViewState extends State<OperatorInboxView>
             ownAvatar: const ProfileAvatar(size: 30),
             peerAvatar: const ProfileAvatar(size: 30),
             replyingAs: widget.profile.name,
-            canSend: widget.profile.disabledAt == null,
           ),
         ),
       );
