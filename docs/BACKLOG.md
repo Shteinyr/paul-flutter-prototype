@@ -23,7 +23,7 @@
 - [ ] [#10](https://github.com/Shteinyr/paul-flutter-prototype/issues/10) **P09 — About You — 3/3**. Статус базы: Частично. [Требования и приёмка](PROJECT_SPEC.md#p09)
 - [ ] [#11](https://github.com/Shteinyr/paul-flutter-prototype/issues/11) **P10 — Chat — Push → Firebase / WebSocket setup**. Статус базы: Демонстрация. [Требования и приёмка](PROJECT_SPEC.md#p10)
 - [ ] [#12](https://github.com/Shteinyr/paul-flutter-prototype/issues/12) **P11 — Admin + User management**. Статус базы: Запланировано. [Требования и приёмка](PROJECT_SPEC.md#p11)
-- [ ] [#13](https://github.com/Shteinyr/paul-flutter-prototype/issues/13) **P12 — Skill search + Filter**. Статус базы: Запланировано. [Требования и приёмка](PROJECT_SPEC.md#p12)
+- [ ] [#13](https://github.com/Shteinyr/paul-flutter-prototype/issues/13) **P12 — Skill search + Filter**. Техническая приёмка #45/#46 пройдена для собственного профиля и прямых контактов. Окончательная аудитория и клиентская приёмка открыты. [Требования и приёмка](PROJECT_SPEC.md#p12)
 - [ ] [#14](https://github.com/Shteinyr/paul-flutter-prototype/issues/14) **P13 — Community reach out — Local**. Статус базы: Запланировано. [Требования и приёмка](PROJECT_SPEC.md#p13)
 - [ ] [#15](https://github.com/Shteinyr/paul-flutter-prototype/issues/15) **P14 — Connections — Search — Hiring — Chat**. Статус базы: Частично. [Требования и приёмка](PROJECT_SPEC.md#p14)
 - [ ] [#16](https://github.com/Shteinyr/paul-flutter-prototype/issues/16) **P15 — Pop-ups**. Статус базы: Частично. [Требования и приёмка](PROJECT_SPEC.md#p15)
