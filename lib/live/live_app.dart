@@ -674,6 +674,16 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     final search = _search;
     final identity = _identity;
     final generation = _loadGeneration;
+    // A background snapshot may have started before a connection was removed.
+    // Settle it before initiating this card's authorization read.
+    await _networkRefresh;
+    if (!mounted ||
+        identity != _identity ||
+        generation != _loadGeneration ||
+        !identical(search, _search) ||
+        widget.client.auth.currentUser?.id != identity) {
+      return;
+    }
     final refreshed = await _refreshNetwork();
     if (!mounted ||
         identity != _identity ||

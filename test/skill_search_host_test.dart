@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -21,20 +22,33 @@ class _Json extends Fake implements YAJsonIsolate {
   Future<dynamic> decode(String value) async => jsonDecode(value);
 }
 
+class _SignaledChatRepository extends QuietChatRepository {
+  _SignaledChatRepository(super.client);
+  final signals = StreamController<String>.broadcast(sync: true);
+  @override
+  Stream<String> watch() => signals.stream;
+}
+
 void main() {
   setUpAll(() async {
     await (FontLoader(
       'NotoSans',
     )..addFont(rootBundle.load('assets/fonts/NotoSans.ttf'))).load();
   });
-  for (final disconnectBeforeOpen in [false, true]) {
+  for (final (disconnectBeforeOpen, delayedRead, backgroundRead) in [
+    (false, false, false),
+    (true, false, false),
+    (true, true, false),
+    (true, true, true),
+  ]) {
     testWidgets(
-      'Contacts search rechecks card access, disconnected=$disconnectBeforeOpen',
+      'Contacts card access, disconnected=$disconnectBeforeOpen delayed=$delayedRead background=$backgroundRead',
       (tester) async {
         const actor = '10000000-0000-4000-8000-000000000001';
         const peer = '10000000-0000-4000-8000-000000000002';
         var connected = true;
         var networkReads = 0;
+        Completer<void>? nextNetwork;
         Map<String, dynamic> profile(String id, String name) => {
           'id': id,
           'name': name,
@@ -68,6 +82,9 @@ void main() {
               'profile': profile(actor, 'Self QA'),
               'contacts': connected ? [profile(peer, 'Search Peer QA')] : [],
             };
+            final delayed = nextNetwork;
+            nextNetwork = null;
+            if (delayed != null) await delayed.future;
           } else if (request.url.path.endsWith('/skill-search')) {
             final action = (jsonDecode(request.body) as Map)['action'];
             data = action == 'suggest'
@@ -107,6 +124,7 @@ void main() {
           isolate: _Json(),
           authOptions: const AuthClientOptions(autoRefreshToken: false),
         );
+        final chat = _SignaledChatRepository(client);
         try {
           await client.auth.signInWithPassword(
             email: 'a@example.invalid',
@@ -116,7 +134,7 @@ void main() {
             PaulLiveApp(
               client: client,
               appUrl: Uri.parse('https://test.invalid'),
-              chatRepositoryFor: (_) => QuietChatRepository(client),
+              chatRepositoryFor: (_) => chat,
               draftPreferences: DraftPreferences(),
             ),
           );
@@ -130,8 +148,21 @@ void main() {
           await tester.tap(find.byKey(const ValueKey('suggest-marketing')));
           await tester.pumpAndSettle();
           final before = networkReads;
+          final gate = delayedRead ? Completer<void>() : null;
+          nextNetwork = gate;
+          if (backgroundRead) {
+            chat.signals.add('refresh');
+            await tester.pump();
+            expect(networkReads, before + 1);
+          }
           if (disconnectBeforeOpen) connected = false;
           await tester.tap(find.byKey(const ValueKey('skill-result-$peer')));
+          if (delayedRead) {
+            await tester.pump();
+            expect(find.text('Opening profile…'), findsOneWidget);
+            expect(find.byType(PublicProfileView), findsNothing);
+            gate!.complete();
+          }
           await tester.pumpAndSettle();
           expect(networkReads, greaterThan(before));
           expect(
@@ -154,6 +185,7 @@ void main() {
         } finally {
           await tester.pumpWidget(const SizedBox.shrink());
           await tester.runAsync(client.dispose);
+          await chat.signals.close();
         }
       },
     );
