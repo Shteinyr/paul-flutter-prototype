@@ -150,8 +150,14 @@ class _GuestPreviewState extends State<GuestPreview> {
 
 /// Initialization failures still leave the read-only product available.
 class GuestUnavailableApp extends StatelessWidget {
-  const GuestUnavailableApp({super.key, required this.onRetry});
+  const GuestUnavailableApp({
+    super.key,
+    required this.onRetry,
+    this.message =
+        'Could not connect to Paul. You can keep exploring the preview or retry to sign in.',
+  });
   final VoidCallback onRetry;
+  final String message;
 
   @override
   Widget build(BuildContext context) => MaterialApp(
@@ -169,9 +175,7 @@ class GuestUnavailableApp extends StatelessWidget {
           context: context,
           builder: (dialogContext) => AlertDialog(
             title: const Text('Connection unavailable'),
-            content: const Text(
-              'Could not connect to Paul. You can keep exploring the preview or retry to sign in.',
-            ),
+            content: Text(message),
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(dialogContext).pop(),
