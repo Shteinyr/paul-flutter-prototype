@@ -122,6 +122,18 @@ Google/Apple provider setup and their real OAuth acceptance remain pending. Clie
 
 Focused local checks include `test/invitation_controller_test.dart`, `test/live_app_auth_test.dart` and `supabase/tests/invitations.sql`. `scripts/test_live_invitations.py` runs against explicitly prepared disposable QA identities supplied through a private fixture. Its basic phase requires fresh inactive invitees. Keep fixture contents, tokens and invitation links out of command output and commits.
 
+## Live text chat
+
+The `chat` Edge function verifies every bearer with Auth and calls service-only RPCs. Apply the chat migrations in order, then deploy `supabase/functions/chat/index.ts` together with `handler.ts`. Participants alone can read persistent conversations, roster and messages. A conversation starts with a direct contact. Self-chat is rejected. Message text supports 2000 grapheme clusters within 64 KiB of UTF-8, preserves its original payload and excludes NUL or blank-only input.
+
+Realtime Settings must have Allow public access disabled. The Paul project is configured this way. `test_live_chat_realtime.ts` accepts `--require-private-only` after the two fixture paths to verify that authenticated public-mode and anonymous default-mode subscriptions are both rejected while authorized private signals still work.
+
+`lib/live/chat_api.dart` exposes list/open/history/send/read/disconnect. History uses strict sequence cursors and bounded pages. Repeating an author/conversation/client-message ID returns the same message. Changing its text conflicts. A private notification event is stored in the same transaction as each new message. Deleting a connection retains the existing dialogue. Reconnecting requires fresh messages from both participants after removal. Repeated removal uses its original operation ID, and cannot delete a connection recreated since that operation.
+
+`LiveChatController` persists the operation ID, exact text and account-scoped drafts in the current tab’s sessionStorage before sending. A failed acknowledgement remains retryable across reload of that tab. Different tabs keep independent journals. A new tab that copies its opener’s session state safely retries the same operation ID. Private Realtime inboxes send metadata-only invalidations, and the client fetches authorized history again on subscription/reconnect. The host must call pause/resume with visibility, closeConversation when leaving the chat, and dispose the controller on account replacement. Pending text becomes sent only after server acknowledgement or recovery of the persisted message.
+
+The isolated SQL gates are `supabase/tests/chat.sql` and `chat_realtime.sql`. `bootstrap.sql` is a minimal stand-in for an empty local Postgres container and must stay local. `scripts/test_chat_concurrency.py` accepts its explicit container name. Live HTTP and Realtime runners require public configuration and a private, explicitly assigned disposable QA fixture. UI connection and browser background push delivery have separate acceptance criteria. The outbox currently records events, with delivery remaining unconfigured.
+
 ## Next production stage
 
 See the [MVP backlog](docs/MVP_BACKLOG.md) for the remaining acceptance criteria and integration dependencies.
