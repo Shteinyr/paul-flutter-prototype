@@ -1,6 +1,8 @@
 import 'dart:typed_data';
 
 import '../profile/user_profile.dart';
+import '../live/chat_api.dart';
+import 'operator_chat_api.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class AdminException implements Exception {
@@ -75,6 +77,8 @@ class ManagedProfile {
 }
 
 abstract interface class AdminRepository {
+  String get userId;
+  ChatRepository operatorFor(String profileId);
   Future<AdminAccess> context();
   Future<Uint8List?> photo(ManagedProfile profile);
   Future<void> command(Map<String, dynamic> fields);
@@ -83,6 +87,7 @@ abstract interface class AdminRepository {
 class SupabaseAdminApi implements AdminRepository {
   const SupabaseAdminApi(this.client, this.userId);
   final SupabaseClient client;
+  @override
   final String userId;
 
   void _checkIdentity() {
@@ -91,7 +96,7 @@ class SupabaseAdminApi implements AdminRepository {
     }
   }
 
-  Future<Map<String, dynamic>> _call(Map<String, dynamic> fields) async {
+  Future<Map<String, dynamic>> request(Map<String, dynamic> fields) async {
     _checkIdentity();
     final token = client.auth.currentSession?.accessToken;
     if (token == null) throw const AdminException('sign_in_required');
@@ -118,7 +123,7 @@ class SupabaseAdminApi implements AdminRepository {
 
   @override
   Future<AdminAccess> context() async {
-    final data = await _call({'action': 'context'});
+    final data = await request({'action': 'context'});
     return AdminAccess(
       data['role'] as String,
       (data['profiles'] as List)
@@ -143,6 +148,10 @@ class SupabaseAdminApi implements AdminRepository {
 
   @override
   Future<void> command(Map<String, dynamic> fields) async {
-    await _call(fields);
+    await request(fields);
   }
+
+  @override
+  ChatRepository operatorFor(String profileId) =>
+      OperatorChatApi(this, profileId);
 }

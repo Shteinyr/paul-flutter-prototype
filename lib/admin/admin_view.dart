@@ -3,7 +3,16 @@ import 'package:flutter/material.dart';
 import '../profile/public_profile_view.dart';
 import 'admin_api.dart';
 import 'managed_profile_editor.dart';
+import 'operator_inbox_view.dart';
 import '../live/chat_api.dart';
+
+Future<AdminAccess> _loadAccess(AdminRepository repository) {
+  final future = Future<AdminAccess>.sync(repository.context);
+  // Route-return refreshes can finish before FutureBuilder subscribes or after
+  // its route is removed. Handle errors now and retain the result for the UI.
+  future.ignore();
+  return future;
+}
 
 /// Each mount belongs to the host's current Auth identity. The repository pins
 /// that identity and the screen rechecks server access when it is opened.
@@ -19,7 +28,7 @@ class _AdminEntryState extends State<AdminEntry> {
   @override
   void initState() {
     super.initState();
-    _access = widget.repository.context();
+    _access = _loadAccess(widget.repository);
   }
 
   @override
@@ -35,7 +44,7 @@ class _AdminEntryState extends State<AdminEntry> {
         }
         return TextButton(
           onPressed: () => setState(() {
-            _access = widget.repository.context();
+            _access = _loadAccess(widget.repository);
           }),
           child: const Text('Retry Admin access'),
         );
@@ -51,7 +60,7 @@ class _AdminEntryState extends State<AdminEntry> {
           );
           if (mounted) {
             setState(() {
-              _access = widget.repository.context();
+              _access = _loadAccess(widget.repository);
             });
           }
         },
@@ -80,7 +89,7 @@ class _AdminViewState extends State<AdminView> {
   @override
   void initState() {
     super.initState();
-    _access = widget.repository.context();
+    _access = _loadAccess(widget.repository);
   }
 
   Future<void> _edit([ManagedProfile? profile]) async {
@@ -94,7 +103,26 @@ class _AdminViewState extends State<AdminView> {
     );
     if (mounted) {
       setState(() {
-        _access = widget.repository.context();
+        _access = _loadAccess(widget.repository);
+      });
+    }
+  }
+
+  Future<void> _inbox(ManagedProfile profile) async {
+    final repository = widget.repository.operatorFor(profile.id);
+    final actorId = widget.repository.userId;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => OperatorInboxView(
+          repository: repository,
+          actorId: actorId,
+          profile: profile,
+        ),
+      ),
+    );
+    if (mounted) {
+      setState(() {
+        _access = _loadAccess(widget.repository);
       });
     }
   }
@@ -170,7 +198,7 @@ class _AdminViewState extends State<AdminView> {
     );
     if (mounted) {
       setState(() {
-        _access = widget.repository.context();
+        _access = _loadAccess(widget.repository);
       });
     }
   }
@@ -199,7 +227,7 @@ class _AdminViewState extends State<AdminView> {
                   ),
                   TextButton(
                     onPressed: () => setState(() {
-                      _access = widget.repository.context();
+                      _access = _loadAccess(widget.repository);
                     }),
                     child: const Text('Retry'),
                   ),
@@ -211,7 +239,7 @@ class _AdminViewState extends State<AdminView> {
         final access = snapshot.requireData;
         return RefreshIndicator(
           onRefresh: () async {
-            final future = widget.repository.context();
+            final future = _loadAccess(widget.repository);
             setState(() {
               _access = future;
             });
@@ -244,30 +272,36 @@ class _AdminViewState extends State<AdminView> {
                 ListTile(
                   contentPadding: EdgeInsets.zero,
                   title: Text(profile.name),
-                  trailing: profile.canManage
-                      ? Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            IconButton(
-                              tooltip: 'Edit user',
-                              onPressed: () => _edit(profile),
-                              icon: const Icon(Icons.edit_outlined, size: 20),
-                            ),
-                            IconButton(
-                              tooltip: profile.disabledAt == null
-                                  ? 'Disable user'
-                                  : 'Restore user',
-                              onPressed: () => _status(profile),
-                              icon: Icon(
-                                profile.disabledAt == null
-                                    ? Icons.pause_circle_outline
-                                    : Icons.play_circle_outline,
-                                size: 20,
-                              ),
-                            ),
-                          ],
-                        )
-                      : null,
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (profile.canReply)
+                        IconButton(
+                          tooltip: 'Open inbox',
+                          onPressed: () => _inbox(profile),
+                          icon: const Icon(Icons.chat_bubble_outline, size: 20),
+                        ),
+                      if (profile.canManage) ...[
+                        IconButton(
+                          tooltip: 'Edit user',
+                          onPressed: () => _edit(profile),
+                          icon: const Icon(Icons.edit_outlined, size: 20),
+                        ),
+                        IconButton(
+                          tooltip: profile.disabledAt == null
+                              ? 'Disable user'
+                              : 'Restore user',
+                          onPressed: () => _status(profile),
+                          icon: Icon(
+                            profile.disabledAt == null
+                                ? Icons.pause_circle_outline
+                                : Icons.play_circle_outline,
+                            size: 20,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
                   subtitle: Text(
                     profile.disabledAt == null ? 'Active' : 'Disabled',
                   ),

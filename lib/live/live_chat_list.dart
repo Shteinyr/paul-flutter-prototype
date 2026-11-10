@@ -10,10 +10,12 @@ class LiveChatList extends StatelessWidget {
     required this.controller,
     required this.onOpen,
     required this.avatarFor,
+    this.emptyText = 'Open a contact’s profile to start a conversation.',
   });
   final LiveChatController controller;
   final ValueChanged<ChatSummary> onOpen;
   final Widget Function(ChatPeer peer) avatarFor;
+  final String emptyText;
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
@@ -49,14 +51,14 @@ class LiveChatList extends StatelessWidget {
               child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
             )
           else if (controller.conversations.isEmpty)
-            const Expanded(
+            Expanded(
               child: Center(
                 child: Padding(
-                  padding: EdgeInsets.all(28),
+                  padding: const EdgeInsets.all(28),
                   child: Text(
-                    'Open a contact’s profile to start a conversation.',
+                    emptyText,
                     textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 12, color: Colors.black54),
+                    style: const TextStyle(fontSize: 12, color: Colors.black54),
                   ),
                 ),
               ),

@@ -5,10 +5,17 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:paul_demo/admin/admin_api.dart';
+import 'package:paul_demo/live/chat_api.dart';
+import 'package:paul_demo/live/chat_controller.dart';
+import 'package:paul_demo/admin/operator_inbox_view.dart';
 import 'package:paul_demo/admin/admin_view.dart';
 import 'package:paul_demo/admin/managed_profile_editor.dart';
 
 class _AdminRepository implements AdminRepository {
+  @override
+  String get userId => 'admin-qa';
+  @override
+  ChatRepository operatorFor(String profileId) => throw UnimplementedError();
   Future<AdminAccess> Function() load = () async =>
       const AdminAccess('admin', []);
   @override
@@ -25,6 +32,23 @@ class _AdminRepository implements AdminRepository {
 }
 
 void main() {
+  test(
+    'operator journal is separately scoped by Auth actor and managed sender',
+    () async {
+      final first = OperatorChatStateStore('managed-first');
+      final second = OperatorChatStateStore('managed-second');
+      final normal = SessionChatStateStore();
+      await first.write('operator-a', 'First');
+      await second.write('operator-a', 'Second');
+      await first.write('operator-b', 'Other actor');
+      await normal.write('operator-a', 'Personal');
+      expect(await first.read('operator-a'), 'First');
+      expect(await second.read('operator-a'), 'Second');
+      expect(await first.read('operator-b'), 'Other actor');
+      expect(await normal.read('operator-a'), 'Personal');
+    },
+  );
+
   testWidgets('ordinary member never sees Admin entry', (tester) async {
     final repository = _AdminRepository()
       ..load = () async => throw const AdminException('admin_forbidden');
@@ -57,6 +81,78 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('User management'), findsNothing);
+  });
+
+  testWidgets(
+    'route return handles an immediate access denial before the next frame',
+    (tester) async {
+      final repository = _AdminRepository();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: AdminEntry(repository: repository)),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('admin-entry')));
+      await tester.pumpAndSettle();
+      repository.load = () async =>
+          throw const AdminException('sign_in_required');
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('admin-entry')), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'logout unwinds nested admin routes without unhandled access failures',
+    (tester) async {
+      final repository = _AdminRepository();
+      final navigator = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(
+        MaterialApp(
+          navigatorKey: navigator,
+          home: Scaffold(body: AdminEntry(repository: repository)),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('admin-entry')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Create user'));
+      await tester.pumpAndSettle();
+      repository.load = () async =>
+          throw const AdminException('sign_in_required');
+      navigator.currentState!.popUntil((route) => route.isFirst);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('admin-entry')), findsNothing);
+      expect(find.text('User management'), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('editor return displays access failure and preserves retry', (
+    tester,
+  ) async {
+    final repository = _AdminRepository();
+    await tester.pumpWidget(
+      MaterialApp(home: AdminView(repository: repository)),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Create user'));
+    await tester.pumpAndSettle();
+    repository.load = () => throw const AdminException('server_unavailable');
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.text('User management'), findsNothing);
+    expect(
+      find.text('Could not load Admin. Check your connection and retry.'),
+      findsOneWidget,
+    );
+    repository.load = () async => const AdminAccess('admin', []);
+    await tester.tap(find.text('Retry'));
+    await tester.pumpAndSettle();
+    expect(find.text('User management'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets(

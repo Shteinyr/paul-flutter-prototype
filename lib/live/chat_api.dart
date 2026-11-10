@@ -37,14 +37,16 @@ class ChatMessage {
     required this.conversationId,
     required this.sequence,
     required this.senderId,
+    String? actorUserId,
     required this.clientMessageId,
     required this.text,
     required this.createdAt,
-  });
+  }) : actorUserId = actorUserId ?? senderId;
   final String id;
   final String conversationId;
   final int sequence;
   final String senderId;
+  final String actorUserId;
   final String clientMessageId;
   final String text;
   final DateTime createdAt;
@@ -53,6 +55,7 @@ class ChatMessage {
     conversationId: json['conversation_id'] as String,
     sequence: json['seq'] as int,
     senderId: json['sender_profile_id'] as String,
+    actorUserId: json['actor_user_id'] as String?,
     clientMessageId: json['client_message_id'] as String,
     text: json['text'] as String,
     createdAt: DateTime.parse(json['created_at'] as String),
@@ -141,9 +144,10 @@ abstract interface class ChatRepository {
 }
 
 class SupabaseChatApi implements ChatRepository {
-  SupabaseChatApi(this.client, this.userId);
+  SupabaseChatApi(this.client, this.userId, {this.inboxPrefix = 'chat:user'});
   final SupabaseClient client;
   final String userId;
+  final String inboxPrefix;
   @override
   String? get currentUserId => client.auth.currentUser?.id;
   @override
@@ -258,7 +262,7 @@ class SupabaseChatApi implements ChatRepository {
         if (cancelled) return;
         _checkIdentity();
         final value = client.channel(
-          'chat:user:$userId',
+          '$inboxPrefix:$userId',
           opts: const RealtimeChannelConfig(private: true),
         );
         channel = value;

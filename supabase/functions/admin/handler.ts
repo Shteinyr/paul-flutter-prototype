@@ -26,7 +26,11 @@ const statuses: Record<string, number> = {
   invalid_profile: 400,
   profile_version_conflict: 409,
   operation_id_conflict: 409,
+  conversation_forbidden: 403,
+  invalid_message: 400,
+  message_id_conflict: 409,
 };
+const graphemes = new Intl.Segmenter("en", { granularity: "grapheme" });
 export async function handleAdmin(request: Request, database: SupabaseClient) {
   if (request.method === "OPTIONS") {
     return new Response("ok", { headers: cors });
@@ -93,6 +97,16 @@ export async function handleAdmin(request: Request, database: SupabaseClient) {
         "client_operation_id",
         "expected_updated_at",
       ],
+      inbox: ["profile_id"],
+      history: [
+        "profile_id",
+        "conversation_id",
+        "before_seq",
+        "after_seq",
+        "limit",
+      ],
+      send: ["profile_id", "conversation_id", "client_message_id", "text"],
+      read: ["profile_id", "conversation_id", "through_seq"],
     };
     const action = String(body.action);
     if (
@@ -103,17 +117,22 @@ export async function handleAdmin(request: Request, database: SupabaseClient) {
     ) {
       return reply(400, { code: "invalid_request" });
     }
+    const command = action === "save" || action === "status";
     if (
-      action !== "context" &&
-      ((!(action === "save" && body.create === true) &&
-        !uuid(body.profile_id)) ||
-        !uuid(body.client_operation_id) ||
+      action !== "context" && !(action === "save" && body.create === true) &&
+      !uuid(body.profile_id)
+    ) return reply(400, { code: "invalid_request" });
+    if (
+      command &&
+      (!uuid(body.client_operation_id) ||
         (body.expected_updated_at != null &&
           (typeof body.expected_updated_at !== "string" ||
             !Number.isFinite(Date.parse(body.expected_updated_at)))))
-    ) {
-      return reply(400, { code: "invalid_request" });
-    }
+    ) return reply(400, { code: "invalid_request" });
+    if (
+      ["history", "send", "read"].includes(action) &&
+      !uuid(body.conversation_id)
+    ) return reply(400, { code: "invalid_request" });
     const { data: withinBudget, error: budgetError } = await database.rpc(
       "invite_request_limit",
       {
@@ -125,8 +144,8 @@ export async function handleAdmin(request: Request, database: SupabaseClient) {
     if (budgetError) return reply(503, { code: "server_unavailable" });
     if (!withinBudget) return reply(429, { code: "rate_limited" });
     const args: Record<string, unknown> = { p_actor: auth.user.id };
-    if (action !== "context") {
-      args.p_profile = body.profile_id;
+    if (action !== "context") args.p_profile = body.profile_id;
+    if (command) {
       args.p_client_operation = body.client_operation_id;
       args.p_expected_updated_at = body.expected_updated_at ?? null;
     }
@@ -233,6 +252,43 @@ export async function handleAdmin(request: Request, database: SupabaseClient) {
       }
       args.p_enabled = body.enabled;
       rpc = "admin_set_profile_enabled";
+    }
+    if (["inbox", "history", "send", "read"].includes(action)) {
+      rpc = "operator_" + action;
+      if (action !== "inbox") args.p_conversation = body.conversation_id;
+    }
+    if (action === "history") {
+      if (
+        (body.before_seq != null &&
+          (!Number.isSafeInteger(body.before_seq) ||
+            Number(body.before_seq) < 1)) ||
+        (body.after_seq != null &&
+          (!Number.isSafeInteger(body.after_seq) ||
+            Number(body.after_seq) < 0)) ||
+        (body.before_seq != null && body.after_seq != null) ||
+        (body.limit != null &&
+          (!Number.isInteger(body.limit) || Number(body.limit) < 1 ||
+            Number(body.limit) > 100))
+      ) return reply(400, { code: "invalid_request" });
+      args.p_before = body.before_seq ?? null;
+      args.p_after = body.after_seq ?? null;
+      args.p_limit = body.limit ?? 50;
+    }
+    if (action === "send") {
+      if (
+        !uuid(body.client_message_id) || typeof body.text !== "string" ||
+        !body.text.trim() || body.text.includes("\0") ||
+        Array.from(graphemes.segment(body.text)).length > 2000 ||
+        new TextEncoder().encode(body.text).length > 65536
+      ) return reply(400, { code: "invalid_message" });
+      args.p_client_message = body.client_message_id;
+      args.p_text = body.text;
+    }
+    if (action === "read") {
+      if (
+        !Number.isSafeInteger(body.through_seq) || Number(body.through_seq) < 0
+      ) return reply(400, { code: "invalid_request" });
+      args.p_through = body.through_seq;
     }
     const { data, error } = await database.rpc(rpc, args);
     if (error) {
