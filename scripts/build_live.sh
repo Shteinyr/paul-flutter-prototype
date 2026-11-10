@@ -5,7 +5,7 @@ project_root="$(cd "$(dirname "$0")/.." && pwd)"
 live_source="$project_root/build/live-source"
 
 # Build the live configuration from the same sources with its own asset list.
-# Fictional portrait assets account for 23 MB and belong to the demo build.
+# The guest preview uses Paul and Julia. Other portraits belong to the demo build.
 python3 - "$project_root" "$live_source" <<'PY'
 from pathlib import Path
 import shutil
@@ -20,9 +20,18 @@ stage.mkdir(parents=True)
 for folder in ['lib', 'web']:
     shutil.copytree(root / folder, stage / folder)
 shutil.copytree(root / 'assets', stage / 'assets', ignore=shutil.ignore_patterns('people'))
+guest_portraits = ['paul-galda.png', 'julia-robinson.png']
+(stage / 'assets/people').mkdir()
+for portrait in guest_portraits:
+    shutil.copy2(root / 'assets/people' / portrait, stage / 'assets/people' / portrait)
 manifest = (root / 'pubspec.yaml').read_text()
 assert manifest.count('    - assets/people/\n') == 1
-(stage / 'pubspec.yaml').write_text(manifest.replace('    - assets/people/\n', ''))
+portrait_manifest = ''.join(
+    f'    - assets/people/{portrait}\n' for portrait in guest_portraits
+)
+(stage / 'pubspec.yaml').write_text(
+    manifest.replace('    - assets/people/\n', portrait_manifest)
+)
 shutil.copy2(root / 'pubspec.lock', stage / 'pubspec.lock')
 PY
 

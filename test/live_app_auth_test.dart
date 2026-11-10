@@ -240,6 +240,12 @@ void main() {
           await tester.ensureVisible(find.text('Sign out'));
           await tester.tap(find.text('Sign out'));
         }
+        await tester.pump();
+        if (!changeAccount) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 200)),
+          );
+        }
         await tester.pumpAndSettle();
         photo.complete(
           http.Response.bytes(
@@ -253,7 +259,9 @@ void main() {
         expect(find.byType(PublicProfileView), findsNothing);
         expect(find.text('Contact B'), findsNothing);
         expect(
-          find.text(changeAccount ? 'Member C' : 'Enter your invitation code'),
+          find.text(
+            changeAccount ? 'Member C' : 'Preview · Demonstration profiles',
+          ),
           findsOneWidget,
         );
         expect(tester.takeException(), null);
@@ -263,15 +271,22 @@ void main() {
     );
   }
 
-  for (final (pendingFinalization, networkFailure) in [
-    (true, false),
-    (false, false),
-    (true, true),
+  for (final (pendingFinalization, networkFailure, authCallback) in [
+    (true, false, true),
+    (false, false, false),
+    (true, true, true),
+    (true, false, false),
+    (false, false, true),
   ]) {
+    final shouldFinalize = pendingFinalization && authCallback;
     testWidgets(
       networkFailure
           ? 'successful membership survives follow-up network failure and retries without OAuth'
-          : pendingFinalization
+          : pendingFinalization && !authCallback
+          ? 'ordinary reload clears a stale finalization marker without activating membership'
+          : authCallback && !pendingFinalization
+          ? 'an unconfirmed OAuth callback cannot create membership'
+          : shouldFinalize
           ? 'OAuth return finalizes the latest local draft instead of the submitted snapshot'
           : 'cancelled submit cannot auto-finalize after ordinary member sign-in',
       (tester) async {
@@ -381,8 +396,15 @@ void main() {
             googleEnabled: false,
             appleEnabled: false,
             draftPreferences: preferences,
+            authCallback: authCallback,
           ),
         );
+        await tester.pump();
+        if (!shouldFinalize) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 200)),
+          );
+        }
         await tester.pumpAndSettle();
         if (networkFailure) {
           expect(find.text('Retry'), findsOneWidget);
@@ -391,14 +413,15 @@ void main() {
           await tester.tap(find.text('Retry'));
           await tester.pumpAndSettle();
         }
-        if (pendingFinalization) {
+        if (shouldFinalize) {
           expect(submitted?['name'], latest.name);
           expect(submitted?['summary'], latest.summary);
           expect(find.byType(OnboardingFlow), findsNothing);
           expect((await store.read()).hasData, false);
         } else {
           expect(submitted, null);
-          expect(find.byType(OnboardingFlow), findsOneWidget);
+          expect(find.byType(OnboardingFlow), findsNothing);
+          expect(find.text('Preview · Demonstration profiles'), findsOneWidget);
           expect((await store.read()).name, latest.name);
         }
         expect(tester.takeException(), null);
