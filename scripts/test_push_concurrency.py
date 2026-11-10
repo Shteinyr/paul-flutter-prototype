@@ -32,6 +32,14 @@ def main():
         insert into public.connections(user_low,user_high) values('{sender}','{recipient}');
     """)
     try:
+        def provision(number):
+            return sql("set role service_role; select md5(public.push_provision_config(jsonb_build_object('public_key',repeat('A',87),'private_key',repeat('B',43),'worker_secret',repeat('" + str(number) + "',43)))::text);").stdout.splitlines()[-1]
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            configurations = list(pool.map(provision, range(1,9)))
+        assert len(set(configurations)) == 1
+        assert sql("select count(*) from vault.secrets where name='paul_web_push_runtime';").stdout.strip() == '1'
+        print('PASS eight cold starts provision exactly one canonical disabled Vault configuration')
         with ThreadPoolExecutor(max_workers=8) as pool:
             results = list(pool.map(lambda n: subscribe(n, 'https://fcm.googleapis.com/fcm/send/canonical-race'), range(8)))
         assert all(result.returncode == 0 for result in results)
@@ -81,6 +89,7 @@ def main():
         assert sql(f"set role service_role; select public.push_prepare('{pending['delivery_id']}','{pending['lease_token']}') is null;").stdout.splitlines()[-1] == 't'
         print('PASS server logout cancels a previously claimed send before endpoint disclosure')
     finally:
+        sql("delete from vault.secrets where name='paul_web_push_runtime';")
         sql(f"""delete from private.push_deliveries where binding_id in(select binding_id from private.push_subscriptions where user_id='{recipient}');
             delete from private.push_subscriptions where user_id='{recipient}';
             delete from private.notification_jobs where conversation_id in(select id from public.conversations where user_low='{sender}');
