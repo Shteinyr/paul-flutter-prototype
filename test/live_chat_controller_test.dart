@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:paul_demo/live/chat_api.dart';
 import 'package:paul_demo/live/chat_controller.dart';
+import 'package:paul_demo/live/browser_storage.dart';
 
 ChatMessage message(
   int seq, {
@@ -122,6 +123,22 @@ void main() {
     await controller.flushDrafts();
     await repository.close();
   });
+  test(
+    'session-store adapter retains reload state and isolates account keys',
+    () async {
+      final store = SessionChatStateStore();
+      try {
+        await store.write('store-a', 'A journal');
+        await store.write('store-b', 'B journal');
+        final reloaded = SessionChatStateStore();
+        expect(await reloaded.read('store-a'), 'A journal');
+        expect(await reloaded.read('store-b'), 'B journal');
+      } finally {
+        removeSessionValue('paul.live.chat.state.v1.store-a');
+        removeSessionValue('paul.live.chat.state.v1.store-b');
+      }
+    },
+  );
   test(
     'independent tab journals retain different operation IDs across reload with the same identity',
     () async {

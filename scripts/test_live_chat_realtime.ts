@@ -5,7 +5,7 @@ import {
   type SupabaseClient,
 } from "npm:@supabase/supabase-js@2.108.2";
 
-const [configPath, fixturePath] = Deno.args;
+const [configPath, fixturePath, mode] = Deno.args;
 if (!configPath || !fixturePath) {
   throw new Error("Pass public config and private QA fixture paths");
 }
@@ -100,6 +100,40 @@ async function waitForSignal(
   }
   throw new Error("Committed message signal was not delivered");
 }
+async function subscribePublic(
+  client: SupabaseClient,
+  userId: string,
+  signals: Record<string, unknown>[],
+  explicit: boolean,
+) {
+  const channel = client.channel(
+    "chat:user:" + userId,
+    explicit ? { config: { private: false } } : undefined,
+  );
+  channel.on("broadcast", { event: "changed" }, (event) => {
+    signals.push(event.payload ?? event);
+  });
+  const accepted = await new Promise<boolean>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("Public probe timed out")),
+      20000,
+    );
+    channel.subscribe((status) => {
+      if (status === "SUBSCRIBED" || status === "CHANNEL_ERROR") {
+        clearTimeout(timer);
+        resolve(status === "SUBSCRIBED");
+      }
+      if (status === "TIMED_OUT") {
+        clearTimeout(timer);
+        reject(new Error("Public probe transport timed out"));
+      }
+    });
+  });
+  if (mode === "--require-private-only" && accepted) {
+    throw new Error("Project still accepts public channels");
+  }
+  return { channel, accepted };
+}
 try {
   const ca = await login(a), cb = await login(b), cc = await login(c);
   const signalsA: Record<string, unknown>[] = [],
@@ -110,6 +144,19 @@ try {
   await subscribe(cc, c.id, signalsC);
   const forbidden = await subscribe(cc, a.id, [], true);
   await cc.removeChannel(forbidden);
+  const publicSignals: Record<string, unknown>[] = [];
+  const publicThird = await subscribePublic(cc, a.id, publicSignals, true);
+  const anon = createClient(
+    config.SUPABASE_URL,
+    config.SUPABASE_PUBLISHABLE_KEY,
+    { auth: { persistSession: false, autoRefreshToken: false } },
+  );
+  clients.push(anon);
+  const publicAnon = await subscribePublic(anon, a.id, publicSignals, false);
+  console.log(
+    "PASS public-mode probes completed, accepted=" +
+      String(publicThird.accepted) + "/" + String(publicAnon.accepted),
+  );
   console.log(
     "PASS private inbox admits its owner and rejects another authenticated identity",
   );
@@ -120,6 +167,9 @@ try {
     text: "Disposable realtime QA",
   });
   await waitForSignal(signalsB, conversation.id);
+  if (publicSignals.length !== 0) {
+    throw new Error("Public-mode subscriber received private message metadata");
+  }
   if (signalsC.length !== 0) {
     throw new Error("Third account received another conversation signal");
   }
@@ -140,6 +190,8 @@ try {
   console.log(
     "PASS recipient receives metadata-only signal and loads committed text under participant rights",
   );
+  await cc.removeChannel(publicThird.channel);
+  await anon.removeChannel(publicAnon.channel);
   await cb.removeChannel(channelB);
   const missed = await api(ca, "send", {
     conversation_id: conversation.id,
