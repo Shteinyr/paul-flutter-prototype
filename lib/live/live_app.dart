@@ -118,6 +118,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
   bool _loading = true;
   bool _acceptedInvite = false;
   bool _entering = false;
+  bool _editingGuestDraft = false;
   bool _choosingProvider = false;
   int _entryGeneration = 0;
   bool _checking = false;
@@ -823,8 +824,24 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     _navigator.currentState?.popUntil((route) => route.isFirst);
     setState(() {
       _entering = true;
+      _editingGuestDraft = false;
     });
     if (widget.client.auth.currentUser != null) unawaited(_load());
+  }
+
+  void _editGuestDraft() {
+    _entryGeneration++;
+    removeSessionValue(_finalizeKey);
+    setState(() {
+      _editingGuestDraft = true;
+      _entering = false;
+      _acceptedInvite = false;
+    });
+  }
+
+  void _continueGuestDraft(UserProfile draft) {
+    _draft = draft;
+    _beginEntry();
   }
 
   void _backToGuest() {
@@ -832,6 +849,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     removeSessionValue(_finalizeKey);
     setState(() {
       _entering = false;
+      _editingGuestDraft = false;
       _acceptedInvite = false;
       _checking = false;
     });
@@ -993,6 +1011,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     _pendingPushClick = null;
     _entryGeneration++;
     _entering = false;
+    _editingGuestDraft = false;
     try {
       await _profile?.flush();
       await _push?.disable();
@@ -1222,7 +1241,18 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     if (!_entering &&
         _network.own == null &&
         (_identity == null || !_loading)) {
-      return GuestPreview(onRequireSignIn: _beginEntry);
+      if (_editingGuestDraft) {
+        return OnboardingFlow(
+          preferences: widget.draftPreferences,
+          initialDraft: _draft,
+          onBack: _backToGuest,
+          onContinueToRegistration: _continueGuestDraft,
+        );
+      }
+      return GuestPreview(
+        onRequireSignIn: _beginEntry,
+        onEditProfile: _editGuestDraft,
+      );
     }
     if (_loading) {
       return const _EntryFrame(

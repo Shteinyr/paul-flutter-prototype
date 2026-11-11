@@ -49,10 +49,16 @@ class DemoChatController extends ChangeNotifier {
   DemoChatController({
     DemoChatStore? store,
     this.replyDelay = const Duration(milliseconds: 1200),
-  }) : _store = store {
+    Iterable<DemoContact> additionalContacts = const [],
+  }) : _store = store,
+       _people = {
+         ...demoPeople,
+         for (final contact in additionalContacts) contact.id: contact,
+       } {
     _seed();
   }
   final DemoChatStore? _store;
+  final Map<String, DemoContact> _people;
   final Duration replyDelay;
   final _threads = <String, DemoConversation>{};
   final _connected = <String>{};
@@ -74,7 +80,7 @@ class DemoChatController extends ChangeNotifier {
   List<DemoConversation> get conversations =>
       _threads.values.toList().reversed.toList();
   List<DemoContact> get contacts =>
-      _connected.map((id) => demoPeople[id]!).toList();
+      _connected.map((id) => _people[id]!).toList();
   bool isConnected(String id) => _connected.contains(id);
   int get unreadCount => _threads.values.fold(0, (sum, t) => sum + t.unread);
 
@@ -110,7 +116,7 @@ class DemoChatController extends ChangeNotifier {
   }
 
   DemoConversation ensureConversation(String id) {
-    if (!demoPeople.containsKey(id)) throw ArgumentError('Unknown contact');
+    if (!_people.containsKey(id)) throw ArgumentError('Unknown contact');
     final existing = _threads[id];
     if (existing != null) return existing;
     final thread = DemoConversation(id);
@@ -142,7 +148,7 @@ class DemoChatController extends ChangeNotifier {
     final trimmed = text.trim();
     if (!loaded ||
         loadFailed ||
-        !demoPeople.containsKey(id) ||
+        !_people.containsKey(id) ||
         trimmed.isEmpty ||
         trimmed.length > 2000) {
       return false;
@@ -166,7 +172,7 @@ class DemoChatController extends ChangeNotifier {
   void receive(String id, String text) {
     if (!loaded ||
         loadFailed ||
-        !demoPeople.containsKey(id) ||
+        !_people.containsKey(id) ||
         text.trim().isEmpty) {
       return;
     }
@@ -177,7 +183,7 @@ class DemoChatController extends ChangeNotifier {
     _connectIfMutual(thread);
     _changed();
     if (notificationsEnabled && activeContactId != id) {
-      onNotification?.call(demoPeople[id]!, text.trim());
+      onNotification?.call(_people[id]!, text.trim());
     }
   }
 
@@ -228,6 +234,11 @@ class DemoChatController extends ChangeNotifier {
 
   void _changed() {
     _revision++;
+    if (_store == null) {
+      _savedRevision = _revision;
+      _notify();
+      return;
+    }
     _saveTimer?.cancel();
     _saveTimer = Timer(
       const Duration(milliseconds: 250),
@@ -269,7 +280,7 @@ class DemoChatController extends ChangeNotifier {
     final threads = <String, DemoConversation>{};
     for (final item in data['threads'] as List) {
       final id = item['id'] as String;
-      if (!demoPeople.containsKey(id) || threads.containsKey(id)) {
+      if (!_people.containsKey(id) || threads.containsKey(id)) {
         throw const FormatException('Invalid contact');
       }
       final thread = DemoConversation(id);
@@ -295,7 +306,7 @@ class DemoChatController extends ChangeNotifier {
       threads[id] = thread;
     }
     final connected = (data['connected'] as List).cast<String>().toSet();
-    if (connected.any((id) => !demoPeople.containsKey(id))) {
+    if (connected.any((id) => !_people.containsKey(id))) {
       throw const FormatException('Invalid connection');
     }
     final choice = data['notificationChoiceMade'] as bool;
