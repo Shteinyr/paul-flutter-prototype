@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import '../profile/user_profile.dart';
@@ -84,19 +85,84 @@ abstract interface class AdminRepository {
   Future<void> command(Map<String, dynamic> fields);
 }
 
+typedef _PortraitKey = ({
+  String id,
+  String path,
+  String? updatedAt,
+  DateTime? disabledAt,
+});
+
+class _PortraitRead {
+  _PortraitRead(this.key);
+  final _PortraitKey key;
+  late final Future<Uint8List?> result;
+  bool valid = true;
+}
+
 class SupabaseAdminApi implements AdminRepository {
-  const SupabaseAdminApi(this.client, this.userId);
+  SupabaseAdminApi(this.client, this.userId);
   final SupabaseClient client;
   @override
   final String userId;
+  final _portraits = <_PortraitKey, _PortraitRead>{};
+  // Only unsettled downloads live here; completion always removes them.
+  final _pendingPortraits = <_PortraitRead>{};
+  String? _portraitSession;
+  int _portraitGeneration = 0;
+  int _contextGeneration = 0;
+
+  String? get sessionIdForPortraitReuse =>
+      _sessionId(client.auth.currentSession?.accessToken ?? '');
+
+  void _invalidatePortraits() {
+    for (final read in {..._portraits.values, ..._pendingPortraits}) {
+      read.valid = false;
+    }
+    _portraits.clear();
+    _portraitGeneration++;
+  }
+
+  // This claim only bounds local reuse. Authorization still uses the current
+  // actor, server context checks and authenticated Storage/RLS.
+  String? _sessionId(String token) {
+    try {
+      final claims = jsonDecode(
+        utf8.decode(base64Url.decode(base64Url.normalize(token.split('.')[1]))),
+      );
+      final id = claims is Map ? claims['session_id'] : null;
+      return id is String && id.isNotEmpty ? id : null;
+    } on Object {
+      return null;
+    }
+  }
+
+  void _checkPortrait(
+    _PortraitRead read,
+    String? sessionId,
+    String token,
+    int generation,
+  ) {
+    _checkIdentity();
+    final currentToken = client.auth.currentSession?.accessToken;
+    final sameSession = sessionId == null
+        ? currentToken == token
+        : currentToken != null && _sessionId(currentToken) == sessionId;
+    if (!read.valid || !sameSession || generation != _portraitGeneration) {
+      throw const AdminException('managed_profile_forbidden');
+    }
+  }
 
   void _checkIdentity() {
     if (client.auth.currentUser?.id != userId) {
+      _invalidatePortraits();
       throw const AdminException('sign_in_required');
     }
   }
 
-  Future<Map<String, dynamic>> request(Map<String, dynamic> fields) async {
+  Future<Map<String, dynamic>> request(
+    Map<String, dynamic> fields, {
+    bool invalidatePortraitsOnDenied = true,
+  }) async {
     _checkIdentity();
     final token = client.auth.currentSession?.accessToken;
     if (token == null) throw const AdminException('sign_in_required');
@@ -113,42 +179,141 @@ class SupabaseAdminApi implements AdminRepository {
     } on FunctionException catch (error) {
       _checkIdentity();
       final details = error.details;
-      throw AdminException(
-        details is Map
-            ? details['code'] as String? ?? 'server_unavailable'
-            : 'server_unavailable',
-      );
+      final code = details is Map
+          ? details['code'] as String? ?? 'server_unavailable'
+          : 'server_unavailable';
+      if (invalidatePortraitsOnDenied &&
+          const {
+            'admin_forbidden',
+            'managed_profile_forbidden',
+            'sign_in_required',
+          }.contains(code)) {
+        _invalidatePortraits();
+      }
+      throw AdminException(code);
     }
   }
 
   @override
   Future<AdminAccess> context() async {
-    final data = await request({'action': 'context'});
-    return AdminAccess(
-      data['role'] as String,
-      (data['profiles'] as List)
-          .map(
-            (item) =>
-                ManagedProfile.fromJson(Map<String, dynamic>.from(item as Map)),
-          )
-          .toList(),
-    );
+    final generation = ++_contextGeneration;
+    final token = client.auth.currentSession?.accessToken;
+    final sessionId = sessionIdForPortraitReuse;
+    bool current() =>
+        generation == _contextGeneration &&
+        (sessionId == null
+            ? client.auth.currentSession?.accessToken == token
+            : sessionIdForPortraitReuse == sessionId);
+    try {
+      // Context reads can finish out of order. Only the latest read in this
+      // session may reconcile portraits or apply an access-denied result.
+      final data = await request({
+        'action': 'context',
+      }, invalidatePortraitsOnDenied: false);
+      final access = AdminAccess(
+        data['role'] as String,
+        (data['profiles'] as List)
+            .map(
+              (item) => ManagedProfile.fromJson(
+                Map<String, dynamic>.from(item as Map),
+              ),
+            )
+            .toList(),
+      );
+      if (!current()) return access;
+      final allowed = {
+        for (final profile in access.profiles)
+          if (profile.canManage || profile.canReply) profile.id: profile,
+      };
+      bool stale(_PortraitKey key) {
+        final profile = allowed[key.id];
+        return profile == null ||
+            profile.avatarPath != key.path ||
+            profile.updatedAt != key.updatedAt ||
+            profile.disabledAt != key.disabledAt;
+      }
+
+      for (final read in _pendingPortraits) {
+        if (stale(read.key)) read.valid = false;
+      }
+      _portraits.removeWhere((key, read) {
+        if (!stale(key)) return false;
+        read.valid = false;
+        return true;
+      });
+      return access;
+    } on Object {
+      if (current()) _invalidatePortraits();
+      rethrow;
+    }
   }
 
   @override
   Future<Uint8List?> photo(ManagedProfile profile) async {
     _checkIdentity();
+    final token = client.auth.currentSession!.accessToken;
+    final sessionId = _sessionId(token);
+    if (_portraitSession != sessionId) {
+      _invalidatePortraits();
+      _portraitSession = sessionId;
+    }
+    final key = (
+      id: profile.id,
+      path: profile.avatarPath ?? '',
+      updatedAt: profile.updatedAt,
+      disabledAt: profile.disabledAt,
+    );
+    _portraits.removeWhere((old, read) {
+      final stale = old.id == profile.id && old != key;
+      if (stale) read.valid = false;
+      return stale;
+    });
+    for (final read in _pendingPortraits) {
+      if (read.key.id == profile.id && read.key != key) read.valid = false;
+    }
     if (profile.avatarPath == null) return null;
-    final bytes = await client.storage
-        .from('avatars')
-        .download(profile.avatarPath!);
-    _checkIdentity();
-    return bytes;
+    final generation = _portraitGeneration;
+    var read = sessionId == null ? null : _portraits.remove(key);
+    if (read == null) {
+      read = _PortraitRead(key);
+      final loading = read;
+      _pendingPortraits.add(loading);
+      read.result = () async {
+        try {
+          final bytes = await client.storage
+              .from('avatars')
+              .download(profile.avatarPath!);
+          _checkPortrait(loading, sessionId, token, generation);
+          return bytes;
+        } finally {
+          _pendingPortraits.remove(loading);
+        }
+      }();
+    }
+    if (sessionId != null) {
+      _portraits[key] = read;
+      while (_portraits.length > 8) {
+        // Eviction bounds reuse without invalidating an already mounted read.
+        _portraits.remove(_portraits.keys.first);
+      }
+    }
+    try {
+      final bytes = await read.result;
+      _checkPortrait(read, sessionId, token, generation);
+      return bytes;
+    } on Object {
+      _portraits.removeWhere((_, value) => identical(value, read));
+      rethrow;
+    }
   }
 
   @override
   Future<void> command(Map<String, dynamic> fields) async {
-    await request(fields);
+    try {
+      await request(fields);
+    } finally {
+      _invalidatePortraits();
+    }
   }
 
   @override
