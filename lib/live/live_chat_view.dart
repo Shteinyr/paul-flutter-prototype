@@ -19,6 +19,7 @@ class LiveChatView extends StatefulWidget {
     required this.peerAvatar,
     this.canSend = true,
     this.replyingAs,
+    this.onInvite,
   });
   final LiveChatController controller;
   final String conversationId;
@@ -27,6 +28,7 @@ class LiveChatView extends StatefulWidget {
   final Widget peerAvatar;
   final bool canSend;
   final String? replyingAs;
+  final VoidCallback? onInvite;
 
   @override
   State<LiveChatView> createState() => _LiveChatViewState();
@@ -149,7 +151,14 @@ class _LiveChatViewState extends State<LiveChatView> {
                       style: const TextStyle(fontSize: 11),
                     ),
                   ),
-                  if (controller.error != null)
+                  if (controller.lastSendErrorCode ==
+                          'new_contact_limit_reached' &&
+                      widget.onInvite != null)
+                    TextButton(
+                      onPressed: widget.onInvite,
+                      child: const Text('Invite friends'),
+                    )
+                  else if (controller.error != null)
                     TextButton(
                       onPressed: controller.stateLoadFailed
                           ? controller.load

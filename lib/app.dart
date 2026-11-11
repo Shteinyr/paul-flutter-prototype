@@ -13,6 +13,7 @@ import 'photo_picker.dart';
 import 'profile/profile_controller.dart';
 import 'profile/public_profile_view.dart';
 import 'profile/user_profile.dart';
+import 'skills/skill_suggestions.dart';
 
 const _background = Color(0xFFF4F4F4);
 const _blue = Color(0xFF14679E);
@@ -476,6 +477,7 @@ class ProfileEditor extends StatefulWidget {
     this.onDelete,
     this.occupationRequired = true,
     this.footer,
+    this.onInvite,
   });
   final ProfileController controller;
   final PickProfilePhoto? pickPhoto;
@@ -483,6 +485,7 @@ class ProfileEditor extends StatefulWidget {
   final VoidCallback? onDelete;
   final bool occupationRequired;
   final Widget? footer;
+  final VoidCallback? onInvite;
   @override
   State<ProfileEditor> createState() => _ProfileEditorState();
 }
@@ -703,6 +706,8 @@ class _ProfileEditorState extends State<ProfileEditor> {
               validate: _validationActive,
               onAdd: (value) => controller.addSkill(value),
               onRemove: (value) => controller.removeSkill(value),
+              maxSkills: controller.offeringLimit,
+              onInvite: widget.onInvite,
             ),
             SizedBox(height: controller.profile.skills.isEmpty ? 51 : 34),
             _SkillsEditor(
@@ -1020,6 +1025,8 @@ class _SkillsEditor extends StatefulWidget {
     required this.active,
     required this.validate,
     this.isRequired = true,
+    this.maxSkills,
+    this.onInvite,
   });
   final String label;
   final Key fieldKey;
@@ -1030,6 +1037,8 @@ class _SkillsEditor extends StatefulWidget {
   final bool active;
   final bool validate;
   final bool isRequired;
+  final int? maxSkills;
+  final VoidCallback? onInvite;
 
   @override
   State<_SkillsEditor> createState() => _SkillsEditorState();
@@ -1066,6 +1075,10 @@ class _SkillsEditorState extends State<_SkillsEditor> {
         _error = widget.isRequired && widget.values.isEmpty ? 'Required' : null;
       });
       _focus.requestFocus();
+      return;
+    }
+    if (widget.maxSkills != null && widget.values.length >= widget.maxSkills!) {
+      setState(() => _error = 'Skill limit reached');
       return;
     }
     if (widget.onAdd(text)) {
@@ -1172,8 +1185,22 @@ class _SkillsEditorState extends State<_SkillsEditor> {
             ),
         ],
       ),
+      SkillSuggestions(
+        controller: _draft,
+        focusNode: _focus,
+        selected: widget.values,
+        onSelected: (value) {
+          _draft.text = value;
+          _add();
+        },
+      ),
       if (_fieldError != null && _fieldError != 'Required')
         _ValidationMessage(_fieldError!),
+      if (_fieldError == 'Skill limit reached' && widget.onInvite != null)
+        TextButton(
+          onPressed: widget.onInvite,
+          child: const Text('Invite friends'),
+        ),
       if (widget.values.isNotEmpty) ...[
         const SizedBox(height: 21),
         Transform.translate(

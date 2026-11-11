@@ -8,6 +8,7 @@ import 'package:paul_demo/onboarding/onboarding_flow.dart';
 import 'package:paul_demo/onboarding/onboarding_skills_step.dart';
 import 'package:paul_demo/photo_picker.dart';
 import 'package:paul_demo/profile/user_profile.dart';
+import 'package:paul_demo/skills/skill_catalogue.dart';
 
 import 'support/onboarding_preferences.dart';
 
@@ -46,6 +47,57 @@ Future<void> _press(WidgetTester tester, String key) async {
 }
 
 void main() {
+  testWidgets('shared catalogue adds independent offering and seeking skills', (
+    tester,
+  ) async {
+    await tester.runAsync(() => SkillCatalogue.shared.suggest('marketing'));
+    await tester.pumpWidget(
+      _app(preferences: DraftPreferences(), onComplete: (_) async {}),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('onboarding-skill-input')),
+      'marketing',
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pumpAndSettle();
+    final suggestion = find.byKey(
+      const ValueKey('catalogue-marketing analytics'),
+    );
+    expect(suggestion, findsOneWidget);
+    await tester.ensureVisible(suggestion);
+    await tester.tap(suggestion);
+    await tester.pumpAndSettle();
+    final controller = tester
+        .widget<OnboardingSkillsStep>(find.byType(OnboardingSkillsStep))
+        .controller;
+    expect(controller.profile.skills, ['marketing analytics']);
+    await _press(tester, 'onboarding-next');
+    await tester.enterText(
+      find.byKey(const Key('onboarding-skill-input')),
+      'marketing',
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(suggestion);
+    await tester.tap(suggestion);
+    await tester.pumpAndSettle();
+    expect(controller.profile.searchingSkills, ['marketing analytics']);
+    await _press(tester, 'onboarding-back');
+    await tester.tap(find.byTooltip('Remove marketing analytics'));
+    await tester.pumpAndSettle();
+    expect(controller.profile.skills, isEmpty);
+    expect(controller.profile.searchingSkills, ['marketing analytics']);
+  });
+
   testWidgets(
     'a late input callback keeps the skill list of its original step',
     (tester) async {

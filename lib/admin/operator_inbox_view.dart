@@ -18,11 +18,13 @@ class OperatorInboxView extends StatefulWidget {
     required this.actorId,
     required this.profile,
     this.initialConversationId,
+    this.embedded = false,
   });
   final ChatRepository repository;
   final String actorId;
   final ManagedProfile profile;
   final String? initialConversationId;
+  final bool embedded;
   @override
   State<OperatorInboxView> createState() => _OperatorInboxViewState();
 }
@@ -99,17 +101,17 @@ class _OperatorInboxViewState extends State<OperatorInboxView>
   }
 
   @override
-  Widget build(BuildContext context) => ProfilePage(
-    title: 'Inbox',
-    child: Column(
+  Widget build(BuildContext context) {
+    final content = Column(
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(28, 20, 28, 8),
-          child: Text(
-            widget.profile.name,
-            style: const TextStyle(fontSize: 15, color: Color(0xFF14679E)),
+        if (!widget.embedded)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(28, 20, 28, 8),
+            child: Text(
+              widget.profile.name,
+              style: const TextStyle(fontSize: 15, color: Color(0xFF14679E)),
+            ),
           ),
-        ),
         Expanded(
           child: LiveChatList(
             controller: _chat,
@@ -119,8 +121,11 @@ class _OperatorInboxViewState extends State<OperatorInboxView>
           ),
         ),
       ],
-    ),
-  );
+    );
+    return widget.embedded
+        ? content
+        : ProfilePage(title: 'Inbox', child: content);
+  }
 
   @override
   void dispose() {

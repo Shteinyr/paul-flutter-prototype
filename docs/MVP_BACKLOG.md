@@ -1,15 +1,19 @@
 # Product backlog and integration boundaries
 
-The working platform is the Flutter application in the browser. Supabase and the browser hosting are configured. The sequence below retains implementation and client-acceptance boundaries. The first Figma column contains P01–P13 and the client's preliminary 60-hour estimate. Confirm acceptance criteria, available accounts, per-item estimates and delivery dates before starting each stage. Proposed M1/M2/M3 milestones and technical sub-issues are marked draft.
+The working platform is the Flutter application in the browser. Supabase and the browser hosting are configured. The sequence below retains implementation and client-acceptance boundaries. The first Figma column contains P01–P13 and the client's preliminary 60-hour estimate. Record agreed acceptance criteria, account dependencies, estimates and delivery dates when they are confirmed. Proposed M1/M2/M3 milestones and technical sub-issues are marked draft.
 
-## Decisions for the 10-minute call
+## Accepted MVP decisions, 11 November 2026
 
-1. Agreed browser/device matrix, notification permission and system-tap acceptance.
-2. Exact profile fields, searchable fields, filter combinations and sort order.
-3. Connection rule: one message from each side, QR scan, invite code, and any approval or blocking rules.
-4. Contacts matching: what data may leave the device, what happens on denied permission, and how invitation delivery should work.
-5. Chat scope: text only, delivery/read state, reconnect behaviour and push notification behaviour.
-6. Account ownership, access and what counts as acceptance within the time budget.
+The interface follows the existing mobile Figma screens in Flutter for the browser. Alexander authorised implementation of the following decisions.
+
+1. Search covers all registered members, including managed profiles. Shared skill suggestions retain free-text entry in profile, onboarding and search.
+2. Invitation levels count completed registrations through a personal invitation. Below two invitees, one new external recipient per day. From two, unrestricted messaging. From ten, expanded offering skills and Community publishing. Search and Hiring readership are available at every level.
+3. Community requests are visible to all registered members. Authors can have any number of active requests. Closing a request or reaching30days deletes its record. Push targets registered members with current notification consent.
+4. Confirmed account/profile deletion immediately removes photo, description, skills and connections. Counterpart conversation history uses the label «Удалённый пользователь».
+5. Find acquaintances is voluntary after the user has started using the system. Its explicit activation includes adding a phone to the existing account, SMS verification, discovery consent and selecting contacts. Matching and invitation fallback use the supported browser capabilities.
+6. Company tariffs/limits and request history/statistics are future tasks #84/#85. Real Google/Apple/SMS integration is verified against actual owner configuration and service results.
+
+Implementation issues are #43/#45/#46/#47/#48/#70/#72/#76/#86. Existing local checks and client acceptance are recorded separately.
 
 ## Proposed sequence
 
@@ -37,7 +41,7 @@ Keep profile and chat storage behind the existing store interfaces. Authenticate
 - GitHub repository/organisation and developer access.
 - Transfer of the existing Supabase project and service ownership to the agreed client account.
 - Google/Apple web OAuth configuration, provider consents and developer access.
-- Agreed real browsers/devices and operating-system notification acceptance.
+- Actual operating-system notification acceptance for the mobile Figma scenarios.
 - Client-owned browser domains when required for provider configuration.
 
 Share access through service roles/invitations. Keep signing credentials and service secrets outside the repository.

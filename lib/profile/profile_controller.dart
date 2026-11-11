@@ -7,7 +7,8 @@ import 'profile_store.dart';
 import 'user_profile.dart';
 
 class ProfileController extends ChangeNotifier {
-  ProfileController(this._store);
+  ProfileController(this._store, {int? offeringLimit})
+    : _offeringLimit = offeringLimit;
 
   final ProfileStore _store;
   UserProfile _profile = UserProfile.empty;
@@ -17,6 +18,18 @@ class ProfileController extends ChangeNotifier {
   int _revision = 0;
   int _savedRevision = 0;
   int _generation = 0;
+  int? _offeringLimit;
+  int _savedOfferingCount = 0;
+  int? get offeringLimit => _offeringLimit == null
+      ? null
+      : _savedOfferingCount > _offeringLimit!
+      ? _savedOfferingCount
+      : _offeringLimit;
+
+  void setOfferingLimit(int? value) {
+    _offeringLimit = value;
+    _notify();
+  }
 
   UserProfile get profile => _profile;
   int get generation => _generation;
@@ -33,6 +46,7 @@ class ProfileController extends ChangeNotifier {
     _notify();
     try {
       _profile = await _store.read();
+      _savedOfferingCount = _profile.skills.length;
       loaded = true;
     } catch (_) {
       loadFailed = true;
@@ -51,6 +65,8 @@ class ProfileController extends ChangeNotifier {
     if (!loaded || deleting) return false;
     final skill = value.trim().replaceAll(RegExp(r'\s+'), ' ');
     final current = searching ? _profile.searchingSkills : _profile.skills;
+    final limit = offeringLimit;
+    if (!searching && limit != null && current.length >= limit) return false;
     if (skill.isEmpty ||
         skill.characters.length > 64 ||
         current.any((item) => item.toLowerCase() == skill.toLowerCase())) {
@@ -101,6 +117,7 @@ class ProfileController extends ChangeNotifier {
     _queue = _queue.then((_) async {
       try {
         await _store.write(snapshot);
+        _savedOfferingCount = snapshot.skills.length;
         _savedRevision = revision;
         if (_savedRevision == _revision) {
           error = null;
@@ -126,6 +143,7 @@ class ProfileController extends ChangeNotifier {
     await _queue;
     try {
       await _store.clear();
+      _savedOfferingCount = 0;
       _profile = UserProfile.empty;
       _revision++;
       _savedRevision = _revision;

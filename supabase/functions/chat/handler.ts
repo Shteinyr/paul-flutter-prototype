@@ -1,5 +1,7 @@
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.108.2";
 
+import { decodeBase64, uuid as sessionUuid } from "../push/shared.ts";
+
 const cors = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -31,6 +33,8 @@ const statuses: Record<string, number> = {
   message_id_conflict: 409,
   operation_id_conflict: 409,
   rate_limited: 429,
+  new_contact_limit_reached: 429,
+  session_revoked: 401,
 };
 
 export async function handleChat(request: Request, database: SupabaseClient) {
@@ -99,6 +103,25 @@ export async function handleChat(request: Request, database: SupabaseClient) {
       )
     ) {
       return reply(400, { code: "invalid_request" });
+    }
+    let session: unknown;
+    try {
+      session =
+        JSON.parse(new TextDecoder().decode(decodeBase64(bearer.split(".")[1])))
+          .session_id;
+    } catch {
+      return reply(401, { code: "sign_in_required" });
+    }
+    if (!sessionUuid(session)) return reply(401, { code: "sign_in_required" });
+    const sessionCheck = await database.rpc("member_require_session", {
+      p_user: auth.user.id,
+      p_session: session,
+    });
+    if (sessionCheck.error) {
+      const code = Object.hasOwn(statuses, sessionCheck.error.message)
+        ? sessionCheck.error.message
+        : "server_unavailable";
+      return reply(statuses[code] ?? 503, { code });
     }
     const { data: withinBudget, error: budgetError } = await database.rpc(
       "invite_request_limit",

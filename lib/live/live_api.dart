@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../profile/profile_store.dart';
 import '../profile/user_profile.dart';
 import 'invitation_controller.dart';
+import 'member_capabilities.dart';
 
 class LiveApiException implements Exception {
   const LiveApiException(this.code);
@@ -17,10 +18,12 @@ class LiveApiException implements Exception {
     'own_invitation' =>
       'This is your own invitation. Open another person’s QR or code to connect.',
     'membership_required' => 'Complete registration with an invitation first.',
-    'sign_in_required' => 'Please sign in again to continue.',
+    'sign_in_required' ||
+    'session_revoked' => 'Please sign in again to continue.',
     'invalid_profile' =>
       'Check your name, photo, summary and offered skills, then try again.',
     'rate_limited' => 'Too many attempts. Wait a minute and try again.',
+    'offering_limit_reached' => 'Invite 10 people to add more offered skills.',
     _ => 'Could not reach Paul. Check your connection and try again.',
   };
 }
@@ -60,6 +63,36 @@ class MemberNetwork {
 class LiveApi implements InvitationIssuer {
   LiveApi(this.client);
   final SupabaseClient client;
+
+  Future<MemberCapabilities> capabilities() async {
+    final userId = client.auth.currentUser?.id;
+    final token = client.auth.currentSession?.accessToken;
+    if (userId == null || token == null) {
+      throw const LiveApiException('sign_in_required');
+    }
+    try {
+      final response = await client.functions
+          .invoke(
+            'account',
+            headers: {'Authorization': 'Bearer $token'},
+            body: {'action': 'capabilities'},
+          )
+          .timeout(const Duration(seconds: 25));
+      if (client.auth.currentUser?.id != userId) {
+        throw const LiveApiException('sign_in_required');
+      }
+      return MemberCapabilities.fromJson(
+        Map<String, dynamic>.from(response.data as Map),
+      );
+    } on FunctionException catch (error) {
+      final details = error.details;
+      throw LiveApiException(
+        details is Map
+            ? details['code'] as String? ?? 'server_unavailable'
+            : 'server_unavailable',
+      );
+    }
+  }
 
   Future<Map<String, dynamic>> call(
     String action, [
@@ -124,6 +157,35 @@ class LiveApi implements InvitationIssuer {
           )
           .toList(),
     );
+  }
+
+  Future<MemberProfile> member(String profileId) async {
+    final userId = client.auth.currentUser?.id;
+    final token = client.auth.currentSession?.accessToken;
+    if (userId == null || token == null) {
+      throw const LiveApiException('sign_in_required');
+    }
+    try {
+      final response = await client.functions
+          .invoke(
+            'account',
+            headers: {'Authorization': 'Bearer $token'},
+            body: {'action': 'profile', 'profile_id': profileId},
+          )
+          .timeout(const Duration(seconds: 25));
+      if (client.auth.currentUser?.id != userId) {
+        throw const LiveApiException('sign_in_required');
+      }
+      final profile = (response.data as Map)['profile'];
+      return MemberProfile.fromJson(Map<String, dynamic>.from(profile as Map));
+    } on FunctionException catch (error) {
+      final details = error.details;
+      throw LiveApiException(
+        details is Map
+            ? details['code'] as String? ?? 'server_unavailable'
+            : 'server_unavailable',
+      );
+    }
   }
 
   Future<Map<String, dynamic>> profilePayload(

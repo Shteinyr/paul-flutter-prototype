@@ -41,7 +41,7 @@ select pg_temp.expect_error($q$select public.admin_context('42000000-0000-4000-8
 select pg_temp.expect_error($q$delete from auth.users where id='42000000-0000-4000-8000-000000000002'$q$,'profiles_auth_user_id_fkey');
 set local role authenticated;
 select set_config('request.jwt.claim.sub','42000000-0000-4000-8000-000000000001',true);
-select pg_temp.assert_true((select count(*)=1 from public.profiles where id::text like '42000000-%'),'Even admins have unchanged self/direct profile RLS');
+select pg_temp.assert_true((select count(*)=4 from public.profiles where id::text like '42000000-%'),'Registered admins share global active profile visibility');
 select pg_temp.expect_error($q$select public.admin_context('42000000-0000-4000-8000-000000000001')$q$,'permission denied');
 select pg_temp.expect_error($q$insert into private.admin_roles(user_id,role) values(auth.uid(),'owner')$q$,'permission denied');
 select pg_temp.expect_error($q$update private.managed_profile_grants set can_reply=true$q$,'permission denied');
