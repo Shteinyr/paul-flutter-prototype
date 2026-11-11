@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import '../live/chat_api.dart';
 import 'admin_api.dart';
@@ -70,6 +71,20 @@ class OperatorChatApi implements ChatRepository {
   @override
   Future<String> open(String peerId) async =>
       throw const ChatException('conversation_forbidden');
+
+  Future<Uint8List?> photo(ChatPeer peer) async {
+    if (currentUserId != admin.userId) {
+      throw const ChatException('sign_in_required');
+    }
+    final path = peer.avatarPath;
+    if (path == null || peer.deletedAt != null) return null;
+    final bytes = await admin.client.storage.from('avatars').download(path);
+    if (currentUserId != admin.userId) {
+      throw const ChatException('sign_in_required');
+    }
+    return bytes;
+  }
+
   @override
   Future<ChatHistory> history(
     String conversationId, {

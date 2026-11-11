@@ -21,6 +21,135 @@ String token(String id) =>
     'e30.${base64Url.encode(utf8.encode(jsonEncode({'sub': id, 'aud': 'authenticated', 'role': 'authenticated', 'exp': DateTime.now().add(const Duration(hours: 1)).millisecondsSinceEpoch ~/ 1000}))).replaceAll('=', '')}.signature';
 
 void main() {
+  for (final outcome in ['success', 'forbidden', 'identity-change']) {
+    test(
+      'operator peer photo respects Storage authorization: $outcome',
+      () async {
+        const actor = '10000000-0000-4000-8000-000000000001';
+        const other = '10000000-0000-4000-8000-000000000002';
+        final response = Completer<http.Response>();
+        final reached = Completer<void>();
+        var downloads = 0;
+        String? authorization;
+        final transport = MockClient((request) async {
+          if (request.url.path.endsWith('/token')) {
+            final id =
+                (jsonDecode(request.body) as Map)['email'] ==
+                    'actor@example.invalid'
+                ? actor
+                : other;
+            return http.Response(
+              jsonEncode({
+                'access_token': token(id),
+                'refresh_token': 'local-only',
+                'token_type': 'bearer',
+                'expires_in': 3600,
+                'user': {
+                  'id': id,
+                  'aud': 'authenticated',
+                  'created_at': '2026-01-01T00:00:00Z',
+                  'app_metadata': {},
+                  'user_metadata': {},
+                },
+              }),
+              200,
+            );
+          }
+          expect(request.method, 'GET');
+          expect(
+            request.url.path,
+            '/storage/v1/object/avatars/peer/saved.png',
+          );
+          authorization = request.headers['authorization'];
+          downloads++;
+          reached.complete();
+          return response.future;
+        });
+        final client = SupabaseClient(
+          'https://operator-test.invalid',
+          'test-key',
+          httpClient: transport,
+          isolate: _Json(),
+          authOptions: const AuthClientOptions(autoRefreshToken: false),
+        );
+        final repository = OperatorChatApi(
+          SupabaseAdminApi(client, actor),
+          'managed',
+        );
+        try {
+          await client.auth.signInWithPassword(
+            email: 'actor@example.invalid',
+            password: 'test-only',
+          );
+          final originalToken = client.auth.currentSession!.accessToken;
+          expect(
+            await repository.photo(
+              ChatPeer(
+                id: 'deleted',
+                name: '',
+                occupation: '',
+                avatarPath: 'peer/saved.png',
+                deletedAt: DateTime.utc(2026),
+              ),
+            ),
+            isNull,
+          );
+          expect(downloads, 0);
+          const peer = ChatPeer(
+            id: 'peer',
+            name: 'Peer',
+            occupation: '',
+            avatarPath: 'peer/saved.png',
+          );
+          final operation = repository.photo(peer);
+          final assertion = expectLater(
+            operation,
+            outcome == 'success'
+                ? completion(orderedEquals([1, 2, 3]))
+                : throwsA(
+                    outcome == 'forbidden'
+                        ? isA<StorageException>()
+                        : isA<ChatException>(),
+                  ),
+          );
+          await reached.future;
+          expect(authorization, 'Bearer $originalToken');
+          if (outcome == 'identity-change') {
+            await client.auth.signInWithPassword(
+              email: 'other@example.invalid',
+              password: 'test-only',
+            );
+          }
+          response.complete(
+            outcome == 'forbidden'
+                ? http.Response(
+                    '{"message":"Denied","statusCode":"403"}',
+                    403,
+                    headers: {'content-type': 'application/json'},
+                  )
+                : http.Response.bytes(
+                    [1, 2, 3],
+                    200,
+                    headers: {'content-type': 'image/png'},
+                  ),
+          );
+          await assertion;
+          expect(downloads, 1);
+          if (outcome == 'identity-change') {
+            await expectLater(
+              repository.photo(peer),
+              throwsA(isA<ChatException>()),
+            );
+            expect(downloads, 1);
+          }
+        } finally {
+          await repository.dispose();
+          await client.dispose();
+        }
+      },
+    );
+  }
+
   test(
     'delayed transport pins initiating authorization and rejects response after account switch',
     () async {
