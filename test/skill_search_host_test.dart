@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:paul_demo/live/live_app.dart';
+import 'package:paul_demo/live/live_chat_view.dart';
 import 'package:paul_demo/profile/public_profile_view.dart';
 import 'package:paul_demo/skills/skill_catalogue.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -26,8 +27,14 @@ class _Json extends Fake implements YAJsonIsolate {
 class _SignaledChatRepository extends QuietChatRepository {
   _SignaledChatRepository(super.client);
   final signals = StreamController<String>.broadcast(sync: true);
+  final opened = <String>[];
   @override
   Stream<String> watch() => signals.stream;
+  @override
+  Future<String> open(String peerId) async {
+    opened.add(peerId);
+    return 'new-conversation';
+  }
 }
 
 void main() {
@@ -56,6 +63,7 @@ void main() {
         Completer<void>? nextProfile;
         Map<String, dynamic> profile(String id, String name) => {
           'id': id,
+          'profile_kind': id == peer ? 'managed' : 'member',
           'name': name,
           'occupation': 'Designer',
           'summary': 'QA profile',
@@ -216,6 +224,11 @@ void main() {
               ),
               findsOneWidget,
             );
+          } else {
+            await tester.tap(find.byTooltip('Chat'));
+            await tester.pumpAndSettle();
+            expect(find.byType(LiveChatView), findsOneWidget);
+            expect(chat.opened, [peer]);
           }
           expect(tester.takeException(), isNull);
         } finally {
