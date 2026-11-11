@@ -107,13 +107,6 @@ class _SkillSuggestionsState extends State<SkillSuggestions> {
                 overflow: TextOverflow.ellipsis,
               ),
             ),
-          TextButton(
-            onPressed: () => showSkillCatalogueAttribution(context),
-            child: const Text(
-              'Skill catalogue source',
-              style: TextStyle(fontSize: 10),
-            ),
-          ),
         ],
       ),
     );

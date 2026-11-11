@@ -287,7 +287,7 @@ class _AdminViewState extends State<AdminView> {
                   ),
                   title: Text(
                     profile.name,
-                    maxLines: 1,
+                    maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       fontSize: 16,

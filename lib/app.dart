@@ -972,8 +972,8 @@ class _ProfileField extends StatelessWidget {
             hintStyle: TextStyle(
               fontSize: 15,
               height: 22 / 15,
-              fontWeight: FontWeight.w100,
-              color: active ? const Color(0x3314679E) : const Color(0x33000000),
+              fontWeight: FontWeight.w300,
+              color: active ? _blue : const Color(0xFF666666),
             ),
             contentPadding: EdgeInsets.only(top: 13, bottom: bottomPadding),
             border: InputBorder.none,
@@ -1004,15 +1004,13 @@ class _FieldSeparator extends StatelessWidget {
   const _FieldSeparator({required this.active});
   final bool active;
   @override
-  Widget build(BuildContext context) => active
-      ? Image.asset(
-          'assets/icons/field-separator-active.png',
-          width: 327,
-          height: 1,
-          fit: BoxFit.fill,
-          excludeFromSemantics: true,
-        )
-      : const _AssetIcon('field-separator.svg', width: 327, height: 0.75);
+  Widget build(BuildContext context) => SizedBox(
+    width: 327,
+    height: 1,
+    child: ColoredBox(
+      color: active ? const Color(0xB314679E) : const Color(0x99000000),
+    ),
+  );
 }
 
 class _ValidationMessage extends StatelessWidget {

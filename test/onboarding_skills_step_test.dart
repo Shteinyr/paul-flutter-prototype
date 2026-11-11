@@ -87,7 +87,7 @@ void main() {
     await tester.enterText(input, 'product design');
     await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pump();
-    expect(find.text('Already added'), findsOneWidget);
+    expect(find.text('Try different skill'), findsOneWidget);
     expect(controller.profile.skills, ['Product Design']);
     await tester.tap(find.byTooltip('Remove Product Design'));
     await tester.pump();

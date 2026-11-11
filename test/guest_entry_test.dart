@@ -47,6 +47,7 @@ void main() {
     removeSessionValue('paul.live.pending.invitation.v1');
     removeSessionValue('paul.live.pending.profile.v1');
     removeSessionValue('paul.live.pending.finalize.v1');
+    removeSessionValue('paul.live.entry.return.v1');
   });
 
   testWidgets(
@@ -92,13 +93,13 @@ void main() {
       expect(find.text('Hiring'), findsOneWidget);
       expect(find.text('Today'), findsOneWidget);
       expect(find.text('Last Week'), findsOneWidget);
-      expect(find.text('Urgent Hiring:  '), findsAtLeastNWidgets(3));
+      expect(find.textContaining('Urgent Hiring:  '), findsAtLeastNWidgets(3));
       await tester.drag(
         find.byKey(const Key('guest-hiring')),
         const Offset(0, -250),
       );
       await tester.pumpAndSettle();
-      expect(find.text('Babysitter'), findsOneWidget);
+      expect(find.text('Urgent Hiring:  Babysitter'), findsOneWidget);
       expect(find.text('Join'), findsNothing);
       await tester.tap(find.byKey(const Key('tab-0')));
       await tester.pumpAndSettle();
@@ -146,7 +147,7 @@ void main() {
         find.text('Could not open sign-in. Please try again.'),
         findsOneWidget,
       );
-      await tester.tap(find.text('Back to preview'));
+      await tester.tap(find.byKey(const Key('join-back')));
       await _previewReady(tester);
       expect(find.text('Paul Galda'), findsOneWidget);
       expect(preferences.values, isEmpty);
@@ -339,6 +340,20 @@ void main() {
           'My guest name',
         );
 
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pumpWidget(app());
+        await tester.pumpAndSettle();
+        expect(find.text('Continue with this invitation.'), findsOneWidget);
+        await tester.tap(find.byKey(const Key('join-back')));
+        await tester.pumpAndSettle();
+        expect(find.text('About You'), findsOneWidget);
+        expect(find.text('My guest name'), findsOneWidget);
+        expect(
+          (await OnboardingDraftStore(preferences: preferences).read()).photo,
+          photo,
+        );
+        expect(requests, isEmpty);
+        await press('onboarding-complete');
         await tester.tap(find.text('Join').last);
         await tester.pumpAndSettle();
         expect(requests, ['/functions/v1/invitations:check']);
@@ -377,7 +392,7 @@ void main() {
   testWidgets('guest search and Chat use only sample cards and gate send', (
     tester,
   ) async {
-    await tester.runAsync(() => SkillCatalogue.shared.suggest('figma'));
+    await tester.runAsync(() => SkillCatalogue.shared.suggest('marketing'));
     final requests = <String>[];
     final preferences = DraftPreferences();
     final client = SupabaseClient(
@@ -400,18 +415,20 @@ void main() {
     await _previewReady(tester);
     await tester.enterText(
       find.byKey(const Key('skill-search-field')),
-      'Figma',
+      'Marketing',
     );
     await tester.pump(const Duration(milliseconds: 300));
     await tester.runAsync(() => Future<void>.delayed(Duration.zero));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('suggest-figma')));
+    await tester.tap(find.byKey(const ValueKey('suggest-marketing')));
     await tester.pumpAndSettle();
     expect(find.text('Maya Chen'), findsNothing);
     expect(find.text('Julia Robinson'), findsOneWidget);
+    expect(find.text('Paul Galda'), findsOneWidget);
     await tester.tap(find.byKey(const Key('skill-filter-hiring')));
     await tester.pumpAndSettle();
-    expect(find.text('No profiles found for this skill'), findsOneWidget);
+    expect(find.text('Paul Galda'), findsOneWidget);
+    expect(find.text('Julia Robinson'), findsNothing);
     await tester.tap(find.byKey(const Key('skill-filter-offering')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('skill-result-julia-robinson')));
@@ -478,7 +495,7 @@ void main() {
       );
       await tester.tap(find.text('Join').last);
       await tester.pump();
-      await tester.tap(find.text('Back to preview'));
+      await tester.tap(find.byKey(const Key('join-back')));
       await _previewReady(tester);
       check.complete(
         http.Response('{}', 200, headers: {'content-type': 'application/json'}),
@@ -491,7 +508,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Already a member? Sign in'));
       await tester.pump();
-      await tester.tap(find.text('Back to preview'));
+      await tester.tap(find.byKey(const Key('join-back')));
       await _previewReady(tester);
       providers.complete((google: true, apple: false));
       await tester.pumpAndSettle();
@@ -513,7 +530,7 @@ void main() {
       await tester.tap(find.byTooltip('My QR code'));
       await tester.pumpAndSettle();
       expect(find.text('Connection unavailable'), findsOneWidget);
-      await tester.tap(find.text('Back to preview'));
+      await tester.tap(find.text('Back'));
       await tester.pumpAndSettle();
       expect(find.text('Julia Robinson'), findsOneWidget);
       expect(retries, 0);

@@ -6,8 +6,12 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:paul_demo/app.dart';
+import 'package:paul_demo/community/community_api.dart';
+import 'package:paul_demo/live/chat_api.dart';
 import 'package:paul_demo/live/browser_storage.dart';
 import 'package:paul_demo/live/live_app.dart';
+import 'package:paul_demo/live/guest_preview.dart';
 import 'package:paul_demo/live/live_api.dart';
 import 'package:paul_demo/onboarding/onboarding_draft_store.dart';
 import 'package:paul_demo/onboarding/onboarding_flow.dart';
@@ -16,6 +20,7 @@ import 'package:paul_demo/profile/user_profile.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:yet_another_json_isolate/yet_another_json_isolate.dart';
 
+import 'community_controller_test.dart' show CommunityRepo;
 import 'support/onboarding_preferences.dart';
 import 'support/quiet_chat_repository.dart';
 
@@ -73,6 +78,120 @@ void main() {
     removeSessionValue('paul.live.pending.invitation.v1');
     removeSessionValue('paul.live.pending.profile.v1');
     removeSessionValue('paul.live.pending.finalize.v1');
+    removeSessionValue('paul.live.entry.return.v1');
+  });
+
+  testWidgets('Hiring loads self and global author photos outside Contacts', (
+    tester,
+  ) async {
+    final png = (await rootBundle.load(
+      'assets/people/paul-galda.png',
+    )).buffer.asUint8List();
+    final downloads = <String>[];
+    final transport = MockClient((request) async {
+      if (request.url.path.startsWith('/storage/')) {
+        downloads.add(request.url.path);
+        return http.Response.bytes(
+          png,
+          200,
+          headers: {'content-type': 'image/png'},
+        );
+      }
+      final Object data;
+      if (request.url.path.endsWith('/token')) {
+        data = {
+          'access_token': _jwt(_a),
+          'refresh_token': 'local-only',
+          'token_type': 'bearer',
+          'expires_in': 3600,
+          'user': {
+            'id': _a,
+            'aud': 'authenticated',
+            'created_at': '2026-01-01T00:00:00Z',
+            'app_metadata': {},
+            'user_metadata': {},
+          },
+        };
+      } else if (request.url.path.endsWith('/invitations')) {
+        data = {
+          'profile': _profile(_a, 'Self author', avatar: '$_a/self.png'),
+          'contacts': [],
+        };
+      } else {
+        return http.Response('{}', 404);
+      }
+      return http.Response(
+        jsonEncode(data),
+        200,
+        headers: {'content-type': 'application/json'},
+      );
+    });
+    final client = SupabaseClient(
+      'https://test.supabase.co',
+      'test-key',
+      httpClient: transport,
+      isolate: _Json(),
+      authOptions: const AuthClientOptions(autoRefreshToken: false),
+    );
+    final now = DateTime.now().toUtc();
+    final repo = CommunityRepo()
+      ..userId = _a
+      ..currentUserId = _a;
+    repo.feeding = (_) async => CommunityPage(
+      [
+        for (final (id, name) in [(_a, 'Self author'), (_b, 'Global author')])
+          CommunityRequest(
+            id: 'request-$id',
+            author: ChatPeer(
+              id: id,
+              name: name,
+              occupation: '',
+              avatarPath: '$id/${id == _a ? 'self' : 'global'}.png',
+            ),
+            skill: 'Marketing',
+            message: 'Local request',
+            createdAt: now,
+            expiresAt: now.add(const Duration(days: 30)),
+            isAuthor: id == _a,
+          ),
+      ],
+      null,
+      now,
+    );
+    try {
+      await client.auth.signInWithPassword(
+        email: 'local@example.invalid',
+        password: 'test-only',
+      );
+      await tester.pumpWidget(
+        PaulLiveApp(
+          client: client,
+          appUrl: Uri.parse('https://test.invalid'),
+          draftPreferences: DraftPreferences(),
+          chatRepositoryFor: (_) => QuietChatRepository(client),
+          communityRepositoryFor: (_) => repo,
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('tab-1')));
+      await tester.pumpAndSettle();
+      expect(find.text('Global author'), findsOneWidget);
+      final avatars = tester
+          .widgetList<ProfileAvatar>(find.byType(ProfileAvatar))
+          .where((avatar) => avatar.size == 65)
+          .toList();
+      expect(avatars, hasLength(2));
+      expect(avatars.every((avatar) => avatar.photo != null), isTrue);
+      expect(
+        downloads.where((path) => path.endsWith('/$_b/global.png')),
+        hasLength(1),
+      );
+      expect(tester.takeException(), isNull);
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.runAsync(client.dispose);
+      await repo.identities.close();
+    }
   });
 
   for (final transportFailure in [false, true]) {
@@ -154,16 +273,13 @@ void main() {
                     .byKey(const Key('member-startup-error'))
                     .evaluate()
                     .isEmpty &&
-                find
-                    .text('Preview · Demonstration profiles')
-                    .evaluate()
-                    .isEmpty;
+                find.byType(GuestPreview).evaluate().isEmpty;
             attempt++
           ) {
             await tester.pump(const Duration(milliseconds: 50));
           }
           expect(find.byKey(const Key('member-startup-error')), findsOneWidget);
-          expect(find.text('Preview · Demonstration profiles'), findsNothing);
+          expect(find.byType(GuestPreview), findsNothing);
           expect(client.auth.currentSession, same(original));
           failing = false;
           await tester.tap(find.byKey(const Key('member-startup-retry')));
@@ -376,12 +492,11 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.byType(PublicProfileView), findsNothing);
         expect(find.text('Contact B'), findsNothing);
-        expect(
-          find.text(
-            changeAccount ? 'Member C' : 'Preview · Demonstration profiles',
-          ),
-          findsOneWidget,
-        );
+        if (changeAccount) {
+          expect(find.text('Member C'), findsOneWidget);
+        } else {
+          expect(find.byType(GuestPreview), findsOneWidget);
+        }
         expect(tester.takeException(), null);
         await tester.pumpWidget(const SizedBox.shrink());
         await tester.runAsync(client.dispose);
@@ -540,7 +655,7 @@ void main() {
         } else {
           expect(submitted, null);
           expect(find.byType(OnboardingFlow), findsNothing);
-          expect(find.text('Preview · Demonstration profiles'), findsOneWidget);
+          expect(find.byType(GuestPreview), findsOneWidget);
           expect((await store.read()).name, latest.name);
         }
         expect(tester.takeException(), null);

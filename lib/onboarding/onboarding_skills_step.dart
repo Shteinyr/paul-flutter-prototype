@@ -63,7 +63,7 @@ class _OnboardingSkillsStepState extends State<OnboardingSkillsStep> {
       return;
     }
     if (!widget.controller.addSkill(_input.text, searching: widget.searching)) {
-      setState(() => _error = 'Already added');
+      setState(() => _error = 'Try different skill');
       return;
     }
     _input.clear();
@@ -109,11 +109,13 @@ class _OnboardingSkillsStepState extends State<OnboardingSkillsStep> {
                   height: 22 / 15,
                   letterSpacing: .5,
                 ),
-                decoration: const InputDecoration(
-                  hintText: 'Example: Marketing',
-                  hintStyle: TextStyle(
-                    fontWeight: FontWeight.w100,
-                    color: Color(0x33000000),
+                decoration: InputDecoration(
+                  hintText: widget.searching
+                      ? 'Example: Dog Walker'
+                      : 'Example: Marketing',
+                  hintStyle: const TextStyle(
+                    fontWeight: FontWeight.w300,
+                    color: Color(0xFF14679E),
                   ),
                   counterText: '',
                   border: InputBorder.none,
@@ -137,6 +139,12 @@ class _OnboardingSkillsStepState extends State<OnboardingSkillsStep> {
                     'assets/icons/add-skill.svg',
                     width: 12.5,
                     height: 12.5,
+                    colorFilter: widget.enabled
+                        ? null
+                        : const ColorFilter.mode(
+                            Color(0x8014679E),
+                            BlendMode.srcIn,
+                          ),
                   ),
                 ),
               ),

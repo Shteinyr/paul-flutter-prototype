@@ -159,7 +159,8 @@ class _CommunityFeedViewState extends State<CommunityFeedView>
   String _group(CommunityRequest request) {
     final age = widget.controller.serverNow.difference(request.createdAt);
     if (age < const Duration(days: 1)) return 'Today';
-    return 'Last Week';
+    if (age < const Duration(days: 7)) return 'Last Week';
+    return 'Earlier';
   }
 
   @override
@@ -603,24 +604,16 @@ class HiringRequestRow extends StatelessWidget {
               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
             ),
             const SizedBox(height: 9),
-            Row(
-              children: [
-                const Text(
-                  'Urgent Hiring:  ',
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w300),
-                ),
-                Flexible(
-                  child: Text(
-                    skill,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w300,
-                    ),
-                  ),
-                ),
-              ],
+            Text.rich(
+              TextSpan(
+                children: [
+                  const TextSpan(text: 'Urgent Hiring:  '),
+                  TextSpan(text: skill),
+                ],
+              ),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w300),
             ),
           ],
         ),

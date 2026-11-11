@@ -44,6 +44,7 @@ const _blue = Color(0xFF14679E);
 const _inviteKey = 'paul.live.pending.invitation.v1';
 const _draftKey = 'paul.live.pending.profile.v1';
 const _finalizeKey = 'paul.live.pending.finalize.v1';
+const _entryReturnKey = 'paul.live.entry.return.v1';
 
 class PaulLiveApp extends StatefulWidget {
   const PaulLiveApp({
@@ -160,7 +161,11 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
       _pendingPushClick = click;
       unawaited(_drainPushClick());
     });
-    _entering = widget.authCallback && readSessionValue(_finalizeKey) == '1';
+    final entryReturn = readSessionValue(_entryReturnKey);
+    _editingGuestDraft = entryReturn == 'editing' && !widget.authCallback;
+    _entering =
+        entryReturn == 'draft' ||
+        (widget.authCallback && readSessionValue(_finalizeKey) == '1');
     if (!widget.authCallback) removeSessionValue(_finalizeKey);
     _auth = widget.client.auth.onAuthStateChange.listen(
       (event) {
@@ -194,6 +199,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     removeSessionValue(_inviteKey);
     removeSessionValue(_draftKey);
     removeSessionValue(_finalizeKey);
+    removeSessionValue(_entryReturnKey);
     _credential = null;
     _draft = null;
     _acceptedInvite = false;
@@ -686,19 +692,27 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
   }
 
   Widget _peerAvatar(ChatPeer peer, {double size = 48}) {
+    if (peer.id == _identity) {
+      return ProfileAvatar(photo: _profile?.profile.photo, size: size);
+    }
     final member = _network.contacts
         .where((member) => member.id == peer.id)
         .firstOrNull;
-    if (member == null) {
+    final path = member != null ? member.avatarPath : peer.avatarPath;
+    if (path == null || peer.deletedAt != null) {
       _peerPhotos.remove(peer.id);
       return ProfileAvatar(size: size);
     }
     var cached = _peerPhotos[peer.id];
-    if (cached == null || cached.path != member.avatarPath) {
-      cached = (path: member.avatarPath, photo: _api.photo(member));
+    if (cached == null || cached.path != path) {
+      cached = (
+        path: path,
+        photo: widget.client.storage.from('avatars').download(path),
+      );
       _peerPhotos[peer.id] = cached;
     }
     return FutureBuilder<Uint8List?>(
+      key: ValueKey('peer-avatar-$_identity-${peer.id}-$path'),
       future: cached.photo,
       builder: (_, snapshot) => ProfileAvatar(photo: snapshot.data, size: size),
     );
@@ -759,8 +773,8 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
               controller: chat,
               conversationId: id,
               peer: peer,
-              ownAvatar: ProfileAvatar(photo: profile.profile.photo, size: 48),
-              peerAvatar: _peerAvatar(peer),
+              ownAvatar: ProfileAvatar(photo: profile.profile.photo, size: 65),
+              peerAvatar: _peerAvatar(peer, size: 65),
               onInvite: _openQr,
             ),
           ),
@@ -812,7 +826,12 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     );
   }
 
-  void _beginEntry() {
+  void _beginEntry({bool fromDraft = false}) {
+    if (fromDraft) {
+      writeSessionValue(_entryReturnKey, 'draft');
+    } else {
+      removeSessionValue(_entryReturnKey);
+    }
     _navigator.currentState?.popUntil((route) => route.isFirst);
     setState(() {
       _entering = true;
@@ -822,6 +841,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
   }
 
   void _editGuestDraft() {
+    writeSessionValue(_entryReturnKey, 'editing');
     _entryGeneration++;
     removeSessionValue(_finalizeKey);
     setState(() {
@@ -833,10 +853,20 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
 
   void _continueGuestDraft(UserProfile draft) {
     _draft = draft;
-    _beginEntry();
+    _beginEntry(fromDraft: true);
+  }
+
+  void _backFromEntry() {
+    if (readSessionValue(_entryReturnKey) != 'draft') {
+      _backToGuest();
+      return;
+    }
+    _editGuestDraft();
+    setState(() => _checking = false);
   }
 
   void _backToGuest() {
+    removeSessionValue(_entryReturnKey);
     _entryGeneration++;
     removeSessionValue(_finalizeKey);
     setState(() {
@@ -1345,7 +1375,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     }
     return _JoinView(
       pendingCredential: _credential,
-      onBack: _backToGuest,
+      onBack: _backFromEntry,
       onClearInvite: () {
         removeSessionValue(_inviteKey);
         setState(() => _credential = null);
@@ -1527,8 +1557,9 @@ class _JoinViewState extends State<_JoinView> {
               child: const Text('Use another invitation code'),
             ),
           TextButton(
+            key: const Key('join-back'),
             onPressed: widget.onBack,
-            child: const Text('Back to preview'),
+            child: const Text('Back'),
           ),
           const SizedBox(height: 40),
           TextButton(
