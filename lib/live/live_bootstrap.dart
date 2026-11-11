@@ -1,10 +1,12 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'browser_storage.dart';
+import 'auth_callback.dart';
 import 'guest_preview.dart';
 import 'live_app.dart';
 import '../contacts/phone_discovery_api.dart';
@@ -32,7 +34,10 @@ Future<Widget> buildLiveApp({
           'Browser storage is unavailable. Allow storage for this site, then retry to sign in. You can keep exploring the preview.',
     );
   }
-  final authCallback = Uri.base.queryParameters['auth'] == 'callback';
+  final callbackUri = Uri.base;
+  final authCallback = kIsWeb
+      ? isAuthCallback(callbackUri)
+      : callbackUri.queryParameters['auth'] == 'callback';
   try {
     if (url.isEmpty || key.isEmpty || appUrl.isEmpty) {
       throw const FormatException('Missing live configuration');
@@ -43,12 +48,27 @@ Future<Widget> buildLiveApp({
       debug: false,
       authOptions: const FlutterAuthClientOptions(
         authFlowType: AuthFlowType.pkce,
+        // The web bootstrap awaits the same SDK exchange below and retains
+        // its outcome; the automatic observer would otherwise consume it twice.
+        detectSessionInUri: !kIsWeb,
       ),
     );
+    var callbackResult = AuthCallbackResult.none;
+    if (kIsWeb && authCallback) {
+      try {
+        callbackResult = await completeAuthCallback(
+          Supabase.instance.client,
+          callbackUri,
+        );
+      } finally {
+        clearAuthCallbackFromAddress();
+      }
+    }
     return PaulLiveApp(
       client: Supabase.instance.client,
       appUrl: Uri.parse(appUrl),
       authCallback: authCallback,
+      authCallbackFailed: callbackResult == AuthCallbackResult.failed,
       phoneRepositoryFor: (userId) => SupabasePhoneDiscoveryApi(
         Supabase.instance.client,
         userId,
