@@ -89,7 +89,11 @@ Deno.test("a switched identity cannot apply a previous account's phone consent o
         action,
         expected_user_id: other,
         ...(action === "consent"
-          ? { enabled: true, expected_phone_revision: "a".repeat(64) }
+          ? {
+            enabled: true,
+            expected_phone_revision: "a".repeat(64),
+            expected_consent_revision: null,
+          }
           : {}),
         ...(action === "lookup" ? { phones: ["+12025550101"] } : {}),
       }),
@@ -139,16 +143,22 @@ Deno.test("consent requires the phone revision while withdrawal works after the 
       action: "consent",
       enabled: true,
       expected_phone_revision: "b".repeat(64),
+      expected_consent_revision: null,
     }),
     database,
   );
   assertEquals(calls[1].body.p_expected_revision, "b".repeat(64));
   await handlePhoneDiscovery(
-    request({ action: "consent", enabled: false }),
+    request({
+      action: "consent",
+      enabled: false,
+      expected_consent_revision: session,
+    }),
     database,
   );
   assertEquals(calls[3].body.p_expected_revision, null);
   assertEquals(calls[3].body.p_enabled, false);
+  assertEquals(calls[3].body.p_expected_consent_revision, session);
 });
 Deno.test("oversized, forged and malformed selections cannot invoke privileged SQL", async () => {
   for (
@@ -174,6 +184,7 @@ Deno.test("verification, phone changes, session revocation and rate errors remai
     const [error, status] of [
       ["phone_verification_required", 403],
       ["phone_changed", 409],
+      ["discovery_state_changed", 409],
       ["session_revoked", 401],
       ["membership_required", 403],
       ["rate_limited", 429],

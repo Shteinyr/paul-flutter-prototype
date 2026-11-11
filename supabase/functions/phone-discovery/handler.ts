@@ -22,6 +22,7 @@ const statuses: Record<string, number> = {
   identity_changed: 409,
   phone_verification_required: 403,
   phone_changed: 409,
+  discovery_state_changed: 409,
   rate_limited: 429,
 };
 const reply = (status: number, body: unknown) =>
@@ -59,7 +60,11 @@ export async function handlePhoneDiscovery(
     const body = await readBody(request);
     const actions: Record<string, string[]> = {
       status: [],
-      consent: ["enabled", "expected_phone_revision"],
+      consent: [
+        "enabled",
+        "expected_phone_revision",
+        "expected_consent_revision",
+      ],
       lookup: ["phones", "default_country"],
     };
     const action = String(body.action);
@@ -72,6 +77,9 @@ export async function handlePhoneDiscovery(
     if (
       action === "consent" &&
       (typeof body.enabled !== "boolean" ||
+        !Object.hasOwn(body, "expected_consent_revision") ||
+        (body.expected_consent_revision !== null &&
+          !uuid(body.expected_consent_revision)) ||
         (body.enabled &&
           (typeof body.expected_phone_revision !== "string" ||
             !/^[a-f0-9]{64}$/.test(body.expected_phone_revision))))
@@ -137,6 +145,7 @@ export async function handlePhoneDiscovery(
       args.p_expected_revision = body.enabled
         ? body.expected_phone_revision
         : null;
+      args.p_expected_consent_revision = body.expected_consent_revision;
     }
     if (action === "lookup") args.p_phones = phones;
     const result = await database.rpc("phone_discovery_" + action, args);
