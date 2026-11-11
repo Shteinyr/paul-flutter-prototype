@@ -104,7 +104,7 @@ try {
   const displayed = await notifications();
   assert.equal(displayed.length, 1);
   assert.equal(displayed[0].title, 'Paul');
-  assert.equal(displayed[0].body, 'New message');
+  assert.equal(displayed[0].body, 'New activity');
   assert.deepEqual(Object.keys(displayed[0].data).sort(), ['version', 'delivery_id', 'recipient_user_id', 'binding_id'].sort());
   await page.evaluate(async () => { for (const item of await (await navigator.serviceWorker.ready).getNotifications()) item.close(); });
   await cdp.send('ServiceWorker.stopAllWorkers');
