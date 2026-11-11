@@ -596,10 +596,11 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     final identity = _identity;
     final factory = widget.phoneRepositoryFor;
     if (identity == null || factory == null) return;
+    final repository = factory(identity);
     await _navigator.currentState!.push<void>(
       MaterialPageRoute(
         builder: (_) => PhoneDiscoveryView(
-          repository: factory(identity),
+          repository: repository,
           onInvite: _openQr,
           onProfile: (id) => _openSearchProfile(
             SkillSearchHit(
