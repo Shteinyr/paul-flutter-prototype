@@ -56,10 +56,7 @@ void main() {
             );
           }
           expect(request.method, 'GET');
-          expect(
-            request.url.path,
-            '/storage/v1/object/avatars/peer/saved.png',
-          );
+          expect(request.url.path, '/storage/v1/object/avatars/peer/saved.png');
           authorization = request.headers['authorization'];
           downloads++;
           reached.complete();
