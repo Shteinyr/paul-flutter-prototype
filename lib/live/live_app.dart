@@ -30,6 +30,7 @@ import '../search/skill_search_api.dart';
 import '../search/skill_search_controller.dart';
 import '../search/skill_search_view.dart';
 import 'browser_storage.dart';
+import 'auth_callback.dart';
 import 'live_api.dart';
 import 'member_capabilities.dart';
 import 'live_qr_view.dart';
@@ -45,6 +46,8 @@ const _inviteKey = 'paul.live.pending.invitation.v1';
 const _draftKey = 'paul.live.pending.profile.v1';
 const _finalizeKey = 'paul.live.pending.finalize.v1';
 const _entryReturnKey = 'paul.live.entry.return.v1';
+// A dismissed failed redirect must not consume a saved invite after reload.
+const _failedCallbackKey = 'paul.live.pending.auth-failure.v1';
 
 class PaulLiveApp extends StatefulWidget {
   const PaulLiveApp({
@@ -55,6 +58,7 @@ class PaulLiveApp extends StatefulWidget {
     this.appleEnabled = false,
     this.loadAuthProviders,
     this.authCallback = false,
+    this.authCallbackFailed = false,
     this.draftPreferences,
     this.chatRepositoryFor,
     this.searchRepositoryFor,
@@ -72,6 +76,7 @@ class PaulLiveApp extends StatefulWidget {
   final bool appleEnabled;
   final Future<({bool google, bool apple})> Function()? loadAuthProviders;
   final bool authCallback;
+  final bool authCallbackFailed;
   final SharedPreferencesAsync? draftPreferences;
   final ChatRepository Function(String userId)? chatRepositoryFor;
   final SkillSearchRepository Function(String userId)? searchRepositoryFor;
@@ -120,6 +125,10 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
   bool _loading = true;
   bool _acceptedInvite = false;
   bool _entering = false;
+  bool _callbackFailure = false;
+  bool _deferInvitation = false;
+  String? get _visibleError =>
+      _callbackFailure ? authCallbackFailureMessage : _error;
   bool _editingGuestDraft = false;
   bool _choosingProvider = false;
   int _entryGeneration = 0;
@@ -142,6 +151,11 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
         ? fragment.substring(7)
         : readSessionValue(_inviteKey);
     if (_credential != null) writeSessionValue(_inviteKey, _credential!);
+    _deferInvitation = readSessionValue(_failedCallbackKey) == '1';
+    if (fragment.startsWith('invite=') ||
+        (widget.authCallback && !widget.authCallbackFailed)) {
+      _resumeInvitation();
+    }
     clearInviteFromAddress();
     final draft = readSessionValue(_draftKey);
     if (draft != null) {
@@ -167,6 +181,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
         entryReturn == 'draft' ||
         (widget.authCallback && readSessionValue(_finalizeKey) == '1');
     if (!widget.authCallback) removeSessionValue(_finalizeKey);
+    if (widget.authCallbackFailed) _recordCallbackFailure();
     _auth = widget.client.auth.onAuthStateChange.listen(
       (event) {
         if (event.event == AuthChangeEvent.tokenRefreshed) return;
@@ -182,12 +197,10 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
         unawaited(_load());
       },
       onError: (Object _) {
-        removeSessionValue(_finalizeKey);
         if (mounted) {
           setState(() {
             _loading = false;
-            _error =
-                'Sign-in did not finish. Your profile draft is saved. Please try again.';
+            _recordCallbackFailure();
           });
         }
       },
@@ -195,11 +208,31 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     unawaited(_load());
   }
 
+  void _resumeInvitation() {
+    _deferInvitation = false;
+    removeSessionValue(_failedCallbackKey);
+  }
+
+  void _recordCallbackFailure() {
+    _callbackFailure = true;
+    _deferInvitation = true;
+    writeSessionValue(_failedCallbackKey, '1');
+    removeSessionValue(_finalizeKey);
+    if (_draft?.hasData == true && readSessionValue(_entryReturnKey) == null) {
+      writeSessionValue(_entryReturnKey, 'draft');
+    }
+    _entering = true;
+    _editingGuestDraft = false;
+    _acceptedInvite = false;
+  }
+
   Future<void> _clearPending() async {
     removeSessionValue(_inviteKey);
     removeSessionValue(_draftKey);
     removeSessionValue(_finalizeKey);
     removeSessionValue(_entryReturnKey);
+    _resumeInvitation();
+    _callbackFailure = false;
     _credential = null;
     _draft = null;
     _acceptedInvite = false;
@@ -255,7 +288,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
           : await _api.network();
       if (!mounted || generation != _loadGeneration) return;
       try {
-        if (_credential != null) {
+        if (_credential != null && !_deferInvitation) {
           if (network.own != null) {
             await _api.redeem(_credential!);
             await _clearPending();
@@ -845,6 +878,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     _entryGeneration++;
     removeSessionValue(_finalizeKey);
     setState(() {
+      _callbackFailure = false;
       _editingGuestDraft = true;
       _entering = false;
       _acceptedInvite = false;
@@ -870,6 +904,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     _entryGeneration++;
     removeSessionValue(_finalizeKey);
     setState(() {
+      _callbackFailure = false;
       _entering = false;
       _editingGuestDraft = false;
       _acceptedInvite = false;
@@ -894,7 +929,9 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
         return;
       }
       writeSessionValue(_inviteKey, value);
+      _resumeInvitation();
       setState(() {
+        _callbackFailure = false;
         _credential = value;
         _acceptedInvite = true;
       });
@@ -1286,7 +1323,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
         profile: _profile!,
         network: _network,
         api: _api,
-        error: _error,
+        error: _visibleError,
         onRefresh: _load,
         onProfile: _openProfile,
         chat: _chat!,
@@ -1349,6 +1386,10 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
         push: _push,
         onQr: _openQr,
         onDismissInvite: () async {
+          if (_callbackFailure) {
+            setState(() => _callbackFailure = false);
+            return;
+          }
           await _clearPending();
           await _load();
         },
@@ -1380,11 +1421,12 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
         removeSessionValue(_inviteKey);
         setState(() => _credential = null);
       },
-      error: _error,
+      error: _visibleError,
       checking: _checking,
       onAccept: _accept,
       onRetry:
-          _error != null &&
+          !_callbackFailure &&
+              _error != null &&
               (_credential != null || widget.client.auth.currentUser != null)
           ? _load
           : null,
