@@ -5,7 +5,7 @@ create role authenticated nologin;
 create role service_role nologin bypassrls;
 create schema auth;
 create schema storage;
-create table auth.users(id uuid primary key);
+create table auth.users(id uuid primary key,phone text,phone_confirmed_at timestamptz);
 create table auth.sessions(id uuid primary key,user_id uuid not null references auth.users(id),not_after timestamptz);
 -- Vault stand-in exists only in this empty local test database.
 create schema vault;
