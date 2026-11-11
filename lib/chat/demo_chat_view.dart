@@ -14,10 +14,16 @@ class DemoChatView extends StatefulWidget {
     required this.contact,
     required this.controller,
     required this.ownAvatar,
+    this.peerAvatar,
+    this.onSendAttempt,
   });
   final DemoContact contact;
   final DemoChatController controller;
   final Widget ownAvatar;
+  final Widget? peerAvatar;
+
+  /// Guest preview gates sending before any local message or simulated reply.
+  final VoidCallback? onSendAttempt;
   @override
   State<DemoChatView> createState() => _DemoChatViewState();
 }
@@ -37,6 +43,11 @@ class _DemoChatViewState extends State<DemoChatView> {
   }
 
   void _send() {
+    if (_draft.text.trim().isEmpty) return;
+    if (widget.onSendAttempt != null) {
+      widget.onSendAttempt!();
+      return;
+    }
     if (!widget.controller.send(widget.contact.id, _draft.text)) return;
     _draft.clear();
     _focus.requestFocus();
@@ -121,14 +132,15 @@ class _DemoChatViewState extends State<DemoChatView> {
                         );
                         final avatar = message.outgoing
                             ? widget.ownAvatar
-                            : ClipOval(
-                                child: Image.asset(
-                                  widget.contact.photoAsset,
-                                  width: 48,
-                                  height: 48,
-                                  fit: BoxFit.cover,
-                                ),
-                              );
+                            : widget.peerAvatar ??
+                                  ClipOval(
+                                    child: Image.asset(
+                                      widget.contact.photoAsset,
+                                      width: 48,
+                                      height: 48,
+                                      fit: BoxFit.cover,
+                                    ),
+                                  );
                         return Padding(
                           padding: const EdgeInsets.only(top: 12),
                           child: Semantics(
@@ -186,7 +198,9 @@ class _DemoChatViewState extends State<DemoChatView> {
                     valueListenable: _draft,
                     builder: (context, value, _) => IconButton(
                       key: const Key('send-chat-message'),
-                      tooltip: 'Send demo message',
+                      tooltip: widget.onSendAttempt == null
+                          ? 'Send demo message'
+                          : 'Send message',
                       color: _blue,
                       onPressed: value.text.trim().isEmpty ? null : _send,
                       icon: const Icon(Icons.send_outlined, size: 23),

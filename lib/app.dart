@@ -822,46 +822,53 @@ class ProfileNavigation extends StatelessWidget {
       selected: active,
       button: true,
       enabled: enabled,
-      label: label,
+      label: enabled ? label : '$label, unavailable',
       excludeSemantics: true,
-      child: SizedBox(
-        width: width,
-        height: 48,
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            key: Key('tab-$index'),
-            onTap: enabled ? () => onSelected(index) : null,
-            borderRadius: BorderRadius.circular(30),
-            child: Center(
-              child: Container(
-                height: 37,
-                decoration: BoxDecoration(
-                  color: active ? _blue : null,
-                  borderRadius: BorderRadius.circular(30),
-                ),
-                alignment: Alignment.center,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _AssetIcon(
-                      '$asset${active ? '-active' : ''}.svg',
-                      width: iconWidth,
-                      height: iconHeight,
+      child: Tooltip(
+        message: enabled ? label : '$label is not available yet',
+        excludeFromSemantics: true,
+        child: Opacity(
+          opacity: enabled ? 1 : .35,
+          child: SizedBox(
+            width: width,
+            height: 48,
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                key: Key('tab-$index'),
+                onTap: enabled ? () => onSelected(index) : null,
+                borderRadius: BorderRadius.circular(30),
+                child: Center(
+                  child: Container(
+                    height: 37,
+                    decoration: BoxDecoration(
+                      color: active ? _blue : null,
+                      borderRadius: BorderRadius.circular(30),
                     ),
-                    if (active) ...[
-                      const SizedBox(width: 13),
-                      Text(
-                        label,
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w500,
-                          letterSpacing: _tracking,
-                          color: _background,
+                    alignment: Alignment.center,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _AssetIcon(
+                          '$asset${active ? '-active' : ''}.svg',
+                          width: iconWidth,
+                          height: iconHeight,
                         ),
-                      ),
-                    ],
-                  ],
+                        if (active) ...[
+                          const SizedBox(width: 13),
+                          Text(
+                            label,
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w500,
+                              letterSpacing: _tracking,
+                              color: _background,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ),

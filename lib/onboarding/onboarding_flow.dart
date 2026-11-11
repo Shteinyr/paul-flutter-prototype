@@ -1,4 +1,5 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -9,20 +10,25 @@ import '../profile/user_profile.dart';
 import 'onboarding_draft_store.dart';
 import 'onboarding_skills_step.dart';
 
-/// The host completes real authentication, photo upload and membership creation.
-/// Returning successfully means all of those operations have succeeded.
+/// The registration host completes authentication, upload and membership before
+/// onComplete returns. A local-only host uses onContinueToRegistration instead.
 class OnboardingFlow extends StatefulWidget {
   const OnboardingFlow({
     super.key,
-    required this.onComplete,
+    this.onComplete,
+    this.onContinueToRegistration,
     this.initialDraft,
     this.onBack,
     this.pickPhoto,
     this.preferences,
     this.maxOfferingSkills = 5,
-  });
+  }) : assert((onComplete == null) != (onContinueToRegistration == null));
 
-  final Future<void> Function(UserProfile draft) onComplete;
+  final Future<void> Function(UserProfile draft)? onComplete;
+
+  /// Local-only handoff. Saves the draft without claiming registration success
+  /// or clearing it; the host must still check an invitation and authenticate.
+  final ValueChanged<UserProfile>? onContinueToRegistration;
 
   /// Recovery seed used when no valid local onboarding draft is available.
   final UserProfile? initialDraft;
@@ -244,7 +250,11 @@ class _OnboardingFlowState extends State<OnboardingFlow>
       return;
     }
     try {
-      await widget.onComplete(_profile);
+      if (widget.onContinueToRegistration != null) {
+        widget.onContinueToRegistration!(_profile);
+        return;
+      }
+      await widget.onComplete!(_profile);
       _serverCompleted = true;
       await _store.clear();
     } on OnboardingSubmissionException catch (error) {
@@ -342,7 +352,7 @@ class _OnboardingFlowState extends State<OnboardingFlow>
     return PopScope(
       canPop: _step == 0 && !_busy,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop && !_busy && _step > 0) unawaited(_move(-1));
+        if (!didPop && !_busy) unawaited(_move(-1));
       },
       child: Scaffold(
         backgroundColor: const Color(0xFFF4F4F4),
