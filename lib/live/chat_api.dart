@@ -27,6 +27,8 @@ class ChatException implements Exception {
     'message_id_conflict' =>
       'This message was already sent with different text.',
     'rate_limited' => 'Too many attempts. Wait a minute and try again.',
+    'new_contact_limit_reached' =>
+      'Today’s new-contact limit is reached. Invite 2 people to message anyone, anytime.',
     _ => 'Could not update your chat. Check your connection and retry.',
   };
 }

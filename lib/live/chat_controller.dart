@@ -84,10 +84,12 @@ class LiveChatController extends ChangeNotifier {
   bool loadingHistory = false;
   bool loadingOlder = false;
   String? error;
+  String? lastSendErrorCode;
   String? activeConversationId;
   List<ChatSummary> conversations = const [];
   void Function(String conversationId)? onConnected;
   VoidCallback? onChanged;
+  void Function(ChatException)? onSendError;
 
   bool get _valid =>
       !_disposed && !_signedOut && repository.currentUserId == userId;
@@ -427,6 +429,7 @@ class LiveChatController extends ChangeNotifier {
     if (!canSend) return false;
     final generation = _generation;
     error = null;
+    lastSendErrorCode = null;
     _notify();
     try {
       // Save the operation ID and exact payload before any request can commit.
@@ -450,10 +453,12 @@ class LiveChatController extends ChangeNotifier {
     } catch (problem) {
       if (_current(generation)) {
         item.delivery = ChatDelivery.failed;
+        lastSendErrorCode = problem is ChatException ? problem.code : null;
         error = problem is ChatException
             ? problem.toString()
             : 'Could not send your message. Please retry.';
         _notify();
+        if (problem is ChatException) onSendError?.call(problem);
       }
       return false;
     }

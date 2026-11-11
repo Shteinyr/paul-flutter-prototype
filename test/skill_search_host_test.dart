@@ -92,6 +92,20 @@ void main() {
             if (delayed != null) await delayed.future;
           } else if (request.url.path.endsWith('/account')) {
             final body = jsonDecode(request.body) as Map;
+            if (body['action'] == 'capabilities') {
+              return http.Response(
+                jsonEncode({
+                  'invited_registrations': 0,
+                  'can_message_anyone': false,
+                  'can_publish_community': false,
+                  'offering_limit': 5,
+                  'new_conversations_remaining': 1,
+                  'quota_resets_at': '2026-11-12T00:00:00Z',
+                }),
+                200,
+                headers: {'content-type': 'application/json'},
+              );
+            }
             expect(body['action'], 'profile');
             expect(body['profile_id'], peer);
             profileReads++;

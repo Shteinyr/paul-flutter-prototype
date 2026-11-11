@@ -19,6 +19,7 @@ class OnboardingFlow extends StatefulWidget {
     this.onBack,
     this.pickPhoto,
     this.preferences,
+    this.maxOfferingSkills = 5,
   });
 
   final Future<void> Function(UserProfile draft) onComplete;
@@ -28,6 +29,7 @@ class OnboardingFlow extends StatefulWidget {
   final VoidCallback? onBack;
   final PickProfilePhoto? pickPhoto;
   final SharedPreferencesAsync? preferences;
+  final int maxOfferingSkills;
 
   @override
   State<OnboardingFlow> createState() => _OnboardingFlowState();
@@ -68,7 +70,10 @@ class _OnboardingFlowState extends State<OnboardingFlow>
       preferences: widget.preferences,
       initialDraft: widget.initialDraft,
     );
-    _controller = ProfileController(_store)..addListener(_changed);
+    _controller = ProfileController(
+      _store,
+      offeringLimit: widget.maxOfferingSkills,
+    )..addListener(_changed);
     WidgetsBinding.instance.addObserver(this);
     unawaited(_load());
   }
@@ -129,7 +134,10 @@ class _OnboardingFlowState extends State<OnboardingFlow>
   Future<void> _move(int direction) async {
     if (_busy || !_controller.loaded) return;
     FocusManager.instance.primaryFocus?.unfocus();
-    if (direction > 0 && _step == 0 && _profile.skills.isEmpty) {
+    if (direction > 0 &&
+        _step == 0 &&
+        (_profile.skills.isEmpty ||
+            _profile.skills.length > widget.maxOfferingSkills)) {
       setState(() => _validate = true);
       return;
     }
@@ -199,7 +207,7 @@ class _OnboardingFlowState extends State<OnboardingFlow>
       _profile.occupation.characters.length <= 120 &&
       _profile.summary.characters.length <= 500 &&
       _profile.skills.isNotEmpty &&
-      _profile.skills.length <= 100 &&
+      _profile.skills.length <= widget.maxOfferingSkills &&
       _profile.searchingSkills.length <= 100;
 
   Future<void> _complete() async {
@@ -215,14 +223,15 @@ class _OnboardingFlowState extends State<OnboardingFlow>
               _profile.photo!.lengthInBytes > 3 * 1024 * 1024)) {
         setState(() => _photoError = 'Choose an image smaller than 3 MB.');
       }
-      if (_profile.skills.length > 100 ||
+      if (_profile.skills.length > widget.maxOfferingSkills ||
           _profile.searchingSkills.length > 100) {
         setState(
           () =>
               _submitError = 'Skill limit reached. Remove a skill to continue.',
         );
       }
-      if (_profile.skills.isEmpty) {
+      if (_profile.skills.isEmpty ||
+          _profile.skills.length > widget.maxOfferingSkills) {
         await _move(-1);
         if (mounted) await _move(-1);
         if (mounted) setState(() => _validate = true);
@@ -432,6 +441,9 @@ class _OnboardingFlowState extends State<OnboardingFlow>
                               key: ValueKey('onboarding-skills-$_step'),
                               controller: _controller,
                               searching: searching,
+                              maxSkills: searching
+                                  ? 100
+                                  : widget.maxOfferingSkills,
                               input: searching
                                   ? _store.searchingInput
                                   : _store.offeredInput,

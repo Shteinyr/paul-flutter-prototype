@@ -77,6 +77,9 @@ class _OnboardingSkillsStepState extends State<OnboardingSkillsStep> {
   Widget build(BuildContext context) {
     final error =
         _error ??
+        (widget.validate && _skills.length > widget.maxSkills
+            ? 'Choose up to ${widget.maxSkills} offered skills before continuing.'
+            : null) ??
         (widget.validate && !widget.searching && _skills.isEmpty
             ? 'Required'
             : null);
