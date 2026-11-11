@@ -117,16 +117,19 @@ void main() {
   );
 
   test(
-    'storage failure prevents request, retry keeps original operation',
+    'first storage failure keeps draft editable before any create request',
     () async {
       await fill();
       drafts.failWrites = true;
       expect(await controller.publish(), isNull);
       expect(repository.creates, isEmpty);
-      expect(controller.pendingPublish, isTrue);
+      expect(controller.pendingPublish, isFalse);
+      controller.updateDraft(message: 'Edited after storage failure');
+      expect(controller.message, 'Edited after storage failure');
       drafts.failWrites = false;
       expect(await controller.publish(), isNotNull);
       expect(repository.creates, hasLength(1));
+      expect(repository.creates.single.$3, 'Edited after storage failure');
     },
   );
 
@@ -143,6 +146,26 @@ void main() {
       controller = CommunityController(repository, drafts: drafts);
       await controller.prepareDraft();
       expect(controller.pendingPublish, isTrue);
+      repository.creating = null;
+      expect(await controller.publish(), isNotNull);
+      expect(repository.creates.last, original);
+    },
+  );
+
+  test(
+    'existing uncertain operation stays frozen if a later save fails',
+    () async {
+      await fill();
+      repository.creating = () => Future.error(StateError('Lost response'));
+      expect(await controller.publish(), isNull);
+      final original = repository.creates.single;
+      drafts.failWrites = true;
+      expect(await controller.publish(), isNull);
+      expect(repository.creates, hasLength(1));
+      expect(controller.pendingPublish, isTrue);
+      controller.updateDraft(message: 'Must stay unchanged');
+      expect(controller.message, original.$3);
+      drafts.failWrites = false;
       repository.creating = null;
       expect(await controller.publish(), isNotNull);
       expect(repository.creates.last, original);

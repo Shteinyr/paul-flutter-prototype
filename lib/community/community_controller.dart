@@ -242,10 +242,15 @@ class CommunityController extends ChangeNotifier {
     }
     publishing = true;
     publishError = null;
+    final newOperation = _operation == null;
     _operation ??= newChatOperationId();
     _notify();
     try {
-      if (!await _persist() || !current) return null;
+      if (!await _persist()) {
+        if (newOperation && current) _operation = null;
+        return null;
+      }
+      if (!current) return null;
       _completed ??= await repository.create(_operation!, skill, message);
       if (!current) return null;
       if (!await _persist(clearPublish: true) || !current) return null;
