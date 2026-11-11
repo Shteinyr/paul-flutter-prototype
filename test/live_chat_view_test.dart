@@ -169,7 +169,7 @@ void main() {
       );
       await controller.refresh();
       await tester.pumpAndSettle();
-      expect(find.text('Удалённый пользователь'), findsOneWidget);
+      expect(find.text('Deleted user'), findsOneWidget);
       expect(find.byKey(const Key('live-chat-message-field')), findsNothing);
       expect(find.byKey(const Key('send-live-chat-message')), findsNothing);
       expect(await controller.send('chat', 'Late send'), isFalse);

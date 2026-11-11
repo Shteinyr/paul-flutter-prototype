@@ -131,7 +131,7 @@ class _LiveChatViewState extends State<LiveChatView> {
     final pending = controller.pending(id);
     final count = messages.length + pending.length;
     return ProfilePage(
-      title: _peer.name,
+      title: _peer.displayName,
       child: Column(
         children: [
           if (widget.replyingAs != null)

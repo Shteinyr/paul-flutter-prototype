@@ -77,6 +77,7 @@ class ChatPeer {
   final String occupation;
   final String? avatarPath;
   final DateTime? deletedAt;
+  String get displayName => deletedAt == null ? name : 'Deleted user';
   factory ChatPeer.fromJson(Map<String, dynamic> json) => ChatPeer(
     id: json['id'] as String,
     name: json['name'] as String,

@@ -23,17 +23,17 @@ class PushSettings extends StatelessWidget {
           : state.storageFull
           ? 'Notifications are paused while this browser retains recent delivery records. Try again later.'
           : controller.enabled
-          ? 'Message notifications are on for this browser.'
+          ? 'Activity notifications are on for this browser.'
           : !available && controller.error == null
-          ? 'Message notifications are not available yet.'
-          : 'Receive a general notification when a new message arrives.';
+          ? 'Activity notifications are not available yet.'
+          : 'Receive notifications about new messages and community requests.';
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             const Text(
-              'Message notifications',
+              'Activity notifications',
               style: TextStyle(fontSize: 13, color: Color(0xFF14679E)),
             ),
             const SizedBox(height: 8),

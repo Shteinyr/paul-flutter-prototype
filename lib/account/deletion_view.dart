@@ -15,7 +15,7 @@ Future<bool> confirmProfileDeletion(
         ),
         content: Text(
           '${name == null ? 'Your' : '$name’s'} photo, description, skills and connections will be removed. '
-          'Existing conversations remain with the name “Удалённый пользователь”. This action is permanent.',
+          'Existing conversations remain with the name “Deleted user”. This action is permanent.',
         ),
         actions: [
           TextButton(
@@ -37,10 +37,12 @@ class DeletionStatusView extends StatelessWidget {
     required this.controller,
     required this.record,
     this.onDone,
+    this.onSignIn,
   });
   final DeletionController controller;
   final DeletionRecord record;
   final VoidCallback? onDone;
+  final VoidCallback? onSignIn;
   @override
   Widget build(BuildContext context) => ProfilePage(
     title: record.self ? 'Account deletion' : 'User deletion',
@@ -87,6 +89,14 @@ class DeletionStatusView extends StatelessWidget {
                         }
                       },
                 child: const Text('Check deletion status'),
+              ),
+            if (record.self &&
+                !controller.confirmed(record) &&
+                controller.repository.currentUserId == null &&
+                onSignIn != null)
+              TextButton(
+                onPressed: controller.busy(record) ? null : onSignIn,
+                child: const Text('Sign in to retry deletion'),
               ),
             if (controller.finished(record))
               TextButton(

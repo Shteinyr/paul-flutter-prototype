@@ -14,6 +14,8 @@ import '../community/community_controller.dart';
 import '../community/community_views.dart';
 import '../account/deletion.dart';
 import '../account/deletion_view.dart';
+import '../contacts/phone_discovery_api.dart';
+import '../contacts/phone_discovery_view.dart';
 import '../push/push_browser.dart';
 import '../push/push_api.dart';
 import '../push/push_controller.dart';
@@ -57,6 +59,8 @@ class PaulLiveApp extends StatefulWidget {
     this.communityRepositoryFor,
     this.deletionStore,
     this.deletionRepository,
+    this.recoverSignIn,
+    this.phoneRepositoryFor,
     this.pushBrowser,
     this.pushRepositoryFor,
   });
@@ -72,6 +76,8 @@ class PaulLiveApp extends StatefulWidget {
   final CommunityRepository Function(String userId)? communityRepositoryFor;
   final DeletionStore? deletionStore;
   final DeletionRepository? deletionRepository;
+  final Future<void> Function()? recoverSignIn;
+  final PhoneDiscoveryRepository Function(String userId)? phoneRepositoryFor;
   final PushBrowser? pushBrowser;
   final PushRepository Function(String userId, String sessionId)?
   pushRepositoryFor;
@@ -157,6 +163,15 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     _auth = widget.client.auth.onAuthStateChange.listen(
       (event) {
         if (event.event == AuthChangeEvent.tokenRefreshed) return;
+        final userId = event.session?.user.id;
+        for (final record in _deletions.records.where(
+          (item) =>
+              item.self &&
+              item.actorId == userId &&
+              !_deletions.confirmed(item),
+        )) {
+          unawaited(_deletions.retry(record));
+        }
         unawaited(_load());
       },
       onError: (Object _) {
@@ -572,6 +587,28 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
           controller: _ensureCommunity(),
           onInvite: _openQr,
           initialSkill: skill,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _findContacts() async {
+    final identity = _identity;
+    final factory = widget.phoneRepositoryFor;
+    if (identity == null || factory == null) return;
+    await _navigator.currentState!.push<void>(
+      MaterialPageRoute(
+        builder: (_) => PhoneDiscoveryView(
+          repository: factory(identity),
+          onInvite: _openQr,
+          onProfile: (id) => _openSearchProfile(
+            SkillSearchHit(
+              id: id,
+              name: '',
+              occupation: '',
+              matchedKinds: const {},
+            ),
+          ),
         ),
       ),
     );
@@ -1095,6 +1132,23 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _signInDeletionRecovery(BuildContext context) async {
+    try {
+      if (widget.recoverSignIn != null) {
+        await widget.recoverSignIn!();
+        return;
+      }
+      final provider = await _chooseProvider(context);
+      if (provider != null && mounted) await _signIn(provider);
+    } catch (_) {
+      if (mounted) {
+        _showMessage(
+          'Could not open sign-in. Your deletion recovery is saved. Retry.',
+        );
+      }
+    }
+  }
+
   Future<void> _deleteManaged(ManagedProfile profile) async {
     final identity = _identity;
     final origin = _navigator.currentContext;
@@ -1131,7 +1185,11 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
         )
         .firstOrNull;
     if (deletion != null) {
-      return DeletionStatusView(controller: _deletions, record: deletion);
+      return DeletionStatusView(
+        controller: _deletions,
+        record: deletion,
+        onSignIn: () => unawaited(_signInDeletionRecovery(context)),
+      );
     }
     if (!_entering &&
         _network.own == null &&
@@ -1173,6 +1231,9 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
         onLogout: _logout,
         onDelete: () => unawaited(_deleteAccount()),
         onDeleteManaged: _deleteManaged,
+        onFindContacts: widget.phoneRepositoryFor == null
+            ? null
+            : () => unawaited(_findContacts()),
         deletionRecovery: Column(
           children: [
             if (_deletions.loadError != null)
@@ -1443,6 +1504,7 @@ class _LiveContacts extends StatelessWidget {
     required this.onLogout,
     required this.onDelete,
     required this.onDeleteManaged,
+    this.onFindContacts,
     required this.deletionRecovery,
     required this.memberLevel,
     this.push,
@@ -1469,6 +1531,7 @@ class _LiveContacts extends StatelessWidget {
   final VoidCallback onLogout;
   final VoidCallback onDelete;
   final Future<void> Function(ManagedProfile) onDeleteManaged;
+  final VoidCallback? onFindContacts;
   final Widget deletionRecovery;
   final Widget memberLevel;
   final PushController? push;
@@ -1569,6 +1632,11 @@ class _LiveContacts extends StatelessWidget {
                               onDeleteProfile: onDeleteManaged,
                             ),
                             deletionRecovery,
+                            if (onFindContacts != null)
+                              TextButton(
+                                onPressed: onFindContacts,
+                                child: const Text('Find people you know'),
+                              ),
                             TextButton(
                               onPressed: onLogout,
                               child: const Text('Sign out'),

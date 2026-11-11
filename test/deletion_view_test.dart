@@ -23,7 +23,7 @@ void main() {
       );
       await tester.tap(find.text('Delete account'));
       await tester.pumpAndSettle();
-      expect(find.textContaining('Удалённый пользователь'), findsOneWidget);
+      expect(find.textContaining('Deleted user'), findsOneWidget);
       await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
       expect(confirmed, isFalse);

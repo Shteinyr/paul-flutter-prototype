@@ -74,7 +74,7 @@ class LiveChatList extends StatelessWidget {
                     for (final thread in controller.conversations)
                       ContactRow(
                         key: ValueKey(thread.id),
-                        name: thread.peer.name,
+                        name: thread.peer.displayName,
                         occupation: thread.peer.occupation,
                         avatar: avatarFor(thread.peer),
                         unread: thread.unread,
