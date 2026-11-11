@@ -57,8 +57,15 @@ void main() {
         'mar',
       );
       await tester.pumpAndSettle();
-      expect(find.text('Existing contacts'), findsNothing);
-      expect(find.text('Marketing'), findsOneWidget);
+      expect(find.text('Existing contacts'), findsOneWidget);
+      expect(find.byKey(const Key('skill-suggestions')), findsOneWidget);
+      expect(find.byKey(const Key('skill-filter-all')), findsNothing);
+      expect(find.byIcon(Icons.north_west), findsNothing);
+      expect(find.text('Skill catalogue source'), findsNothing);
+      expect(
+        find.byWidgetPredicate((w) => w is Text && w.data == 'Marketing'),
+        findsOneWidget,
+      );
       expect(find.text('Digital Marketing'), findsOneWidget);
       await tester.tap(find.text('Marketing'));
       await tester.pumpAndSettle();
@@ -70,6 +77,77 @@ void main() {
       expect(controller.kind, SkillSearchKind.all);
     },
   );
+
+  testWidgets(
+    'result labels and highlights follow All Offer Hiring without duplicate matches',
+    (tester) async {
+      repository.searching = (q, k, c) async => SkillSearchPage(
+        query: q,
+        kind: k,
+        results: const [
+          SkillSearchHit(
+            id: 'both',
+            name: 'Julia',
+            occupation: 'Designer',
+            matchedKinds: {SkillSearchKind.offering, SkillSearchKind.hiring},
+          ),
+        ],
+      );
+      await show(tester);
+      await controller.select(marketing);
+      await tester.pumpAndSettle();
+      expect(find.text('Offer'), findsOneWidget);
+      expect(find.text('Offer: '), findsNothing);
+      expect(find.text('Hiring: '), findsNothing);
+      expect(
+        find.byWidgetPredicate((w) => w is Text && w.data == 'Marketing'),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(const Key('skill-filter-offering')));
+      await tester.pumpAndSettle();
+      expect(find.text('Offer: '), findsOneWidget);
+      await tester.tap(find.byKey(const Key('skill-filter-hiring')));
+      await tester.pumpAndSettle();
+      expect(find.text('Hiring: '), findsOneWidget);
+      final label = find.byWidgetPredicate(
+        (w) => w is Text && w.data == 'Marketing',
+      );
+      final highlight = find
+          .ancestor(of: label, matching: find.byType(Container))
+          .first;
+      expect(
+        tester.widget<Container>(highlight).color,
+        const Color(0xFFFFBFBC),
+      );
+      expect(find.text('Julia'), findsOneWidget);
+    },
+  );
+
+  for (final width in [320.0, 390.0]) {
+    testWidgets('dropdown overlays Contacts within keyboard space at $width', (
+      tester,
+    ) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = Size(width, 640);
+      tester.view.viewInsets = const FakeViewPadding(bottom: 280);
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetViewInsets);
+      await show(tester, width: width);
+      await tester.enterText(
+        find.byKey(const Key('skill-search-field')),
+        'mar',
+      );
+      await tester.pumpAndSettle();
+      final panel = tester.getRect(find.byKey(const Key('skill-suggestions')));
+      final field = tester.getRect(find.byKey(const Key('skill-search-field')));
+      expect(panel.top, greaterThanOrEqualTo(field.bottom));
+      expect(panel.height, lessThanOrEqualTo(192));
+      expect(panel.bottom, lessThanOrEqualTo(360));
+      expect(find.text('Existing contacts'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   testWidgets('loading, server error, retry and true empty stay distinct', (
     tester,

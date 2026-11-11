@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../live/chat_api.dart';
+import '../profile/public_profile_view.dart';
 import '../live/member_capabilities.dart';
 import '../skills/skill_suggestions.dart';
 import 'community_api.dart';
@@ -19,7 +20,9 @@ class CommunityFeedView extends StatefulWidget {
     required this.onMessage,
     required this.onInvite,
     required this.avatarFor,
+    this.embedded = false,
   });
+  final bool embedded;
   final CommunityController controller;
   final CommunityMessage onMessage;
   final VoidCallback onInvite;
@@ -52,18 +55,6 @@ class _CommunityFeedViewState extends State<CommunityFeedView>
     if (_resumed) unawaited(widget.controller.refresh());
   }
 
-  Future<void> _compose() async {
-    await Navigator.of(context).push<void>(
-      MaterialPageRoute(
-        builder: (_) => CommunityComposeView(
-          controller: widget.controller,
-          onInvite: widget.onInvite,
-        ),
-      ),
-    );
-    if (mounted) unawaited(widget.controller.refresh());
-  }
-
   Future<void> _open(CommunityRequest request) async {
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
@@ -79,16 +70,8 @@ class _CommunityFeedViewState extends State<CommunityFeedView>
   }
 
   @override
-  Widget build(BuildContext context) => _CommunityFrame(
-    title: 'Hiring',
-    actions: [
-      IconButton(
-        tooltip: 'Refresh hiring',
-        onPressed: widget.controller.refresh,
-        icon: const Icon(Icons.refresh),
-      ),
-    ],
-    child: ListenableBuilder(
+  Widget build(BuildContext context) {
+    final content = ListenableBuilder(
       listenable: widget.controller,
       builder: (context, _) {
         final controller = widget.controller;
@@ -98,13 +81,6 @@ class _CommunityFeedViewState extends State<CommunityFeedView>
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(32, 8, 32, 12),
-              child: FilledButton(
-                onPressed: controller.current ? _compose : null,
-                child: const Text('Ask our community'),
-              ),
-            ),
             if (controller.error != null)
               _Status(controller.error!, onRetry: controller.refresh),
             Expanded(
@@ -112,7 +88,7 @@ class _CommunityFeedViewState extends State<CommunityFeedView>
                 onRefresh: controller.refresh,
                 child: ListView(
                   physics: const AlwaysScrollableScrollPhysics(),
-                  padding: const EdgeInsets.fromLTRB(32, 12, 32, 32),
+                  padding: const EdgeInsets.fromLTRB(37.5, 47, 37.5, 40),
                   children: [
                     if (controller.loading && requests.isEmpty)
                       const Center(child: CircularProgressIndicator()),
@@ -133,8 +109,9 @@ class _CommunityFeedViewState extends State<CommunityFeedView>
                           child: Text(
                             _group(requests[index]),
                             style: const TextStyle(
-                              color: Colors.black54,
-                              fontSize: 12,
+                              color: Colors.black,
+                              fontSize: 20,
+                              fontWeight: FontWeight.w400,
                             ),
                           ),
                         ),
@@ -143,10 +120,10 @@ class _CommunityFeedViewState extends State<CommunityFeedView>
                         onTap: () => _open(requests[index]),
                         child: Padding(
                           padding: const EdgeInsets.symmetric(vertical: 12),
-                          child: _RequestBody(
-                            request: requests[index],
+                          child: HiringRequestRow(
+                            name: requests[index].author.name,
+                            skill: requests[index].skill,
                             avatar: widget.avatarFor(requests[index].author),
-                            compact: true,
                           ),
                         ),
                       ),
@@ -173,13 +150,16 @@ class _CommunityFeedViewState extends State<CommunityFeedView>
           ],
         );
       },
-    ),
-  );
+    );
+    return widget.embedded
+        ? content
+        : _CommunityFrame(title: 'Hiring', child: content);
+  }
 
   String _group(CommunityRequest request) {
     final age = widget.controller.serverNow.difference(request.createdAt);
     if (age < const Duration(days: 1)) return 'Today';
-    if (age < const Duration(days: 7)) return 'Last week';
+    if (age < const Duration(days: 7)) return 'Last Week';
     return 'Earlier';
   }
 
@@ -263,7 +243,7 @@ class _CommunityComposeViewState extends State<CommunityComposeView>
 
   @override
   Widget build(BuildContext context) => _CommunityFrame(
-    title: 'Ask our community',
+    title: 'Skill Search',
     child: ListenableBuilder(
       listenable: widget.controller,
       builder: (context, _) {
@@ -280,6 +260,21 @@ class _CommunityComposeViewState extends State<CommunityComposeView>
         return ListView(
           padding: const EdgeInsets.fromLTRB(32, 16, 32, 40),
           children: [
+            const Center(
+              child: SizedBox(
+                width: 236,
+                child: Text(
+                  'Community will be notified. Once skill is found, you may remove from profile.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 12,
+                    height: 22 / 12,
+                    fontWeight: FontWeight.w300,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 50),
             if (level == null || !level.canPublishCommunity)
               MemberLevelStatus(
                 capabilities: level,
@@ -295,7 +290,14 @@ class _CommunityComposeViewState extends State<CommunityComposeView>
               focusNode: _focus,
               enabled: editing,
               maxLength: 64,
-              decoration: const InputDecoration(labelText: 'Skill you need'),
+              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w300),
+              decoration: const InputDecoration(
+                hintText: 'Skill you need',
+                counterText: '',
+                enabledBorder: UnderlineInputBorder(
+                  borderSide: BorderSide(color: Color(0xFFCDDEE8)),
+                ),
+              ),
               onChanged: (value) => controller.updateDraft(skill: value),
             ),
             SkillSuggestions(
@@ -313,17 +315,20 @@ class _CommunityComposeViewState extends State<CommunityComposeView>
               key: const Key('community-message'),
               controller: _message,
               enabled: editing,
-              minLines: 5,
-              maxLines: 12,
+              minLines: 1,
+              maxLines: 6,
               maxLength: 2000,
-              decoration: const InputDecoration(labelText: 'How can we help?'),
+              style: const TextStyle(fontSize: 13, height: 1.5),
+              decoration: const InputDecoration(
+                hintText: 'Message',
+                counterText: '',
+                enabledBorder: UnderlineInputBorder(
+                  borderSide: BorderSide(color: Color(0xFFCDDEE8)),
+                ),
+              ),
               onChanged: (value) => controller.updateDraft(message: value),
             ),
-            const SizedBox(height: 12),
-            const Text(
-              'Your request stays in Hiring for 30 days. Close it when you find help.',
-              style: TextStyle(fontSize: 12, color: Colors.black54),
-            ),
+
             if (pending)
               const Padding(
                 padding: EdgeInsets.only(top: 16),
@@ -346,21 +351,25 @@ class _CommunityComposeViewState extends State<CommunityComposeView>
             if (controller.publishError != null)
               _Status(controller.publishError!),
             const SizedBox(height: 24),
-            FilledButton(
-              key: const Key('community-publish'),
-              onPressed:
-                  controller.current &&
-                      controller.draftReady &&
-                      allowed &&
-                      !controller.publishing
-                  ? _publish
-                  : null,
-              child: Text(
-                controller.publishing
-                    ? 'Submitting…'
-                    : pending
-                    ? 'Retry submission'
-                    : 'Publish request',
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                key: const Key('community-publish'),
+                icon: const Icon(Icons.send_outlined, size: 22),
+                onPressed:
+                    controller.current &&
+                        controller.draftReady &&
+                        allowed &&
+                        !controller.publishing
+                    ? _publish
+                    : null,
+                label: Text(
+                  controller.publishing
+                      ? 'Submitting…'
+                      : pending
+                      ? 'Retry submission'
+                      : 'Publish request',
+                ),
               ),
             ),
           ],
@@ -533,14 +542,9 @@ class _CommunityDetailViewState extends State<CommunityDetailView>
 }
 
 class _RequestBody extends StatelessWidget {
-  const _RequestBody({
-    required this.request,
-    required this.avatar,
-    this.compact = false,
-  });
+  const _RequestBody({required this.request, required this.avatar});
   final CommunityRequest request;
   final Widget avatar;
-  final bool compact;
 
   @override
   Widget build(BuildContext context) => Column(
@@ -568,11 +572,51 @@ class _RequestBody extends StatelessWidget {
       const SizedBox(height: 16),
       Text(request.skill, style: const TextStyle(color: _blue, fontSize: 17)),
       const SizedBox(height: 8),
-      Text(
-        request.message,
-        maxLines: compact ? 3 : null,
-        overflow: compact ? TextOverflow.ellipsis : null,
-        style: const TextStyle(fontSize: 14, height: 1.5),
+      Text(request.message, style: const TextStyle(fontSize: 14, height: 1.5)),
+    ],
+  );
+}
+
+class HiringRequestRow extends StatelessWidget {
+  const HiringRequestRow({
+    super.key,
+    required this.name,
+    required this.skill,
+    required this.avatar,
+  });
+  final String name;
+  final String skill;
+  final Widget avatar;
+  @override
+  Widget build(BuildContext context) => Row(
+    crossAxisAlignment: CrossAxisAlignment.center,
+    children: [
+      avatar,
+      const SizedBox(width: 21),
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+            ),
+            const SizedBox(height: 9),
+            Text.rich(
+              TextSpan(
+                children: [
+                  const TextSpan(text: 'Urgent Hiring:  '),
+                  TextSpan(text: skill),
+                ],
+              ),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w300),
+            ),
+          ],
+        ),
       ),
     ],
   );
@@ -587,28 +631,13 @@ class _CommunityFrame extends StatelessWidget {
   final String title;
   final Widget child;
   final List<Widget>? actions;
-
   @override
-  Widget build(BuildContext context) => Scaffold(
-    backgroundColor: Colors.white,
-    body: Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 448),
-        child: SafeArea(
-          child: Column(
-            children: [
-              AppBar(
-                title: Text(title, style: const TextStyle(fontSize: 18)),
-                backgroundColor: Colors.white,
-                surfaceTintColor: Colors.transparent,
-                actions: actions,
-              ),
-              Expanded(child: child),
-            ],
-          ),
-        ),
-      ),
-    ),
+  Widget build(BuildContext context) => ProfilePage(
+    title: title,
+    action: actions == null
+        ? null
+        : Row(mainAxisSize: MainAxisSize.min, children: actions!),
+    child: child,
   );
 }
 

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:paul_demo/community/community_api.dart';
 import 'package:paul_demo/community/community_controller.dart';
@@ -8,6 +10,11 @@ import 'community_controller_test.dart';
 import 'live_chat_controller_test.dart' show Drafts;
 
 void main() {
+  setUpAll(() async {
+    await (FontLoader(
+      'NotoSans',
+    )..addFont(rootBundle.load('assets/fonts/NotoSans.ttf'))).load();
+  });
   testWidgets('level nine shows invitations and blocks publishing', (
     tester,
   ) async {
@@ -107,6 +114,101 @@ void main() {
     },
   );
 
+  testWidgets('feed keeps older active requests outside Last Week', (
+    tester,
+  ) async {
+    final now = DateTime.now().toUtc();
+    final sample = request();
+    final repo = CommunityRepo()
+      ..feeding = (_) async => CommunityPage(
+        [
+          for (final days in [0, 6, 7, 20])
+            CommunityRequest(
+              id: 'age-$days',
+              author: sample.author,
+              skill: sample.skill,
+              message: sample.message,
+              createdAt: now.subtract(Duration(days: days)),
+              expiresAt: now.add(const Duration(days: 1)),
+              isAuthor: false,
+            ),
+        ],
+        null,
+        now,
+      );
+    final controller = CommunityController(repo, drafts: Drafts());
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CommunityFeedView(
+          controller: controller,
+          onInvite: () {},
+          onMessage: (_, _) async {},
+          avatarFor: (_) => const CircleAvatar(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Today'), findsOneWidget);
+    expect(find.text('Last Week'), findsOneWidget);
+    expect(find.text('Earlier'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('community-age-20')),
+      200,
+    );
+    expect(find.byKey(const ValueKey('community-age-20')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    controller.dispose();
+    await repo.identities.close();
+  });
+
+  for (final skill in ['Sales Representative', 'Photographer', 'x' * 64]) {
+    testWidgets('Hiring keeps narrow skill text readable: $skill', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Center(
+              child: SizedBox(
+                width: 245,
+                child: HiringRequestRow(
+                  name: 'Paul Galda',
+                  skill: skill,
+                  avatar: const SizedBox.square(dimension: 65),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      const prefix = 'Urgent Hiring:  ';
+      final text = find.text('$prefix$skill');
+      expect(text, findsOneWidget);
+      final paragraph = tester.renderObject<RenderParagraph>(
+        find.descendant(of: text, matching: find.byType(RichText)),
+      );
+      if (skill.length < 64) {
+        var offset = prefix.length;
+        for (final word in skill.split(' ')) {
+          expect(
+            paragraph.getBoxesForSelection(
+              TextSelection(
+                baseOffset: offset,
+                extentOffset: offset + word.length,
+              ),
+            ),
+            hasLength(1),
+            reason: '$word should stay on one line at 320 pixels',
+          );
+          offset += word.length + 1;
+        }
+      }
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  }
+
   testWidgets(
     'feed detail re-reads request before message and handles expiry',
     (tester) async {
@@ -125,6 +227,12 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.text('Today'), findsOneWidget);
+      expect(find.text('Urgent Hiring:  Marketing'), findsOneWidget);
+      expect(find.text('Earlier'), findsNothing);
+      expect(
+        find.widgetWithText(FilledButton, 'Ask our community'),
+        findsNothing,
+      );
       await tester.tap(find.byKey(const ValueKey('community-$requestId')));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Message author'));

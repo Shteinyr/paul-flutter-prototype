@@ -1,7 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:paul_demo/app.dart';
 import 'package:paul_demo/admin/admin_api.dart';
 import 'package:paul_demo/admin/operator_chat_api.dart';
 import 'package:paul_demo/admin/operator_inbox_view.dart';
@@ -20,6 +22,11 @@ class _Repository extends OperatorChatApi {
   bool serverDisabled = true;
   int listCalls = 0;
   int sends = 0;
+  String? identity = _actor;
+  ChatPeer peer = _peer;
+  int photoReads = 0;
+  Future<Uint8List?> Function(ChatPeer)? loadPhoto;
+  final identities = StreamController<String?>.broadcast(sync: true);
   final signals = StreamController<String>.broadcast();
   final messages = <ChatMessage>[
     ChatMessage(
@@ -33,9 +40,15 @@ class _Repository extends OperatorChatApi {
     ),
   ];
   @override
-  String? get currentUserId => _actor;
+  String? get currentUserId => identity;
   @override
-  Stream<String?> get identityChanges => const Stream.empty();
+  Stream<String?> get identityChanges => identities.stream;
+  @override
+  Future<Uint8List?> photo(ChatPeer peer) {
+    photoReads++;
+    return loadPhoto?.call(peer) ?? Future.value(null);
+  }
+
   @override
   Stream<String> watch() => signals.stream;
   @override
@@ -45,7 +58,7 @@ class _Repository extends OperatorChatApi {
     return [
       ChatSummary(
         id: 'thread',
-        peer: _peer,
+        peer: peer,
         lastSequence: messages.length,
         lastReadSequence: 0,
         unread: 1,
@@ -87,11 +100,114 @@ class _Repository extends OperatorChatApi {
   @override
   Future<void> dispose() async {
     await signals.close();
+    await identities.close();
     await super.dispose();
   }
 }
 
 void main() {
+  Widget inbox(_Repository repository) => MaterialApp(
+    home: OperatorInboxView(
+      repository: repository,
+      actorId: _actor,
+      profile: const ManagedProfile(
+        id: _managed,
+        name: 'Managed sender',
+        canManage: true,
+        canReply: true,
+      ),
+    ),
+  );
+
+  ChatPeer peerPhoto(String? path, {bool deleted = false}) => ChatPeer(
+    id: _peer.id,
+    name: _peer.name,
+    occupation: _peer.occupation,
+    avatarPath: path,
+    deletedAt: deleted ? DateTime.utc(2026) : null,
+  );
+
+  int savedPhotos(WidgetTester tester) => tester
+      .widgetList<ProfileAvatar>(find.byType(ProfileAvatar))
+      .where((avatar) => avatar.photo != null)
+      .length;
+
+  testWidgets(
+    'operator inbox with null path resolves and reuses the peer photo',
+    (tester) async {
+      final photo = (await rootBundle.load(
+        'assets/people/julia-robinson.png',
+      )).buffer.asUint8List();
+      final repository = _Repository(_Client())
+        ..serverDisabled = false
+        ..peer = peerPhoto(null)
+        ..loadPhoto = (_) async => photo;
+      await tester.pumpWidget(inbox(repository));
+      await tester.pumpAndSettle();
+      expect(savedPhotos(tester), 1);
+      await tester.tap(find.text(_peer.name));
+      await tester.pumpAndSettle();
+      expect(find.text('Preserved incoming QA'), findsOneWidget);
+      expect(savedPhotos(tester), 1);
+      expect(repository.photoReads, 1);
+      repository.peer = peerPhoto(null, deleted: true);
+      repository.signals.add('changed');
+      await tester.pumpAndSettle();
+      expect(savedPhotos(tester), 0);
+      expect(find.text('Deleted user'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+    },
+  );
+
+  for (final changeIdentity in [false, true]) {
+    testWidgets(
+      'late operator photo cannot outlive ${changeIdentity ? 'identity' : 'path'}',
+      (tester) async {
+        final photo = (await rootBundle.load(
+          'assets/people/julia-robinson.png',
+        )).buffer.asUint8List();
+        final oldPhoto = Completer<Uint8List?>();
+        final nextPhoto = Completer<Uint8List?>();
+        final repository = _Repository(_Client())
+          ..serverDisabled = false
+          ..peer = peerPhoto('peer/old.png')
+          ..loadPhoto = (peer) => peer.avatarPath!.endsWith('old.png')
+              ? oldPhoto.future
+              : nextPhoto.future;
+        await tester.pumpWidget(inbox(repository));
+        await tester.pumpAndSettle();
+        expect(savedPhotos(tester), 0);
+        if (changeIdentity) {
+          repository.identity = 'another-operator';
+          repository.identities.add(repository.identity);
+        } else {
+          repository.peer = peerPhoto('peer/new.png');
+          repository.signals.add('changed');
+        }
+        await tester.pumpAndSettle();
+        oldPhoto.complete(photo);
+        await tester.pumpAndSettle();
+        expect(savedPhotos(tester), 0);
+        if (changeIdentity) {
+          expect(
+            find.text('Please sign in again to continue.'),
+            findsOneWidget,
+          );
+        } else {
+          nextPhoto.complete(photo);
+          await tester.pumpAndSettle();
+          expect(savedPhotos(tester), 1);
+          expect(repository.photoReads, 2);
+        }
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pumpAndSettle();
+      },
+    );
+  }
+
   testWidgets(
     'rebuilt inbox keeps authorization bound to its active repository',
     (tester) async {

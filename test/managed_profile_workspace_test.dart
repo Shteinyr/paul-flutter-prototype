@@ -1,7 +1,8 @@
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:paul_demo/app.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:paul_demo/admin/admin_api.dart';
 import 'package:paul_demo/admin/admin_view.dart';
@@ -13,6 +14,7 @@ const _profiles = [
     name: 'Managed A',
     canManage: true,
     canReply: true,
+    occupation: 'Product Designer',
     summary: 'First profile',
     skills: ['Design'],
   ),
@@ -21,6 +23,7 @@ const _profiles = [
     name: 'Managed B',
     canManage: true,
     canReply: true,
+    occupation: 'Business Analyst',
     summary: 'Second profile',
     skills: ['Marketing'],
   ),
@@ -44,6 +47,8 @@ class _Admin extends Fake implements AdminRepository {
   List<ManagedProfile> profiles = _profiles;
   Completer<AdminAccess>? pending;
   int reads = 0;
+  final photos = <String, Uint8List>{};
+  final photoReads = <String>[];
   @override
   Future<AdminAccess> context() async {
     reads++;
@@ -51,7 +56,11 @@ class _Admin extends Fake implements AdminRepository {
   }
 
   @override
-  Future<Uint8List?> photo(ManagedProfile profile) async => null;
+  Future<Uint8List?> photo(ManagedProfile profile) async {
+    photoReads.add(profile.id);
+    return photos[profile.id];
+  }
+
   @override
   ChatRepository operatorFor(String profileId) {
     opened.add(profileId);
@@ -74,6 +83,55 @@ Widget _app(_Admin admin) => MaterialApp(
 );
 
 void main() {
+  setUpAll(() async {
+    await (FontLoader(
+      'NotoSans',
+    )..addFont(rootBundle.load('assets/fonts/NotoSans.ttf'))).load();
+  });
+  testWidgets(
+    'managed list renders saved portraits and occupations on a narrow screen',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(320, 844);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      final admin = _Admin();
+      admin.photos['managed-a'] = (await rootBundle.load(
+        'assets/people/julia-robinson.png',
+      )).buffer.asUint8List();
+      admin.photos['managed-b'] = (await rootBundle.load(
+        'assets/people/paul-galda.png',
+      )).buffer.asUint8List();
+      await tester.pumpWidget(_app(admin));
+      await tester.tap(find.text('My profile'));
+      await tester.pumpAndSettle();
+      expect(find.text('Product Designer'), findsOneWidget);
+      expect(find.text('Business Analyst'), findsOneWidget);
+      expect(admin.photoReads, containsAll(['managed-a', 'managed-b']));
+      final portraits = tester
+          .widgetList<ProfileAvatar>(find.byType(ProfileAvatar))
+          .where((avatar) => avatar.photo != null)
+          .toList();
+      expect(portraits.length, 2);
+      expect(portraits.first.photo, admin.photos['managed-a']);
+      expect(portraits.last.photo, admin.photos['managed-b']);
+      await tester.tap(find.text('Managed B'));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('managed-context-managed-b')),
+        findsOneWidget,
+      );
+      await tester.tap(find.text('Edit profile'));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('managed-context-managed-b')),
+        findsOneWidget,
+      );
+      expect(find.text('Managed A'), findsNothing);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
   testWidgets(
     'selected workspace switches the sender and edits the selected profile',
     (tester) async {

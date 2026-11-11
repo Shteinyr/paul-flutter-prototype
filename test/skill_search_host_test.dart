@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:paul_demo/app.dart';
 import 'package:paul_demo/live/live_app.dart';
 import 'package:paul_demo/live/live_chat_view.dart';
 import 'package:paul_demo/profile/public_profile_view.dart';
@@ -55,6 +56,10 @@ void main() {
       (tester) async {
         const actor = '10000000-0000-4000-8000-000000000001';
         const peer = '10000000-0000-4000-8000-000000000002';
+        final photo = (await rootBundle.load(
+          'assets/people/julia-robinson.png',
+        )).buffer.asUint8List();
+        var photoDownloads = 0;
         var connected = true;
         var available = true;
         var networkReads = 0;
@@ -70,9 +75,17 @@ void main() {
           'skills': ['Marketing'],
           'searching_skills': [],
           'contact_count': 1,
-          'avatar_path': null,
+          'avatar_path': id == peer ? '$peer/avatar.png' : null,
         };
         final transport = MockClient((request) async {
+          if (request.url.path.startsWith('/storage/')) {
+            photoDownloads++;
+            return http.Response.bytes(
+              photo,
+              200,
+              headers: {'content-type': 'image/png'},
+            );
+          }
           Object data;
           if (request.url.path.endsWith('/token')) {
             data = {
@@ -191,6 +204,11 @@ void main() {
           await tester.pumpAndSettle();
           await tester.tap(find.byKey(const ValueKey('suggest-marketing')));
           await tester.pumpAndSettle();
+          expect(photoDownloads, greaterThan(0));
+          final avatars = tester.widgetList<ProfileAvatar>(
+            find.byType(ProfileAvatar),
+          );
+          expect(avatars.where((avatar) => avatar.photo != null), hasLength(1));
           final before = profileReads;
           final gate = delayedRead ? Completer<void>() : null;
           nextProfile = backgroundRead ? null : gate;

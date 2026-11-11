@@ -373,6 +373,11 @@ class _DemoScreenState extends State<_DemoScreen> with WidgetsBindingObserver {
             : const CircularProgressIndicator(strokeWidth: 2),
       );
     }
+    if (_tab == 1) {
+      return const Center(
+        child: Text('No active requests yet', style: TextStyle(fontSize: 12)),
+      );
+    }
     if (_tab == 2) {
       return Column(
         children: [
@@ -749,6 +754,13 @@ class _ProfileEditorState extends State<ProfileEditor> {
               ),
             ],
             ?widget.footer,
+            TextButton(
+              onPressed: () => showSkillCatalogueAttribution(context),
+              child: const Text(
+                'Skill catalogue source',
+                style: TextStyle(fontSize: 11),
+              ),
+            ),
           ],
         ),
       ),
@@ -774,7 +786,7 @@ class ProfileNavigation extends StatelessWidget {
     super.key,
     required this.selected,
     required this.onSelected,
-    this.enabledTabs = const {0, 2, 3},
+    this.enabledTabs = const {0, 1, 2, 3},
   });
   final int selected;
   final ValueChanged<int> onSelected;
@@ -791,7 +803,14 @@ class ProfileNavigation extends StatelessWidget {
         children: [
           _tab(0, 'Contacts', 'nav-contacts', selected == 0 ? 128 : 24, 24, 17),
           SizedBox(width: selected == 0 ? 27 : 31),
-          _tab(1, 'Events', 'nav-events', 24, 22.5, 22.5884),
+          _tab(
+            1,
+            'Hiring',
+            'nav-events',
+            selected == 1 ? 112 : 24,
+            22.5,
+            22.5884,
+          ),
           SizedBox(width: selected == 0 ? 29 : 29),
           _tab(2, 'Chat', 'nav-inbox', selected == 2 ? 97 : 24, 23.5, 17.2143),
           const SizedBox(width: 30),
@@ -953,8 +972,8 @@ class _ProfileField extends StatelessWidget {
             hintStyle: TextStyle(
               fontSize: 15,
               height: 22 / 15,
-              fontWeight: FontWeight.w100,
-              color: active ? const Color(0x3314679E) : const Color(0x33000000),
+              fontWeight: FontWeight.w300,
+              color: active ? _blue : const Color(0xFF666666),
             ),
             contentPadding: EdgeInsets.only(top: 13, bottom: bottomPadding),
             border: InputBorder.none,
@@ -985,15 +1004,13 @@ class _FieldSeparator extends StatelessWidget {
   const _FieldSeparator({required this.active});
   final bool active;
   @override
-  Widget build(BuildContext context) => active
-      ? Image.asset(
-          'assets/icons/field-separator-active.png',
-          width: 327,
-          height: 1,
-          fit: BoxFit.fill,
-          excludeFromSemantics: true,
-        )
-      : const _AssetIcon('field-separator.svg', width: 327, height: 0.75);
+  Widget build(BuildContext context) => SizedBox(
+    width: 327,
+    height: 1,
+    child: ColoredBox(
+      color: active ? const Color(0xB314679E) : const Color(0x99000000),
+    ),
+  );
 }
 
 class _ValidationMessage extends StatelessWidget {

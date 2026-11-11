@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:paul_demo/live/chat_api.dart';
+import 'package:paul_demo/live/live_api.dart';
 import 'package:paul_demo/admin/admin_api.dart';
 import 'package:paul_demo/admin/operator_chat_api.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -21,6 +22,199 @@ String token(String id) =>
     'e30.${base64Url.encode(utf8.encode(jsonEncode({'sub': id, 'aud': 'authenticated', 'role': 'authenticated', 'exp': DateTime.now().add(const Duration(hours: 1)).millisecondsSinceEpoch ~/ 1000}))).replaceAll('=', '')}.signature';
 
 void main() {
+  for (final knownPath in [true, false]) {
+    for (final outcome in [
+      'success',
+      'forbidden',
+      'identity-change',
+      if (!knownPath) ...['profile-forbidden', 'profile-identity-change'],
+    ]) {
+      test(
+        'operator peer photo from inbox path=$knownPath: $outcome',
+        () async {
+          const actor = '10000000-0000-4000-8000-000000000001';
+          const other = '10000000-0000-4000-8000-000000000002';
+          final response = Completer<http.Response>();
+          final reached = Completer<void>();
+          final profileResponse = Completer<http.Response>();
+          final reachedProfile = Completer<void>();
+          var downloads = 0;
+          var profileReads = 0;
+          String? authorization;
+          final profileJson = {
+            'profile': {
+              'id': 'peer',
+              'name': 'Peer',
+              'occupation': '',
+              'summary': '',
+              'skills': <String>[],
+              'searching_skills': <String>[],
+              'contact_count': 0,
+              'avatar_path': 'peer/saved.png',
+            },
+          };
+          http.Response json(Object data, [int status = 200]) => http.Response(
+            jsonEncode(data),
+            status,
+            headers: {'content-type': 'application/json'},
+          );
+          final transport = MockClient((request) async {
+            if (request.url.path.endsWith('/token')) {
+              final id =
+                  (jsonDecode(request.body) as Map)['email'] ==
+                      'actor@example.invalid'
+                  ? actor
+                  : other;
+              return json({
+                'access_token': token(id),
+                'refresh_token': 'local-only',
+                'token_type': 'bearer',
+                'expires_in': 3600,
+                'user': {
+                  'id': id,
+                  'aud': 'authenticated',
+                  'created_at': '2026-01-01T00:00:00Z',
+                  'app_metadata': {},
+                  'user_metadata': {},
+                },
+              });
+            }
+            if (request.url.path.endsWith('/admin')) {
+              expect((jsonDecode(request.body) as Map)['action'], 'inbox');
+              return json({
+                'conversations': [
+                  {
+                    'id': 'thread',
+                    'peer': {
+                      'id': 'peer',
+                      'name': 'Peer',
+                      'occupation': '',
+                      'avatar_path': knownPath ? 'peer/saved.png' : null,
+                      'deleted_at': null,
+                    },
+                    'last_message_seq': 1,
+                    'last_read_seq': 0,
+                    'unread_count': 1,
+                  },
+                ],
+              });
+            }
+            if (request.url.path.endsWith('/account')) {
+              profileReads++;
+              reachedProfile.complete();
+              expect(jsonDecode(request.body), {
+                'action': 'profile',
+                'profile_id': 'peer',
+              });
+              if (outcome.startsWith('profile-')) return profileResponse.future;
+              return json(profileJson);
+            }
+            downloads++;
+            reached.complete();
+            expect(request.method, 'GET');
+            expect(
+              request.url.path,
+              '/storage/v1/object/avatars/peer/saved.png',
+            );
+            authorization = request.headers['authorization'];
+            return response.future;
+          });
+          final client = SupabaseClient(
+            'https://operator-test.invalid',
+            'test-key',
+            httpClient: transport,
+            isolate: _Json(),
+            authOptions: const AuthClientOptions(autoRefreshToken: false),
+          );
+          final repository = OperatorChatApi(
+            SupabaseAdminApi(client, actor),
+            'managed',
+          );
+          try {
+            await client.auth.signInWithPassword(
+              email: 'actor@example.invalid',
+              password: 'test-only',
+            );
+            final originalToken = client.auth.currentSession!.accessToken;
+            final peer = (await repository.list()).single.peer;
+            expect(peer.avatarPath, knownPath ? 'peer/saved.png' : isNull);
+            expect(
+              await repository.photo(
+                ChatPeer(
+                  id: 'deleted',
+                  name: '',
+                  occupation: '',
+                  deletedAt: DateTime.utc(2026),
+                ),
+              ),
+              isNull,
+            );
+            expect(profileReads, 0);
+            expect(downloads, 0);
+            final operation = repository.photo(peer);
+            final assertion = expectLater(
+              operation,
+              outcome == 'success'
+                  ? completion(orderedEquals([1, 2, 3]))
+                  : throwsA(
+                      outcome.startsWith('profile-')
+                          ? isA<LiveApiException>()
+                          : outcome == 'forbidden'
+                          ? isA<StorageException>()
+                          : isA<ChatException>(),
+                    ),
+            );
+            if (outcome.startsWith('profile-')) {
+              await reachedProfile.future;
+              if (outcome == 'profile-identity-change') {
+                await client.auth.signInWithPassword(
+                  email: 'other@example.invalid',
+                  password: 'test-only',
+                );
+              }
+              profileResponse.complete(
+                outcome == 'profile-forbidden'
+                    ? json({'code': 'profile_unavailable'}, 404)
+                    : json(profileJson),
+              );
+            } else {
+              await reached.future;
+              expect(authorization, 'Bearer $originalToken');
+              if (outcome == 'identity-change') {
+                await client.auth.signInWithPassword(
+                  email: 'other@example.invalid',
+                  password: 'test-only',
+                );
+              }
+              response.complete(
+                outcome == 'forbidden'
+                    ? json({'message': 'Denied', 'statusCode': '403'}, 403)
+                    : http.Response.bytes(
+                        [1, 2, 3],
+                        200,
+                        headers: {'content-type': 'image/png'},
+                      ),
+              );
+            }
+            await assertion;
+            expect(profileReads, knownPath ? 0 : 1);
+            expect(downloads, outcome.startsWith('profile-') ? 0 : 1);
+            if (outcome.endsWith('identity-change')) {
+              await expectLater(
+                repository.photo(peer),
+                throwsA(isA<ChatException>()),
+              );
+              expect(downloads, outcome.startsWith('profile-') ? 0 : 1);
+            }
+          } finally {
+            await repository.dispose();
+            await client.dispose();
+          }
+        },
+      );
+    }
+  }
+
   test(
     'delayed transport pins initiating authorization and rejects response after account switch',
     () async {
