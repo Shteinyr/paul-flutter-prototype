@@ -10,6 +10,7 @@ import '../profile/profile_store.dart';
 import '../profile/public_profile_view.dart';
 import '../profile/user_profile.dart';
 import 'admin_api.dart';
+import 'managed_profile_header.dart';
 
 class ManagedProfileEditor extends StatefulWidget {
   const ManagedProfileEditor({
@@ -134,6 +135,16 @@ class _ManagedProfileEditorState extends State<ManagedProfileEditor> {
   @override
   Widget build(BuildContext context) => ProfilePage(
     title: widget.profile == null ? 'Create user' : 'Edit user',
+    action: widget.profile == null
+        ? null
+        : IconButton(
+            tooltip: 'Return to my profile',
+            onPressed: _busy || _pending != null
+                ? null
+                : () =>
+                      Navigator.of(context).popUntil((route) => route.isFirst),
+            icon: const Icon(Icons.person_outline, color: Color(0xFF14679E)),
+          ),
     child: _controller == null
         ? Center(
             child: _busy
@@ -148,6 +159,11 @@ class _ManagedProfileEditorState extends State<ManagedProfileEditor> {
           )
         : Column(
             children: [
+              if (widget.profile != null)
+                ManagedProfileHeader(
+                  repository: widget.repository,
+                  profile: widget.profile!,
+                ),
               Expanded(
                 child: AbsorbPointer(
                   absorbing: _busy || _pending != null,

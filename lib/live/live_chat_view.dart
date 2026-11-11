@@ -19,6 +19,7 @@ class LiveChatView extends StatefulWidget {
     required this.peerAvatar,
     this.canSend = true,
     this.replyingAs,
+    this.replyingAsAvatar,
     this.onInvite,
   });
   final LiveChatController controller;
@@ -28,6 +29,7 @@ class LiveChatView extends StatefulWidget {
   final Widget peerAvatar;
   final bool canSend;
   final String? replyingAs;
+  final Widget? replyingAsAvatar;
   final VoidCallback? onInvite;
 
   @override
@@ -137,9 +139,23 @@ class _LiveChatViewState extends State<LiveChatView> {
           if (widget.replyingAs != null)
             Padding(
               padding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
-              child: Text(
-                'Replying as ${widget.replyingAs}',
-                style: const TextStyle(fontSize: 12, color: _blue),
+              child: Row(
+                children: [
+                  if (widget.replyingAsAvatar != null) ...[
+                    SizedBox(
+                      width: 48,
+                      height: 48,
+                      child: FittedBox(child: widget.replyingAsAvatar!),
+                    ),
+                    const SizedBox(width: 14),
+                  ],
+                  Expanded(
+                    child: Text(
+                      'Replying as ${widget.replyingAs}',
+                      style: const TextStyle(fontSize: 12, color: _blue),
+                    ),
+                  ),
+                ],
               ),
             ),
           if (_peer.deletedAt != null || !widget.canSend || !controller.canSend)

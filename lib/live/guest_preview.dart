@@ -4,6 +4,7 @@ import '../app.dart';
 import '../chat/demo_chat_controller.dart';
 import '../chat/demo_chat_view.dart';
 import '../demo_contacts.dart';
+import '../community/community_views.dart';
 import '../onboarding/onboarding_flow.dart';
 import '../profile/demo_profile.dart';
 import '../profile/public_profile_view.dart';
@@ -37,14 +38,25 @@ class _GuestPreviewState extends State<GuestPreview> {
 
   void _initialize(UserProfile paul) {
     if (_chat != null) return;
-    _paulProfile = paul;
+    final guestPaul = paul.copyWith(
+      searchingSkills: [...paul.searchingSkills, 'Marketing'],
+    );
+    _paulProfile = guestPaul;
+    _people[demoChatContact.id] = DemoContact(
+      id: demoChatContact.id,
+      name: demoChatContact.name,
+      occupation: demoChatContact.occupation,
+      summary: demoChatContact.summary,
+      skills: [...demoChatContact.skills, 'Marketing'],
+      searchingSkills: demoChatContact.searchingSkills,
+    );
     final contact = DemoContact(
       id: _paulId,
-      name: paul.name,
-      occupation: paul.occupation,
-      summary: paul.summary,
-      skills: paul.skills,
-      searchingSkills: paul.searchingSkills,
+      name: guestPaul.name,
+      occupation: guestPaul.occupation,
+      summary: guestPaul.summary,
+      skills: guestPaul.skills,
+      searchingSkills: guestPaul.searchingSkills,
     );
     _people[_paulId] = contact;
     // No preferences store: never loads PaulDemoApp history or account drafts.
@@ -62,15 +74,10 @@ class _GuestPreviewState extends State<GuestPreview> {
 
   void _open(String id) => Navigator.of(context).push(
     MaterialPageRoute<void>(
-      builder: (_) => Banner(
-        message: 'Preview',
-        location: BannerLocation.topEnd,
-        color: const Color(0xFF14679E),
-        child: PublicProfileView(
-          profile: id == _paulId ? _paulProfile! : _people[id]!.profile,
-          avatar: _avatar(id, 144),
-          onChat: () => _openChat(id),
-        ),
+      builder: (_) => PublicProfileView(
+        profile: id == _paulId ? _paulProfile! : _people[id]!.profile,
+        avatar: _avatar(id, 144),
+        onChat: () => _openChat(id),
       ),
     ),
   );
@@ -79,17 +86,12 @@ class _GuestPreviewState extends State<GuestPreview> {
     _chat!.open(id);
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => Banner(
-          message: 'Preview',
-          location: BannerLocation.topEnd,
-          color: const Color(0xFF14679E),
-          child: DemoChatView(
-            contact: _people[id]!,
-            controller: _chat!,
-            ownAvatar: const ProfileAvatar(size: 48),
-            peerAvatar: _avatar(id, 48),
-            onSendAttempt: widget.onRequireSignIn,
-          ),
+        builder: (_) => DemoChatView(
+          contact: _people[id]!,
+          controller: _chat!,
+          ownAvatar: const ProfileAvatar(size: 65),
+          peerAvatar: _avatar(id, 65),
+          onSendAttempt: widget.onRequireSignIn,
         ),
       ),
     );
@@ -118,12 +120,17 @@ class _GuestPreviewState extends State<GuestPreview> {
       Positioned(
         right: 28,
         bottom: 24,
-        child: FloatingActionButton.small(
-          tooltip: 'My QR code',
-          backgroundColor: const Color(0xFF14679E),
-          foregroundColor: Colors.white,
-          onPressed: widget.onRequireSignIn,
-          child: const Icon(Icons.qr_code_scanner, size: 23),
+        child: ListenableBuilder(
+          listenable: _search!,
+          builder: (context, _) => _search!.idle
+              ? FloatingActionButton.small(
+                  tooltip: 'My QR code',
+                  backgroundColor: const Color(0xFF14679E),
+                  foregroundColor: Colors.white,
+                  onPressed: widget.onRequireSignIn,
+                  child: const Icon(Icons.qr_code_scanner, size: 23),
+                )
+              : const SizedBox.shrink(),
         ),
       ),
     ],
@@ -148,6 +155,58 @@ class _GuestPreviewState extends State<GuestPreview> {
     ),
   );
 
+  Widget _hiring() => ListView(
+    key: const Key('guest-hiring'),
+    padding: const EdgeInsets.fromLTRB(37.5, 47, 37.5, 40),
+    children: [
+      const Text('Today', style: TextStyle(fontSize: 20)),
+      const SizedBox(height: 30),
+      InkWell(
+        onTap: () => _open(_paulId),
+        child: HiringRequestRow(
+          name: _people[_paulId]!.name,
+          skill: 'Sales Representative',
+          avatar: _avatar(_paulId, 65),
+        ),
+      ),
+      const Padding(
+        padding: EdgeInsets.symmetric(vertical: 20),
+        child: Divider(color: Color(0xFFCDDEE8)),
+      ),
+      InkWell(
+        onTap: () => _open(demoChatContact.id),
+        child: HiringRequestRow(
+          name: demoChatContact.name,
+          skill: 'Photographer',
+          avatar: _avatar(demoChatContact.id, 65),
+        ),
+      ),
+      const SizedBox(height: 56),
+      const Text('Last Week', style: TextStyle(fontSize: 20)),
+      const SizedBox(height: 30),
+      InkWell(
+        onTap: () => _open(_paulId),
+        child: HiringRequestRow(
+          name: _people[_paulId]!.name,
+          skill: 'SMM Marketing',
+          avatar: _avatar(_paulId, 65),
+        ),
+      ),
+      const Padding(
+        padding: EdgeInsets.symmetric(vertical: 20),
+        child: Divider(color: Color(0xFFCDDEE8)),
+      ),
+      InkWell(
+        onTap: () => _open(demoChatContact.id),
+        child: HiringRequestRow(
+          name: demoChatContact.name,
+          skill: 'Babysitter',
+          avatar: _avatar(demoChatContact.id, 65),
+        ),
+      ),
+    ],
+  );
+
   @override
   Widget build(BuildContext context) => Scaffold(
     body: SafeArea(
@@ -155,7 +214,7 @@ class _GuestPreviewState extends State<GuestPreview> {
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 402),
           child: Padding(
-            padding: const EdgeInsets.only(top: 60),
+            padding: const EdgeInsets.only(top: 70),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -170,13 +229,6 @@ class _GuestPreviewState extends State<GuestPreview> {
                         setState(() => _tab = index);
                       }
                     },
-                  ),
-                ),
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(37.5, 24, 37.5, 0),
-                  child: Text(
-                    'Preview · Demonstration profiles',
-                    style: TextStyle(fontSize: 12, color: Colors.black54),
                   ),
                 ),
                 Expanded(
@@ -199,7 +251,11 @@ class _GuestPreviewState extends State<GuestPreview> {
                         );
                       }
                       _initialize(paul);
-                      return _tab == 2 ? _chats() : _contacts();
+                      return switch (_tab) {
+                        1 => _hiring(),
+                        2 => _chats(),
+                        _ => _contacts(),
+                      };
                     },
                   ),
                 ),
@@ -271,7 +327,7 @@ class GuestUnavailableApp extends StatelessWidget {
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(dialogContext).pop(),
-                child: const Text('Back to preview'),
+                child: const Text('Back'),
               ),
               TextButton(
                 onPressed: () {

@@ -273,8 +273,8 @@ class ProfilePage extends StatelessWidget {
                         ScaffoldMessenger.of(context).clearSnackBars();
                         Navigator.of(context).pop();
                       },
-                      color: _blue,
-                      icon: const Icon(Icons.chevron_left, size: 28),
+                      color: Colors.black,
+                      icon: const Icon(Icons.arrow_back, size: 22),
                     ),
                     Expanded(
                       child: Text(

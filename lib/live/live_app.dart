@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../app.dart';
 import '../admin/admin_api.dart';
 import '../admin/admin_view.dart';
+import '../admin/managed_profile_header.dart';
 import '../admin/operator_inbox_view.dart';
 import '../community/community_api.dart';
 import '../community/community_controller.dart';
@@ -43,6 +44,7 @@ const _blue = Color(0xFF14679E);
 const _inviteKey = 'paul.live.pending.invitation.v1';
 const _draftKey = 'paul.live.pending.profile.v1';
 const _finalizeKey = 'paul.live.pending.finalize.v1';
+const _entryReturnKey = 'paul.live.entry.return.v1';
 
 class PaulLiveApp extends StatefulWidget {
   const PaulLiveApp({
@@ -159,7 +161,11 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
       _pendingPushClick = click;
       unawaited(_drainPushClick());
     });
-    _entering = widget.authCallback && readSessionValue(_finalizeKey) == '1';
+    final entryReturn = readSessionValue(_entryReturnKey);
+    _editingGuestDraft = entryReturn == 'editing' && !widget.authCallback;
+    _entering =
+        entryReturn == 'draft' ||
+        (widget.authCallback && readSessionValue(_finalizeKey) == '1');
     if (!widget.authCallback) removeSessionValue(_finalizeKey);
     _auth = widget.client.auth.onAuthStateChange.listen(
       (event) {
@@ -193,6 +199,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     removeSessionValue(_inviteKey);
     removeSessionValue(_draftKey);
     removeSessionValue(_finalizeKey);
+    removeSessionValue(_entryReturnKey);
     _credential = null;
     _draft = null;
     _acceptedInvite = false;
@@ -442,6 +449,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
       await WidgetsBinding.instance.endOfFrame;
       if (!current()) return;
       if (route.kind == 'community') {
+        setState(() => _tab = 1);
         final controller = _ensureCommunity();
         unawaited(
           _navigator.currentState!.push<void>(
@@ -476,6 +484,11 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
                 actorId: click.recipientId,
                 profile: profile,
                 initialConversationId: route.conversationId,
+                senderAvatar: ManagedProfileAvatar(
+                  repository: admin,
+                  profile: profile,
+                  size: 65,
+                ),
               ),
             ),
           ),
@@ -564,21 +577,6 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
         SupabaseCommunityApi(widget.client, _identity!),
     drafts: SessionChatStateStore(),
   );
-
-  Future<void> _openCommunity() async {
-    if (_identity == null || _network.own == null) return;
-    final controller = _ensureCommunity();
-    await _navigator.currentState!.push<void>(
-      MaterialPageRoute(
-        builder: (_) => CommunityFeedView(
-          controller: controller,
-          onMessage: _openChat,
-          onInvite: _openQr,
-          avatarFor: _peerAvatar,
-        ),
-      ),
-    );
-  }
 
   Future<void> _askCommunity(String skill) async {
     if (_identity == null || _network.own == null) return;
@@ -694,19 +692,27 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
   }
 
   Widget _peerAvatar(ChatPeer peer, {double size = 48}) {
+    if (peer.id == _identity) {
+      return ProfileAvatar(photo: _profile?.profile.photo, size: size);
+    }
     final member = _network.contacts
         .where((member) => member.id == peer.id)
         .firstOrNull;
-    if (member == null) {
+    final path = member != null ? member.avatarPath : peer.avatarPath;
+    if (path == null || peer.deletedAt != null) {
       _peerPhotos.remove(peer.id);
       return ProfileAvatar(size: size);
     }
     var cached = _peerPhotos[peer.id];
-    if (cached == null || cached.path != member.avatarPath) {
-      cached = (path: member.avatarPath, photo: _api.photo(member));
+    if (cached == null || cached.path != path) {
+      cached = (
+        path: path,
+        photo: widget.client.storage.from('avatars').download(path),
+      );
       _peerPhotos[peer.id] = cached;
     }
     return FutureBuilder<Uint8List?>(
+      key: ValueKey('peer-avatar-$_identity-${peer.id}-$path'),
       future: cached.photo,
       builder: (_, snapshot) => ProfileAvatar(photo: snapshot.data, size: size),
     );
@@ -767,8 +773,8 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
               controller: chat,
               conversationId: id,
               peer: peer,
-              ownAvatar: ProfileAvatar(photo: profile.profile.photo, size: 48),
-              peerAvatar: _peerAvatar(peer),
+              ownAvatar: ProfileAvatar(photo: profile.profile.photo, size: 65),
+              peerAvatar: _peerAvatar(peer, size: 65),
               onInvite: _openQr,
             ),
           ),
@@ -820,7 +826,12 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     );
   }
 
-  void _beginEntry() {
+  void _beginEntry({bool fromDraft = false}) {
+    if (fromDraft) {
+      writeSessionValue(_entryReturnKey, 'draft');
+    } else {
+      removeSessionValue(_entryReturnKey);
+    }
     _navigator.currentState?.popUntil((route) => route.isFirst);
     setState(() {
       _entering = true;
@@ -830,6 +841,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
   }
 
   void _editGuestDraft() {
+    writeSessionValue(_entryReturnKey, 'editing');
     _entryGeneration++;
     removeSessionValue(_finalizeKey);
     setState(() {
@@ -841,10 +853,20 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
 
   void _continueGuestDraft(UserProfile draft) {
     _draft = draft;
-    _beginEntry();
+    _beginEntry(fromDraft: true);
+  }
+
+  void _backFromEntry() {
+    if (readSessionValue(_entryReturnKey) != 'draft') {
+      _backToGuest();
+      return;
+    }
+    _editGuestDraft();
+    setState(() => _checking = false);
   }
 
   void _backToGuest() {
+    removeSessionValue(_entryReturnKey);
     _entryGeneration++;
     removeSessionValue(_finalizeKey);
     setState(() {
@@ -1274,7 +1296,9 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
         chatAvatar: (peer) => _peerAvatar(peer, size: 65),
         search: _search!,
         onSearchProfile: _openSearchProfile,
-        onCommunity: () => unawaited(_openCommunity()),
+        community: _ensureCommunity(),
+        onCommunityMessage: _openChat,
+        communityAvatar: (peer) => _peerAvatar(peer, size: 65),
         onAskCommunity: (skill) => unawaited(_askCommunity(skill)),
         searchAvatar: _searchAvatar,
         selectedTab: _tab,
@@ -1351,7 +1375,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     }
     return _JoinView(
       pendingCredential: _credential,
-      onBack: _backToGuest,
+      onBack: _backFromEntry,
       onClearInvite: () {
         removeSessionValue(_inviteKey);
         setState(() => _credential = null);
@@ -1533,8 +1557,9 @@ class _JoinViewState extends State<_JoinView> {
               child: const Text('Use another invitation code'),
             ),
           TextButton(
+            key: const Key('join-back'),
             onPressed: widget.onBack,
-            child: const Text('Back to preview'),
+            child: const Text('Back'),
           ),
           const SizedBox(height: 40),
           TextButton(
@@ -1577,7 +1602,9 @@ class _LiveContacts extends StatelessWidget {
     required this.search,
     required this.onSearchProfile,
     required this.searchAvatar,
-    required this.onCommunity,
+    required this.community,
+    required this.onCommunityMessage,
+    required this.communityAvatar,
     required this.onAskCommunity,
     this.error,
   });
@@ -1605,7 +1632,9 @@ class _LiveContacts extends StatelessWidget {
   final SkillSearchController search;
   final Future<void> Function(SkillSearchHit) onSearchProfile;
   final Widget Function(SkillSearchHit) searchAvatar;
-  final VoidCallback onCommunity;
+  final CommunityController community;
+  final CommunityMessage onCommunityMessage;
+  final Widget Function(ChatPeer) communityAvatar;
   final ValueChanged<String> onAskCommunity;
 
   @override
@@ -1617,7 +1646,7 @@ class _LiveContacts extends StatelessWidget {
           child: ProfileNavigation(
             selected: selectedTab,
             onSelected: onSelected,
-            enabledTabs: const {0, 2, 3},
+            enabledTabs: const {0, 1, 2, 3},
           ),
         ),
         if (error != null)
@@ -1639,7 +1668,17 @@ class _LiveContacts extends StatelessWidget {
               ],
             ),
           ),
-        if (selectedTab == 2)
+        if (selectedTab == 1)
+          Expanded(
+            child: CommunityFeedView(
+              controller: community,
+              onMessage: onCommunityMessage,
+              onInvite: onQr,
+              avatarFor: communityAvatar,
+              embedded: true,
+            ),
+          )
+        else if (selectedTab == 2)
           Expanded(
             child: LiveChatList(
               controller: chat,
@@ -1723,13 +1762,6 @@ class _LiveContacts extends StatelessWidget {
                       physics: const AlwaysScrollableScrollPhysics(),
                       padding: const EdgeInsets.fromLTRB(37.5, 26, 37.5, 80),
                       children: [
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: TextButton(
-                            onPressed: onCommunity,
-                            child: const Text('Network hiring'),
-                          ),
-                        ),
                         ListenableBuilder(
                           listenable: profile,
                           builder: (context, _) => ContactRow(
@@ -1756,22 +1788,32 @@ class _LiveContacts extends StatelessWidget {
                 Positioned(
                   right: 28,
                   bottom: 24,
-                  child: FloatingActionButton.small(
-                    key: const Key('open-live-qr'),
-                    tooltip: 'My QR code',
-                    backgroundColor: _blue,
-                    foregroundColor: Colors.white,
-                    onPressed: onQr,
-                    child: const Icon(Icons.qr_code_scanner, size: 23),
+                  child: ListenableBuilder(
+                    listenable: search,
+                    builder: (context, _) => search.idle
+                        ? FloatingActionButton.small(
+                            key: const Key('open-live-qr'),
+                            tooltip: 'My QR code',
+                            backgroundColor: _blue,
+                            foregroundColor: Colors.white,
+                            onPressed: onQr,
+                            child: const Icon(Icons.qr_code_scanner, size: 23),
+                          )
+                        : const SizedBox.shrink(),
                   ),
                 ),
                 Positioned(
                   left: 28,
                   bottom: 24,
-                  child: IconButton(
-                    tooltip: 'Refresh contacts',
-                    onPressed: onRefresh,
-                    icon: const Icon(Icons.refresh, color: _blue),
+                  child: ListenableBuilder(
+                    listenable: search,
+                    builder: (context, _) => search.idle
+                        ? IconButton(
+                            tooltip: 'Refresh contacts',
+                            onPressed: onRefresh,
+                            icon: const Icon(Icons.refresh, color: _blue),
+                          )
+                        : const SizedBox.shrink(),
                   ),
                 ),
               ],

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
@@ -19,12 +20,14 @@ class OperatorInboxView extends StatefulWidget {
     required this.profile,
     this.initialConversationId,
     this.embedded = false,
+    this.senderAvatar,
   });
   final ChatRepository repository;
   final String actorId;
   final ManagedProfile profile;
   final String? initialConversationId;
   final bool embedded;
+  final Widget? senderAvatar;
   @override
   State<OperatorInboxView> createState() => _OperatorInboxViewState();
 }
@@ -33,6 +36,7 @@ class _OperatorInboxViewState extends State<OperatorInboxView>
     with WidgetsBindingObserver {
   late final LiveChatController _chat;
   late final ChatRepository _repository;
+  final _peerPhotos = <String, ({String? path, Future<Uint8List?> photo})>{};
   bool _opening = false;
   @override
   void initState() {
@@ -88,9 +92,10 @@ class _OperatorInboxViewState extends State<OperatorInboxView>
             controller: _chat,
             conversationId: thread.id,
             peer: thread.peer,
-            ownAvatar: const ProfileAvatar(size: 30),
-            peerAvatar: const ProfileAvatar(size: 30),
+            ownAvatar: widget.senderAvatar ?? const ProfileAvatar(size: 65),
+            peerAvatar: _peerAvatar(thread.peer),
             replyingAs: widget.profile.name,
+            replyingAsAvatar: widget.senderAvatar,
           ),
         ),
       );
@@ -99,6 +104,45 @@ class _OperatorInboxViewState extends State<OperatorInboxView>
       _opening = false;
     }
   }
+
+  Widget _peerAvatar(ChatPeer initialPeer) => ListenableBuilder(
+    listenable: _chat,
+    builder: (context, _) {
+      final repository = _repository;
+      if (repository.currentUserId != widget.actorId) {
+        _peerPhotos.clear();
+        return const ProfileAvatar(size: 65);
+      }
+      final peer = _chat.conversations
+          .where((thread) => thread.peer.id == initialPeer.id)
+          .firstOrNull
+          ?.peer;
+      final path = peer?.avatarPath;
+      if (repository is! OperatorChatApi ||
+          peer == null ||
+          peer.deletedAt != null) {
+        _peerPhotos.remove(initialPeer.id);
+        return const ProfileAvatar(size: 65);
+      }
+      var cached = _peerPhotos[peer.id];
+      if (cached == null || cached.path != path) {
+        cached = (path: path, photo: repository.photo(peer));
+        _peerPhotos[peer.id] = cached;
+      }
+      return FutureBuilder<Uint8List?>(
+        key: ValueKey('operator-peer-${widget.actorId}-${peer.id}-$path'),
+        future: cached.photo,
+        builder: (_, snapshot) => ProfileAvatar(
+          photo:
+              repository.currentUserId == widget.actorId &&
+                  snapshot.connectionState == ConnectionState.done
+              ? snapshot.data
+              : null,
+          size: 65,
+        ),
+      );
+    },
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -116,7 +160,7 @@ class _OperatorInboxViewState extends State<OperatorInboxView>
           child: LiveChatList(
             controller: _chat,
             onOpen: (thread) => unawaited(_open(thread)),
-            avatarFor: (_) => const ProfileAvatar(size: 65),
+            avatarFor: _peerAvatar,
             emptyText: 'No incoming messages yet.',
           ),
         ),
@@ -132,6 +176,7 @@ class _OperatorInboxViewState extends State<OperatorInboxView>
     WidgetsBinding.instance.removeObserver(this);
     unawaited(_chat.flushDrafts());
     _chat.dispose();
+    _peerPhotos.clear();
     final repository = _repository;
     if (repository is OperatorChatApi) unawaited(repository.dispose());
     super.dispose();

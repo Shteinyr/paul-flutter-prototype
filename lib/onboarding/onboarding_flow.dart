@@ -389,17 +389,29 @@ class _OnboardingFlowState extends State<OnboardingFlow>
                         ),
                         SizedBox(
                           width: 48,
-                          child: _step < 2
-                              ? IconButton(
-                                  key: const Key('onboarding-next'),
-                                  tooltip: 'Next',
-                                  onPressed: _busy ? null : () => _move(1),
-                                  icon: const Icon(
-                                    Icons.arrow_forward,
-                                    size: 22,
-                                  ),
-                                )
-                              : null,
+                          child: IconButton(
+                            key: Key(
+                              _step == 2
+                                  ? 'onboarding-complete'
+                                  : 'onboarding-next',
+                            ),
+                            tooltip: _step == 2
+                                ? 'Continue to sign in'
+                                : 'Next',
+                            onPressed: _busy
+                                ? null
+                                : _step == 2
+                                ? _complete
+                                : () => _move(1),
+                            icon: _working && _step == 2
+                                ? const SizedBox.square(
+                                    dimension: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(Icons.arrow_forward, size: 22),
+                          ),
                         ),
                       ],
                     ),
@@ -437,8 +449,8 @@ class _OnboardingFlowState extends State<OnboardingFlow>
                                 description,
                                 textAlign: TextAlign.center,
                                 style: const TextStyle(
-                                  fontSize: 15,
-                                  height: 22 / 15,
+                                  fontSize: 12,
+                                  height: 22 / 12,
                                   fontWeight: FontWeight.w300,
                                   letterSpacing: .5,
                                 ),
@@ -478,19 +490,6 @@ class _OnboardingFlowState extends State<OnboardingFlow>
                                   ),
                                 ),
                               ),
-                            TextButton(
-                              key: const Key('onboarding-complete'),
-                              onPressed: _busy ? null : _complete,
-                              child: _working
-                                  ? const SizedBox(
-                                      width: 20,
-                                      height: 20,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                      ),
-                                    )
-                                  : const Text('Continue to sign in'),
-                            ),
                           ],
                         ],
                       ),
@@ -510,13 +509,14 @@ class _OnboardingFlowState extends State<OnboardingFlow>
     children: [
       Center(
         child: SizedBox(
-          width: 160,
+          width: 176,
           height: 160,
           child: Stack(
+            clipBehavior: Clip.none,
             children: [
               Positioned(
                 top: 8,
-                left: 8,
+                left: 16,
                 child: Semantics(
                   label: _profile.photo == null
                       ? 'Add profile photo'
@@ -560,7 +560,7 @@ class _OnboardingFlowState extends State<OnboardingFlow>
               if (_profile.photo != null)
                 Positioned(
                   right: 0,
-                  top: 0,
+                  top: -4,
                   child: IconButton(
                     key: const Key('onboarding-remove-photo'),
                     tooltip: 'Remove photo',
@@ -707,8 +707,8 @@ class _OnboardingField extends StatelessWidget {
           hintText: hint,
           hintStyle: const TextStyle(
             fontSize: 15,
-            fontWeight: FontWeight.w100,
-            color: Color(0x33000000),
+            fontWeight: FontWeight.w300,
+            color: Color(0xFF14679E),
           ),
           counterText: '',
           border: InputBorder.none,
