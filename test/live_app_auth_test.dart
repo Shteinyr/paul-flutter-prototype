@@ -147,7 +147,21 @@ void main() {
               chatRepositoryFor: (_) => QuietChatRepository(client),
             ),
           );
-          await tester.pumpAndSettle();
+          for (
+            var attempt = 0;
+            attempt < 20 &&
+                find
+                    .byKey(const Key('member-startup-error'))
+                    .evaluate()
+                    .isEmpty &&
+                find
+                    .text('Preview · Demonstration profiles')
+                    .evaluate()
+                    .isEmpty;
+            attempt++
+          ) {
+            await tester.pump(const Duration(milliseconds: 50));
+          }
           expect(find.byKey(const Key('member-startup-error')), findsOneWidget);
           expect(find.text('Preview · Demonstration profiles'), findsNothing);
           expect(client.auth.currentSession, same(original));
