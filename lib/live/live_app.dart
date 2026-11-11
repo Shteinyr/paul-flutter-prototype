@@ -12,6 +12,8 @@ import '../admin/operator_inbox_view.dart';
 import '../community/community_api.dart';
 import '../community/community_controller.dart';
 import '../community/community_views.dart';
+import '../account/deletion.dart';
+import '../account/deletion_view.dart';
 import '../push/push_browser.dart';
 import '../push/push_api.dart';
 import '../push/push_controller.dart';
@@ -53,6 +55,8 @@ class PaulLiveApp extends StatefulWidget {
     this.chatRepositoryFor,
     this.searchRepositoryFor,
     this.communityRepositoryFor,
+    this.deletionStore,
+    this.deletionRepository,
     this.pushBrowser,
     this.pushRepositoryFor,
   });
@@ -66,6 +70,8 @@ class PaulLiveApp extends StatefulWidget {
   final ChatRepository Function(String userId)? chatRepositoryFor;
   final SkillSearchRepository Function(String userId)? searchRepositoryFor;
   final CommunityRepository Function(String userId)? communityRepositoryFor;
+  final DeletionStore? deletionStore;
+  final DeletionRepository? deletionRepository;
   final PushBrowser? pushBrowser;
   final PushRepository Function(String userId, String sessionId)?
   pushRepositoryFor;
@@ -75,6 +81,7 @@ class PaulLiveApp extends StatefulWidget {
 
 class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
   late final LiveApi _api;
+  late final DeletionController _deletions;
   late final StreamSubscription<AuthState> _auth;
   final _navigator = GlobalKey<NavigatorState>();
   ProfileController? _profile;
@@ -116,6 +123,11 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _api = LiveApi(widget.client);
+    _deletions = DeletionController(
+      widget.deletionRepository ?? SupabaseDeletionApi(widget.client),
+      widget.deletionStore ?? PreferenceDeletionStore(),
+    );
+    unawaited(_deletions.load());
     final fragment = Uri.base.fragment;
     _credential = fragment.startsWith('invite=')
         ? fragment.substring(7)
@@ -1070,8 +1082,57 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     await _refreshCapabilities();
   }
 
+  Future<void> _deleteAccount() async {
+    final identity = _identity;
+    final origin = _homeContext;
+    if (identity == null || origin == null || !origin.mounted) return;
+    if (!await confirmProfileDeletion(origin)) return;
+    if (!mounted || widget.client.auth.currentUser?.id != identity) return;
+    await _profile?.flush();
+    await _deletions.begin(identity);
+    if (mounted && _deletions.loadError != null) {
+      _showMessage(_deletions.loadError!);
+    }
+  }
+
+  Future<void> _deleteManaged(ManagedProfile profile) async {
+    final identity = _identity;
+    final origin = _navigator.currentContext;
+    if (identity == null || origin == null || profile.updatedAt == null) return;
+    if (!await confirmProfileDeletion(origin, name: profile.name)) return;
+    if (!mounted || widget.client.auth.currentUser?.id != identity) return;
+    final record = await _deletions.begin(
+      identity,
+      profileId: profile.id,
+      updatedAt: profile.updatedAt,
+    );
+    if (!mounted || widget.client.auth.currentUser?.id != identity) return;
+    if (record == null) {
+      _showMessage(_deletions.loadError ?? 'Could not start deletion. Retry.');
+      return;
+    }
+    await _navigator.currentState!.push<void>(
+      MaterialPageRoute(
+        builder: (context) => DeletionStatusView(
+          controller: _deletions,
+          record: record,
+          onDone: () => Navigator.of(context).pop(),
+        ),
+      ),
+    );
+  }
+
   Widget _home(BuildContext context) {
     _homeContext = context;
+    final deletion = _deletions.records
+        .where(
+          (record) =>
+              record.self && (_identity == null || record.actorId == _identity),
+        )
+        .firstOrNull;
+    if (deletion != null) {
+      return DeletionStatusView(controller: _deletions, record: deletion);
+    }
     if (!_entering &&
         _network.own == null &&
         (_identity == null || !_loading)) {
@@ -1110,6 +1171,32 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
         },
         adminRepository: SupabaseAdminApi(widget.client, _identity!),
         onLogout: _logout,
+        onDelete: () => unawaited(_deleteAccount()),
+        onDeleteManaged: _deleteManaged,
+        deletionRecovery: Column(
+          children: [
+            if (_deletions.loadError != null)
+              TextButton(
+                onPressed: _deletions.load,
+                child: const Text('Retry account deletion recovery'),
+              ),
+            for (final record in _deletions.records.where(
+              (item) => !item.self && item.actorId == _identity,
+            ))
+              TextButton(
+                onPressed: () => _navigator.currentState!.push<void>(
+                  MaterialPageRoute(
+                    builder: (context) => DeletionStatusView(
+                      controller: _deletions,
+                      record: record,
+                      onDone: () => Navigator.of(context).pop(),
+                    ),
+                  ),
+                ),
+                child: const Text('Check user deletion'),
+              ),
+          ],
+        ),
         memberLevel: MemberLevelStatus(
           capabilities: _capabilities,
           error: _capabilityError,
@@ -1196,12 +1283,16 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
         surface: const Color(0xFFF4F4F4),
       ),
     ),
-    home: Builder(builder: _home),
+    home: ListenableBuilder(
+      listenable: _deletions,
+      builder: (context, _) => _home(context),
+    ),
   );
 
   @override
   void dispose() {
     _loadGeneration++;
+    _deletions.dispose();
     unawaited(_auth.cancel());
     unawaited(_pushClicks.cancel());
     _push?.dispose();
@@ -1350,6 +1441,9 @@ class _LiveContacts extends StatelessWidget {
     required this.onRefresh,
     required this.onProfile,
     required this.onLogout,
+    required this.onDelete,
+    required this.onDeleteManaged,
+    required this.deletionRecovery,
     required this.memberLevel,
     this.push,
     required this.adminRepository,
@@ -1373,6 +1467,9 @@ class _LiveContacts extends StatelessWidget {
   final Future<void> Function() onRefresh;
   final Future<void> Function(MemberProfile) onProfile;
   final VoidCallback onLogout;
+  final VoidCallback onDelete;
+  final Future<void> Function(ManagedProfile) onDeleteManaged;
+  final Widget deletionRecovery;
   final Widget memberLevel;
   final PushController? push;
   final AdminRepository adminRepository;
@@ -1457,6 +1554,7 @@ class _LiveContacts extends StatelessWidget {
                     child: ProfileEditor(
                       controller: profile,
                       onInvite: onQr,
+                      onDelete: onDelete,
                       occupationRequired: false,
                       onViewProfile: () => onProfile(network.own!),
                       footer: Padding(
@@ -1468,7 +1566,9 @@ class _LiveContacts extends StatelessWidget {
                             AdminEntry(
                               key: ValueKey(network.own!.id),
                               repository: adminRepository,
+                              onDeleteProfile: onDeleteManaged,
                             ),
+                            deletionRecovery,
                             TextButton(
                               onPressed: onLogout,
                               child: const Text('Sign out'),
