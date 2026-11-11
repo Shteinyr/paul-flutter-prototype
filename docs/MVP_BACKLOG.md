@@ -28,11 +28,11 @@ Implementation issues are #43/#45/#46/#47/#48/#70/#72/#76/#86. Existing local ch
 | 7. Invites and contacts | Server-issued invitation tokens with expiry/revocation; deep links; consent-based contact matching | A valid invite connects once; expired or revoked invites fail; denied permission has a usable fallback |
 | 8. Delivery | Browser QA, error recovery, identified web build and handover | Owner opens the agreed URL and reproduces accepted scenarios |
 
-The live implementation includes guest preview, invitations, onboarding, profiles, text chat, administration, scoped skill search and browser Web Push. Open product decisions and acceptance are tracked per block in PROJECT_SPEC and GitHub. Community requests remain unimplemented.
+The live implementation includes guest preview, invitations, onboarding, profiles, text chat, managed-profile administration, global registered-member search, shared ESCO suggestions with free text, invitation levels, Community and browser Web Push. Account and managed-profile deletion retain counterpart histories. Voluntary phone discovery has client/server implementation. Real SMS awaits provider configuration and delivery acceptance. Technical results and client acceptance are tracked per block in PROJECT_SPEC and GitHub.
 
 ## Current backend
 
-Flutter in the browser uses the separate Paul Supabase project for PostgreSQL, Auth, Storage, Realtime and Edge Functions. Browser Web Push uses VAPID and the existing server outbox, with server-generated keys in Supabase Vault. Native distribution and native push belong to a later phase.
+Flutter in the browser uses the separate Paul Supabase project for PostgreSQL, Auth, Storage, Realtime and Edge Functions. Browser Web Push uses VAPID and the existing server outbox, with server-generated keys in Supabase Vault. A separate maintenance worker expires Community requests and completes deletion cleanup independently of push availability.
 
 Keep profile and chat storage behind the existing store interfaces. Authenticated user IDs, membership checks, migrations and row-level policies are implemented. Multi-user history lives on the server, local preferences retain drafts and cache state. Contact matching and invite acceptance belong on authenticated server endpoints.
 
@@ -41,6 +41,7 @@ Keep profile and chat storage behind the existing store interfaces. Authenticate
 - GitHub repository/organisation and developer access.
 - Transfer of the existing Supabase project and service ownership to the agreed client account.
 - Google/Apple web OAuth configuration, provider consents and developer access.
+- SMS-provider configuration and a separately approved real verification message. Phone authentication is currently disabled and provider credentials are empty.
 - Actual operating-system notification acceptance for the mobile Figma scenarios.
 - Client-owned browser domains when required for provider configuration.
 
