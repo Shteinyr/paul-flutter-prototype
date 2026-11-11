@@ -91,25 +91,54 @@ class AdminView extends StatefulWidget {
 }
 
 class _AdminViewState extends State<AdminView> {
+  late AdminRepository _repository;
+  String? _portraitSession;
   late Future<AdminAccess> _access;
   @override
   void initState() {
     super.initState();
-    _access = _loadAccess(widget.repository);
+    _useRepository(widget.repository);
+  }
+
+  void _useRepository(AdminRepository repository) {
+    _repository = repository;
+    _portraitSession = repository is SupabaseAdminApi
+        ? repository.sessionIdForPortraitReuse
+        : null;
+    _access = _loadAccess(repository);
+  }
+
+  @override
+  void didUpdateWidget(AdminView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final next = widget.repository;
+    final current = _repository;
+    final sameContext = current is SupabaseAdminApi && next is SupabaseAdminApi
+        ? identical(current.client, next.client) &&
+              current.userId == next.userId &&
+              _portraitSession != null &&
+              _portraitSession == next.sessionIdForPortraitReuse
+        : identical(current, next);
+    if (sameContext) return;
+    _useRepository(next);
+    final route = ModalRoute.of(context);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && route != null) {
+        Navigator.of(context).popUntil((candidate) => candidate == route);
+      }
+    });
   }
 
   Future<void> _edit([ManagedProfile? profile]) async {
     await Navigator.of(context).push<bool>(
       MaterialPageRoute(
-        builder: (_) => ManagedProfileEditor(
-          repository: widget.repository,
-          profile: profile,
-        ),
+        builder: (_) =>
+            ManagedProfileEditor(repository: _repository, profile: profile),
       ),
     );
     if (mounted) {
       setState(() {
-        _access = _loadAccess(widget.repository);
+        _access = _loadAccess(_repository);
       });
     }
   }
@@ -118,7 +147,7 @@ class _AdminViewState extends State<AdminView> {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => ManagedProfileWorkspace(
-          repository: widget.repository,
+          repository: _repository,
           profileId: profile.id,
           onDeleteProfile: widget.onDeleteProfile,
         ),
@@ -126,7 +155,7 @@ class _AdminViewState extends State<AdminView> {
     );
     if (mounted) {
       setState(() {
-        _access = _loadAccess(widget.repository);
+        _access = _loadAccess(_repository);
       });
     }
   }
@@ -172,7 +201,7 @@ class _AdminViewState extends State<AdminView> {
                           error = null;
                         });
                         try {
-                          await widget.repository.command(command);
+                          await _repository.command(command);
                           if (dialogContext.mounted) {
                             Navigator.pop(dialogContext);
                           }
@@ -202,7 +231,7 @@ class _AdminViewState extends State<AdminView> {
     );
     if (mounted) {
       setState(() {
-        _access = _loadAccess(widget.repository);
+        _access = _loadAccess(_repository);
       });
     }
   }
@@ -231,7 +260,7 @@ class _AdminViewState extends State<AdminView> {
                   ),
                   TextButton(
                     onPressed: () => setState(() {
-                      _access = _loadAccess(widget.repository);
+                      _access = _loadAccess(_repository);
                     }),
                     child: const Text('Retry'),
                   ),
@@ -243,7 +272,7 @@ class _AdminViewState extends State<AdminView> {
         final access = snapshot.requireData;
         return RefreshIndicator(
           onRefresh: () async {
-            final future = _loadAccess(widget.repository);
+            final future = _loadAccess(_repository);
             setState(() {
               _access = future;
             });
@@ -281,7 +310,7 @@ class _AdminViewState extends State<AdminView> {
                   minTileHeight: 100,
                   horizontalTitleGap: 21,
                   leading: ManagedProfileAvatar(
-                    repository: widget.repository,
+                    repository: _repository,
                     profile: profile,
                     size: 65,
                   ),
