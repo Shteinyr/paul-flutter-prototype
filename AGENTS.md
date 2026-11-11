@@ -2,7 +2,7 @@
 
 Continue the existing Flutter application and preserve its UI and store/controller boundaries. Read README.md, CONTRIBUTING.md and the relevant block in docs/PROJECT_SPEC.md before a task. The private local workspace context is one directory above this checkout when present.
 
-Use an existing issue and a focused branch. Distinguish local demonstrations from real authentication, server persistence, messaging, device permissions and push. Product scope and estimates require agreement. The current proposed first phase covers P01–P13. Later network/growth features and the broader P16 guest scope remain separate.
+Use an existing issue and a focused branch. Distinguish local demonstrations from real authentication, server persistence, messaging, device permissions and push. Product scope and estimates require agreement. The agreed MVP uses the existing mobile Figma screens in Flutter for the browser. On 11 November 2026 Alexander approved global registered-member search, shared skill suggestions with free text, invitation-based levels 2/10, Community/Hiring, immediate profile deletion with retained conversation history and voluntary phone discovery. Implement the accepted issue headers. Mutual-contact presentation and the broader P16 guest scope retain their separate tasks.
 
 Run the relevant local formatter, analyzer, tests and build. Hosted GitHub Actions requires Alexander's explicit current-task approval naming this repository and the exact workflow, including for PR/push-triggered runs. Flutter checks is intentionally disabled until an authorized run. Do not enable or dispatch it implicitly.
 
