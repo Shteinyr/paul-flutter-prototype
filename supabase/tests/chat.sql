@@ -22,7 +22,7 @@ select private.save_profile(id,jsonb_build_object('name','Chat QA','occupation',
 insert into private.memberships(user_id) select id from auth.users where id::text like '10000000-%' and id::text not like '%004';
 insert into public.connections(user_low,user_high) values('10000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000002');
 select pg_temp.expect_error($q$select public.chat_open('10000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001')$q$,'self_conversation');
-select pg_temp.expect_error($q$select public.chat_open('10000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000003')$q$,'conversation_forbidden');
+select pg_temp.assert_true((public.chat_open('10000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000003')->>'last_message_seq')::int=0,'Global active peer opens an empty composer');
 select pg_temp.expect_error($q$select public.chat_list('10000000-0000-4000-8000-000000000004')$q$,'membership_required');
 create temp table chat_test_id as select (public.chat_open('10000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000002')->>'id')::uuid id;
 select pg_temp.assert_true((public.chat_open('10000000-0000-4000-8000-000000000002','10000000-0000-4000-8000-000000000001')->>'id')::uuid=(select id from chat_test_id),'Canonical pair reuses the same dialogue');

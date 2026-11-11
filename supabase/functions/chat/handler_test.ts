@@ -6,7 +6,7 @@ const message = "20000000-0000-4000-8000-000000000001";
 function check(value: boolean, description: string) {
   if (!value) throw new Error(description);
 }
-function client() {
+function client(failure?: { name: string; message: string }) {
   const calls: string[] = [];
   const sentTexts: string[] = [];
   const database = createClient("https://chat-test.invalid", "test-key", {
@@ -17,6 +17,13 @@ function client() {
         calls.push(url);
         if (url.endsWith("/chat_send")) {
           sentTexts.push(JSON.parse(String(options?.body)).p_text);
+        }
+        if (failure && url.endsWith("/" + failure.name)) {
+          return Promise.resolve(
+            Response.json({ code: "P0001", message: failure.message }, {
+              status: 400,
+            }),
+          );
         }
         const body = url.endsWith("/auth/v1/user")
           ? { id: conversation, is_anonymous: false }
@@ -37,7 +44,14 @@ function client() {
 function request(body: BodyInit) {
   return new Request("https://chat-test.invalid", {
     method: "POST",
-    headers: { Authorization: "Bearer test-session" },
+    headers: {
+      Authorization: "Bearer unit." +
+        btoa(
+          JSON.stringify({
+            session_id: "86100000-0000-4000-8000-000000000001",
+          }),
+        ) + ".signature",
+    },
     body,
   });
 }
@@ -115,4 +129,49 @@ Deno.test("client sender identity and simultaneous cursors are rejected", async 
     const response = await handleChat(request(JSON.stringify(body)), database);
     check(response.status === 400, "Invalid request must be rejected");
   }
+});
+
+Deno.test("first-contact quota remains a specific 429 response", async () => {
+  const { database } = client({
+    name: "chat_send",
+    message: "new_contact_limit_reached",
+  });
+  const response = await handleChat(
+    request(
+      JSON.stringify({
+        action: "send",
+        conversation_id: conversation,
+        client_message_id: message,
+        text: "Hello",
+      }),
+    ),
+    database,
+  );
+  check(response.status === 429, "Quota returns HTTP429");
+  check(
+    (await response.json()).code === "new_contact_limit_reached",
+    "Quota keeps its client-facing code",
+  );
+});
+Deno.test("server-revoked sessions stop the chat command despite a verified Auth user", async () => {
+  const { database, calls } = client({
+    name: "member_require_session",
+    message: "session_revoked",
+  });
+  const response = await handleChat(
+    request(
+      JSON.stringify({
+        action: "send",
+        conversation_id: conversation,
+        client_message_id: message,
+        text: "Hello",
+      }),
+    ),
+    database,
+  );
+  check(response.status === 401, "Revoked session returns HTTP401");
+  check(
+    !calls.some((url) => url.endsWith("/chat_send")),
+    "Revoked session cannot send",
+  );
 });

@@ -43,11 +43,11 @@ select pg_temp.assert_true(exists(select 1 from realtime.messages where topic='a
 select pg_temp.assert_true(not exists(select 1 from realtime.messages where topic='admin:user:44000000-0000-4000-8000-000000000002' and payload='{"changed":true}'::jsonb),'Other operator never receives an unrelated message hint');
 select public.operator_read('44000000-0000-4000-8000-000000000001','44000000-0000-4000-8000-000000000005',(select managed from threads),2);
 select pg_temp.assert_true((public.operator_inbox('44000000-0000-4000-8000-000000000001','44000000-0000-4000-8000-000000000005')->'conversations'->0->>'unread_count')::int=0,'Read cursor updates intended managed profile');
--- A managed message never creates a previously removed audience connection.
+-- Both fresh directions reconnect a managed peer under the accepted audience.
 select public.chat_disconnect('44000000-0000-4000-8000-000000000003','44000000-0000-4000-8000-000000000005','44100000-0000-4000-8000-000000000004');
 select public.chat_send('44000000-0000-4000-8000-000000000003',(select managed from threads),'44100000-0000-4000-8000-000000000005','Fresh incoming QA');
 select public.operator_send('44000000-0000-4000-8000-000000000001','44000000-0000-4000-8000-000000000005',(select managed from threads),'44100000-0000-4000-8000-000000000006','Fresh manual QA');
-select pg_temp.assert_true(not exists(select 1 from public.connections where user_low='44000000-0000-4000-8000-000000000003' and user_high='44000000-0000-4000-8000-000000000005'),'No managed automatic reconnection before audience agreement');
+select pg_temp.assert_true(exists(select 1 from public.connections where user_low='44000000-0000-4000-8000-000000000003' and user_high='44000000-0000-4000-8000-000000000005'),'Two fresh messages reconnect an active managed peer');
 -- Read-only history survives disabling. New sends do not.
 select public.admin_set_profile_enabled('44000000-0000-4000-8000-000000000001','44000000-0000-4000-8000-000000000005',false,'44100000-0000-4000-8000-000000000007',(select updated_at from public.profiles where id='44000000-0000-4000-8000-000000000005'));
 select pg_temp.assert_true(jsonb_array_length(public.operator_history('44000000-0000-4000-8000-000000000001','44000000-0000-4000-8000-000000000005',(select managed from threads))->'messages')=4,'Assigned operator retains disabled history');
