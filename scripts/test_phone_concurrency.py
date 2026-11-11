@@ -60,6 +60,23 @@ def main():
         revision = value(f"select private.phone_revision('{actor}');")
         consent = f"select public.phone_discovery_consent('{actor}','{session}',true,'{revision}');"
         sql(consent)
+        consent_revision = value(f"select consent_revision from private.phone_discovery_settings where user_id='{actor}';")
+        withdraw = f"select public.phone_discovery_consent('{actor}','{session}',false,null,'{consent_revision}');"
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            withdrawing = pool.submit(sql, "begin; set local application_name='paul-phone-race';" + withdraw + 'select pg_sleep(1); commit;')
+            wait_barrier()
+            late_enable = pool.submit(sql, consent, False)
+            time.sleep(.1)
+            assert not late_enable.done()
+            withdrawing.result()
+            assert 'discovery_state_changed' in late_enable.result().stderr
+        status = json.loads(value(f"select public.phone_discovery_status('{actor}','{session}');"))
+        assert status['discoverable'] is False
+        consent = f"select public.phone_discovery_consent('{actor}','{session}',true,'{revision}','{status['consent_revision']}');"
+        sql(consent)
+        assert 'discovery_state_changed' in sql(withdraw, False).stderr
+        print('PASS withdrawal fences a waiting enable retry and fresh consent fences an old withdrawal retry', flush=True)
+
         removal = f"select public.member_delete_account('{actor}','{session}','{actor}','{uuid.uuid4()}',repeat('a',64));"
         with ThreadPoolExecutor(max_workers=2) as pool:
             removing = pool.submit(sql, "begin; set local application_name='paul-phone-race';" + removal + 'select pg_sleep(1); commit;')
