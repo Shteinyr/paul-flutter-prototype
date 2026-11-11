@@ -50,14 +50,16 @@ void main() {
   testWidgets('shared catalogue adds independent offering and seeking skills', (
     tester,
   ) async {
-    await tester.runAsync(() => SkillCatalogue.shared.suggest('marketing'));
+    // Exercise selection independently of the top ten for a broad query.
+    const query = 'marketing analy';
+    await tester.runAsync(() => SkillCatalogue.shared.suggest(query));
     await tester.pumpWidget(
       _app(preferences: DraftPreferences(), onComplete: (_) async {}),
     );
     await tester.pumpAndSettle();
     await tester.enterText(
       find.byKey(const Key('onboarding-skill-input')),
-      'marketing',
+      query,
     );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 200));
@@ -79,7 +81,7 @@ void main() {
     await _press(tester, 'onboarding-next');
     await tester.enterText(
       find.byKey(const Key('onboarding-skill-input')),
-      'marketing',
+      query,
     );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 200));

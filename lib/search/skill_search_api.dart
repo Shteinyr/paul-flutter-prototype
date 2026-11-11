@@ -135,13 +135,7 @@ class SupabaseSkillSearchApi implements SkillSearchRepository {
     }).toList();
     final catalogue = await SkillCatalogue.shared.suggest(query);
     _checkIdentity();
-    // Keep the server's ranked skills with actual profiles ahead of unused
-    // catalogue terms, so common prefixes still expose existing results.
-    final savedKeys = saved.map((item) => skillKey(item.key)).toSet();
-    return [
-      ...saved,
-      ...catalogue.where((item) => !savedKeys.contains(item.key)),
-    ].take(10).toList();
+    return mergeSkillSuggestions([...saved, ...catalogue], query);
   }
 
   @override

@@ -55,6 +55,11 @@ def main():
     }
     destination = Path(__file__).resolve().parent.parent / 'assets/skills/esco_en.json'
     destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.exists():
+        # Keep the separately attributed practical labels on ESCO updates.
+        previous = json.loads(destination.read_text())
+        if 'supplement' in previous:
+            dataset['supplement'] = previous['supplement']
     encoded = (json.dumps(dataset, ensure_ascii=False, separators=(',', ':')) + '\n').encode()
     destination.write_bytes(encoded)
     print(f'{len(entries)} labels, {len(encoded)} bytes, SHA256 {hashlib.sha256(encoded).hexdigest()}')

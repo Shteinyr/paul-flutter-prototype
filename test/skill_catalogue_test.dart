@@ -6,6 +6,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:paul_demo/skills/skill_catalogue.dart';
 import 'package:paul_demo/skills/skill_suggestions.dart';
+import 'package:paul_demo/live/guest_search_repository.dart';
+import 'package:paul_demo/profile/user_profile.dart';
+import 'package:paul_demo/search/skill_search_api.dart' show SkillSearchKind;
 
 class _CatalogueBundle extends CachingAssetBundle {
   int reads = 0;
@@ -72,6 +75,93 @@ void main() {
       final items = await SkillCatalogue.shared.suggest('marketing');
       expect(items, isNotEmpty);
       expect(items.first.key, startsWith('marketing'));
+    },
+  );
+
+  test(
+    'common skills and services precede incidental word fragments',
+    () async {
+      final catalogue = SkillCatalogue.shared;
+      for (final label in [
+        'Flutter',
+        'Dart',
+        'Python',
+        'React',
+        'UX',
+        'Marketing',
+        'Digital Marketing',
+        'Design',
+        'Dog Walking',
+        'Cleaning',
+        'Plumbing',
+      ]) {
+        expect((await catalogue.suggest(label)).first.label, label);
+      }
+      final react = await catalogue.suggest('rea', limit: 3);
+      expect(
+        react.map((item) => item.label),
+        containsAll(['React', 'React Native']),
+      );
+      final ux = await catalogue.suggest('ux');
+      expect(ux.map((item) => item.label), containsAll(['UX', 'UX Research']));
+      expect(ux.any((item) => item.key.contains('flux')), isFalse);
+      expect((await catalogue.suggest('desing')), isEmpty);
+      expect((await catalogue.suggest('My own service')), isEmpty);
+      final marketing = await catalogue.suggest('marketing');
+      expect(
+        marketing.map((item) => item.key),
+        containsAll(['marketing', 'digital marketing']),
+      );
+    },
+  );
+
+  test(
+    'MAR keeps practical marketing labels above incidental ESCO prefixes after merging',
+    () async {
+      final catalogue = await SkillCatalogue.shared.suggest('MAR');
+      final marketingLabels = [
+        'Marketing',
+        'Content Marketing',
+        'Digital Marketing',
+      ];
+      expect(catalogue.take(3).map((item) => item.label), marketingLabels);
+      final combined = mergeSkillSuggestions([
+        const SkillSuggestion(key: 'marathi', label: 'Marathi'),
+        const SkillSuggestion(key: 'marklogic', label: 'MarkLogic'),
+        const SkillSuggestion(
+          key: 'digital marketing',
+          label: 'DIGITAL MARKETING',
+        ),
+        ...catalogue,
+      ], 'MAR');
+      expect(combined.take(3).map((item) => item.key), [
+        'marketing',
+        'content marketing',
+        'digital marketing',
+      ]);
+      expect(combined[2].label, 'DIGITAL MARKETING');
+      expect(
+        combined.where((item) => item.key == 'digital marketing'),
+        hasLength(1),
+      );
+    },
+  );
+
+  test(
+    'guest MAR merges local profile skills without burying marketing options',
+    () async {
+      final repository = GuestSearchRepository({
+        'sample': UserProfile.empty.copyWith(
+          skills: ['Marathi', 'MarkLogic', 'DIGITAL MARKETING'],
+        ),
+      });
+      final items = await repository.suggest('MAR', SkillSearchKind.all);
+      expect(items.take(3).map((item) => item.key), [
+        'marketing',
+        'content marketing',
+        'digital marketing',
+      ]);
+      expect(items[2].label, 'DIGITAL MARKETING');
     },
   );
 
