@@ -36,7 +36,7 @@ class _OperatorInboxViewState extends State<OperatorInboxView>
     with WidgetsBindingObserver {
   late final LiveChatController _chat;
   late final ChatRepository _repository;
-  final _peerPhotos = <String, ({String path, Future<Uint8List?> photo})>{};
+  final _peerPhotos = <String, ({String? path, Future<Uint8List?> photo})>{};
   bool _opening = false;
   @override
   void initState() {
@@ -120,8 +120,7 @@ class _OperatorInboxViewState extends State<OperatorInboxView>
       final path = peer?.avatarPath;
       if (repository is! OperatorChatApi ||
           peer == null ||
-          peer.deletedAt != null ||
-          path == null) {
+          peer.deletedAt != null) {
         _peerPhotos.remove(initialPeer.id);
         return const ProfileAvatar(size: 65);
       }

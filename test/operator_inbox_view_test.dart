@@ -46,7 +46,7 @@ class _Repository extends OperatorChatApi {
   @override
   Future<Uint8List?> photo(ChatPeer peer) {
     photoReads++;
-    return loadPhoto?.call(peer) ?? super.photo(peer);
+    return loadPhoto?.call(peer) ?? Future.value(null);
   }
 
   @override
@@ -119,7 +119,7 @@ void main() {
     ),
   );
 
-  ChatPeer peerPhoto(String path, {bool deleted = false}) => ChatPeer(
+  ChatPeer peerPhoto(String? path, {bool deleted = false}) => ChatPeer(
     id: _peer.id,
     name: _peer.name,
     occupation: _peer.occupation,
@@ -132,33 +132,34 @@ void main() {
       .where((avatar) => avatar.photo != null)
       .length;
 
-  testWidgets('operator list and incoming message reuse the saved peer photo', (
-    tester,
-  ) async {
-    final photo = (await rootBundle.load(
-      'assets/people/julia-robinson.png',
-    )).buffer.asUint8List();
-    final repository = _Repository(_Client())
-      ..serverDisabled = false
-      ..peer = peerPhoto('peer/current.png')
-      ..loadPhoto = (_) async => photo;
-    await tester.pumpWidget(inbox(repository));
-    await tester.pumpAndSettle();
-    expect(savedPhotos(tester), 1);
-    await tester.tap(find.text(_peer.name));
-    await tester.pumpAndSettle();
-    expect(find.text('Preserved incoming QA'), findsOneWidget);
-    expect(savedPhotos(tester), 1);
-    expect(repository.photoReads, 1);
-    repository.peer = peerPhoto('peer/current.png', deleted: true);
-    repository.signals.add('changed');
-    await tester.pumpAndSettle();
-    expect(savedPhotos(tester), 0);
-    expect(find.text('Deleted user'), findsOneWidget);
-    expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox.shrink());
-    await tester.pumpAndSettle();
-  });
+  testWidgets(
+    'operator inbox with null path resolves and reuses the peer photo',
+    (tester) async {
+      final photo = (await rootBundle.load(
+        'assets/people/julia-robinson.png',
+      )).buffer.asUint8List();
+      final repository = _Repository(_Client())
+        ..serverDisabled = false
+        ..peer = peerPhoto(null)
+        ..loadPhoto = (_) async => photo;
+      await tester.pumpWidget(inbox(repository));
+      await tester.pumpAndSettle();
+      expect(savedPhotos(tester), 1);
+      await tester.tap(find.text(_peer.name));
+      await tester.pumpAndSettle();
+      expect(find.text('Preserved incoming QA'), findsOneWidget);
+      expect(savedPhotos(tester), 1);
+      expect(repository.photoReads, 1);
+      repository.peer = peerPhoto(null, deleted: true);
+      repository.signals.add('changed');
+      await tester.pumpAndSettle();
+      expect(savedPhotos(tester), 0);
+      expect(find.text('Deleted user'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+    },
+  );
 
   for (final changeIdentity in [false, true]) {
     testWidgets(

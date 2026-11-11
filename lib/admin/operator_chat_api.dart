@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import '../live/chat_api.dart';
+import '../live/live_api.dart';
 import 'admin_api.dart';
 
 /// The authenticated operator stays the actor. Only server-authorized commands
@@ -76,9 +77,21 @@ class OperatorChatApi implements ChatRepository {
     if (currentUserId != admin.userId) {
       throw const ChatException('sign_in_required');
     }
+    if (peer.deletedAt != null) return null;
     final path = peer.avatarPath;
-    if (path == null || peer.deletedAt != null) return null;
-    final bytes = await admin.client.storage.from('avatars').download(path);
+    final Uint8List? bytes;
+    if (path == null) {
+      // The operator inbox intentionally omits avatar_path. Resolve the peer
+      // through the same authorized profile read used by global search.
+      final api = LiveApi(admin.client);
+      final member = await api.member(peer.id);
+      if (currentUserId != admin.userId) {
+        throw const ChatException('sign_in_required');
+      }
+      bytes = await api.photo(member);
+    } else {
+      bytes = await admin.client.storage.from('avatars').download(path);
+    }
     if (currentUserId != admin.userId) {
       throw const ChatException('sign_in_required');
     }
