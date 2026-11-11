@@ -131,6 +131,7 @@ void main() {
             return;
           }
           await api.requestCode('+12025550123');
+          final verificationToken = client.auth.currentSession!.accessToken;
           final verifying = api.verifyCode('+12025550123', '123456');
           Future<void>? rejected;
           if (scenario == 'late-other-user') {
@@ -171,7 +172,7 @@ void main() {
               scenario == 'normal' ? 'verified-refresh' : 'later-refresh',
             );
           }
-          expect(verificationAuthorization, 'Bearer ${token(actor)}');
+          expect(verificationAuthorization, 'Bearer $verificationToken');
           expect(verifyCalls, 1);
         } finally {
           api.dispose();
