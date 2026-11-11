@@ -373,6 +373,11 @@ class _DemoScreenState extends State<_DemoScreen> with WidgetsBindingObserver {
             : const CircularProgressIndicator(strokeWidth: 2),
       );
     }
+    if (_tab == 1) {
+      return const Center(
+        child: Text('No active requests yet', style: TextStyle(fontSize: 12)),
+      );
+    }
     if (_tab == 2) {
       return Column(
         children: [
@@ -781,7 +786,7 @@ class ProfileNavigation extends StatelessWidget {
     super.key,
     required this.selected,
     required this.onSelected,
-    this.enabledTabs = const {0, 2, 3},
+    this.enabledTabs = const {0, 1, 2, 3},
   });
   final int selected;
   final ValueChanged<int> onSelected;
@@ -798,7 +803,14 @@ class ProfileNavigation extends StatelessWidget {
         children: [
           _tab(0, 'Contacts', 'nav-contacts', selected == 0 ? 128 : 24, 24, 17),
           SizedBox(width: selected == 0 ? 27 : 31),
-          _tab(1, 'Events', 'nav-events', 24, 22.5, 22.5884),
+          _tab(
+            1,
+            'Hiring',
+            'nav-events',
+            selected == 1 ? 112 : 24,
+            22.5,
+            22.5884,
+          ),
           SizedBox(width: selected == 0 ? 29 : 29),
           _tab(2, 'Chat', 'nav-inbox', selected == 2 ? 97 : 24, 23.5, 17.2143),
           const SizedBox(width: 30),

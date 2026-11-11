@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:paul_demo/community/community_api.dart';
 import 'package:paul_demo/community/community_controller.dart';
@@ -8,6 +9,11 @@ import 'community_controller_test.dart';
 import 'live_chat_controller_test.dart' show Drafts;
 
 void main() {
+  setUpAll(() async {
+    await (FontLoader(
+      'NotoSans',
+    )..addFont(rootBundle.load('assets/fonts/NotoSans.ttf'))).load();
+  });
   testWidgets('level nine shows invitations and blocks publishing', (
     tester,
   ) async {
@@ -125,6 +131,12 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.text('Today'), findsOneWidget);
+      expect(find.text('Urgent Hiring:  '), findsOneWidget);
+      expect(find.text('Earlier'), findsNothing);
+      expect(
+        find.widgetWithText(FilledButton, 'Ask our community'),
+        findsNothing,
+      );
       await tester.tap(find.byKey(const ValueKey('community-$requestId')));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Message author'));

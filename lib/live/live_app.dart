@@ -442,6 +442,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
       await WidgetsBinding.instance.endOfFrame;
       if (!current()) return;
       if (route.kind == 'community') {
+        setState(() => _tab = 1);
         final controller = _ensureCommunity();
         unawaited(
           _navigator.currentState!.push<void>(
@@ -564,21 +565,6 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
         SupabaseCommunityApi(widget.client, _identity!),
     drafts: SessionChatStateStore(),
   );
-
-  Future<void> _openCommunity() async {
-    if (_identity == null || _network.own == null) return;
-    final controller = _ensureCommunity();
-    await _navigator.currentState!.push<void>(
-      MaterialPageRoute(
-        builder: (_) => CommunityFeedView(
-          controller: controller,
-          onMessage: _openChat,
-          onInvite: _openQr,
-          avatarFor: _peerAvatar,
-        ),
-      ),
-    );
-  }
 
   Future<void> _askCommunity(String skill) async {
     if (_identity == null || _network.own == null) return;
@@ -1274,7 +1260,9 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
         chatAvatar: (peer) => _peerAvatar(peer, size: 65),
         search: _search!,
         onSearchProfile: _openSearchProfile,
-        onCommunity: () => unawaited(_openCommunity()),
+        community: _ensureCommunity(),
+        onCommunityMessage: _openChat,
+        communityAvatar: (peer) => _peerAvatar(peer, size: 65),
         onAskCommunity: (skill) => unawaited(_askCommunity(skill)),
         searchAvatar: _searchAvatar,
         selectedTab: _tab,
@@ -1577,7 +1565,9 @@ class _LiveContacts extends StatelessWidget {
     required this.search,
     required this.onSearchProfile,
     required this.searchAvatar,
-    required this.onCommunity,
+    required this.community,
+    required this.onCommunityMessage,
+    required this.communityAvatar,
     required this.onAskCommunity,
     this.error,
   });
@@ -1605,7 +1595,9 @@ class _LiveContacts extends StatelessWidget {
   final SkillSearchController search;
   final Future<void> Function(SkillSearchHit) onSearchProfile;
   final Widget Function(SkillSearchHit) searchAvatar;
-  final VoidCallback onCommunity;
+  final CommunityController community;
+  final CommunityMessage onCommunityMessage;
+  final Widget Function(ChatPeer) communityAvatar;
   final ValueChanged<String> onAskCommunity;
 
   @override
@@ -1617,7 +1609,7 @@ class _LiveContacts extends StatelessWidget {
           child: ProfileNavigation(
             selected: selectedTab,
             onSelected: onSelected,
-            enabledTabs: const {0, 2, 3},
+            enabledTabs: const {0, 1, 2, 3},
           ),
         ),
         if (error != null)
@@ -1639,7 +1631,17 @@ class _LiveContacts extends StatelessWidget {
               ],
             ),
           ),
-        if (selectedTab == 2)
+        if (selectedTab == 1)
+          Expanded(
+            child: CommunityFeedView(
+              controller: community,
+              onMessage: onCommunityMessage,
+              onInvite: onQr,
+              avatarFor: communityAvatar,
+              embedded: true,
+            ),
+          )
+        else if (selectedTab == 2)
           Expanded(
             child: LiveChatList(
               controller: chat,
@@ -1723,13 +1725,6 @@ class _LiveContacts extends StatelessWidget {
                       physics: const AlwaysScrollableScrollPhysics(),
                       padding: const EdgeInsets.fromLTRB(37.5, 26, 37.5, 80),
                       children: [
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: TextButton(
-                            onPressed: onCommunity,
-                            child: const Text('Network hiring'),
-                          ),
-                        ),
                         ListenableBuilder(
                           listenable: profile,
                           builder: (context, _) => ContactRow(

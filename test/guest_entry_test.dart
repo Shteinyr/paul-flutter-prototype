@@ -84,9 +84,24 @@ void main() {
       expect(find.text('Join'), findsNothing);
       expect(
         tester.widget<InkWell>(find.byKey(const Key('tab-1'))).onTap,
-        isNull,
+        isNotNull,
       );
       expect(requests, isEmpty);
+      await tester.tap(find.byKey(const Key('tab-1')));
+      await tester.pumpAndSettle();
+      expect(find.text('Hiring'), findsOneWidget);
+      expect(find.text('Today'), findsOneWidget);
+      expect(find.text('Last Week'), findsOneWidget);
+      expect(find.text('Urgent Hiring:  '), findsAtLeastNWidgets(3));
+      await tester.drag(
+        find.byKey(const Key('guest-hiring')),
+        const Offset(0, -250),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Babysitter'), findsOneWidget);
+      expect(find.text('Join'), findsNothing);
+      await tester.tap(find.byKey(const Key('tab-0')));
+      await tester.pumpAndSettle();
       expect(find.text('Julia Robinson'), findsOneWidget);
       await tester.tap(find.text('Julia Robinson'));
       await tester.pumpAndSettle();

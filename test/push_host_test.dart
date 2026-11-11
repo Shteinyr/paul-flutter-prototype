@@ -131,6 +131,7 @@ void main() {
         var adminReads = 0;
         var operatorHistory = 0;
         var communityReads = 0;
+        var feedReads = 0;
         final token =
             'e30.${base64Url.encode(utf8.encode(jsonEncode({'sub': user, 'session_id': session, 'aud': 'authenticated', 'role': 'authenticated', 'exp': DateTime.now().add(const Duration(hours: 1)).millisecondsSinceEpoch ~/ 1000}))).replaceAll('=', '')}.signature';
         Map<String, dynamic> profile(String id) => {
@@ -166,6 +167,18 @@ void main() {
             };
           } else if (request.url.path.endsWith('/community')) {
             final body = jsonDecode(request.body) as Map;
+            if (body['action'] == 'feed') {
+              feedReads++;
+              return http.Response(
+                jsonEncode({
+                  'requests': [],
+                  'next_cursor': null,
+                  'server_now': DateTime.now().toUtc().toIso8601String(),
+                }),
+                200,
+                headers: {'content-type': 'application/json'},
+              );
+            }
             expect(body, {'action': 'get', 'request_id': thread});
             communityReads++;
             data = {
@@ -344,6 +357,14 @@ void main() {
                 findsOneWidget,
               );
             }
+          }
+          if (kind == 'community') {
+            await tester.pageBack();
+            await tester.pumpAndSettle();
+            expect(find.text('Hiring'), findsOneWidget);
+            expect(find.text('No active requests yet'), findsOneWidget);
+            expect(find.text('Network hiring'), findsNothing);
+            expect(feedReads, greaterThan(0));
           }
           expect(browser.prompts, 0);
           expect(tester.takeException(), isNull);

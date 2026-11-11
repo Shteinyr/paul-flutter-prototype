@@ -4,6 +4,7 @@ import '../app.dart';
 import '../chat/demo_chat_controller.dart';
 import '../chat/demo_chat_view.dart';
 import '../demo_contacts.dart';
+import '../community/community_views.dart';
 import '../onboarding/onboarding_flow.dart';
 import '../profile/demo_profile.dart';
 import '../profile/public_profile_view.dart';
@@ -153,6 +154,58 @@ class _GuestPreviewState extends State<GuestPreview> {
     ),
   );
 
+  Widget _hiring() => ListView(
+    key: const Key('guest-hiring'),
+    padding: const EdgeInsets.fromLTRB(37.5, 47, 37.5, 40),
+    children: [
+      const Text('Today', style: TextStyle(fontSize: 20)),
+      const SizedBox(height: 30),
+      InkWell(
+        onTap: () => _open(_paulId),
+        child: HiringRequestRow(
+          name: _people[_paulId]!.name,
+          skill: 'Sales Representative',
+          avatar: _avatar(_paulId, 65),
+        ),
+      ),
+      const Padding(
+        padding: EdgeInsets.symmetric(vertical: 20),
+        child: Divider(color: Color(0xFFCDDEE8)),
+      ),
+      InkWell(
+        onTap: () => _open(demoChatContact.id),
+        child: HiringRequestRow(
+          name: demoChatContact.name,
+          skill: 'Photographer',
+          avatar: _avatar(demoChatContact.id, 65),
+        ),
+      ),
+      const SizedBox(height: 56),
+      const Text('Last Week', style: TextStyle(fontSize: 20)),
+      const SizedBox(height: 30),
+      InkWell(
+        onTap: () => _open(_paulId),
+        child: HiringRequestRow(
+          name: _people[_paulId]!.name,
+          skill: 'SMM Marketing',
+          avatar: _avatar(_paulId, 65),
+        ),
+      ),
+      const Padding(
+        padding: EdgeInsets.symmetric(vertical: 20),
+        child: Divider(color: Color(0xFFCDDEE8)),
+      ),
+      InkWell(
+        onTap: () => _open(demoChatContact.id),
+        child: HiringRequestRow(
+          name: demoChatContact.name,
+          skill: 'Babysitter',
+          avatar: _avatar(demoChatContact.id, 65),
+        ),
+      ),
+    ],
+  );
+
   @override
   Widget build(BuildContext context) => Scaffold(
     body: SafeArea(
@@ -204,7 +257,11 @@ class _GuestPreviewState extends State<GuestPreview> {
                         );
                       }
                       _initialize(paul);
-                      return _tab == 2 ? _chats() : _contacts();
+                      return switch (_tab) {
+                        1 => _hiring(),
+                        2 => _chats(),
+                        _ => _contacts(),
+                      };
                     },
                   ),
                 ),
