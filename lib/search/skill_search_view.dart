@@ -15,11 +15,13 @@ class SkillSearchView extends StatefulWidget {
     required this.contacts,
     required this.onOpen,
     required this.avatarFor,
+    this.onAskCommunity,
   });
   final SkillSearchController controller;
   final Widget contacts;
   final Future<void> Function(SkillSearchHit) onOpen;
   final Widget Function(SkillSearchHit) avatarFor;
+  final ValueChanged<String>? onAskCommunity;
   @override
   State<SkillSearchView> createState() => _SkillSearchViewState();
 }
@@ -207,8 +209,15 @@ class _SkillSearchViewState extends State<SkillSearchView> {
       );
     }
     if (search.results.isEmpty) {
-      // P13's community action requires its own approved implementation.
-      return const _SearchStatus(text: 'No profiles found for this skill');
+      return _SearchStatus(
+        text: 'No profiles found for this skill',
+        action: widget.onAskCommunity == null
+            ? null
+            : TextButton(
+                onPressed: () => widget.onAskCommunity!(search.selected!.label),
+                child: const Text('Ask our community'),
+              ),
+      );
     }
     return ListView(
       key: const Key('skill-search-results'),

@@ -22,6 +22,9 @@ void main() {
     'wrong-recipient',
     'invalid-operator',
     'changed-session',
+    'community-active',
+    'community-unavailable',
+    'community-invalid',
   ]) {
     test(
       'push API $scenario checks pinned identity and DTO before exposing a route',
@@ -64,7 +67,13 @@ void main() {
             reached.complete();
             return pending.future;
           }
-          final data = body['action'] == 'subscribe'
+          final data = scenario.startsWith('community-')
+              ? {
+                  'kind': 'community',
+                  'request_id': canonical,
+                  'state': scenario.substring(10),
+                }
+              : body['action'] == 'subscribe'
               ? {
                   'binding_id': canonical,
                   'recipient_user_id': scenario == 'wrong-recipient'
@@ -121,6 +130,18 @@ void main() {
             await rejected;
             expect(authorization, 'Bearer ${tokens[session]}');
             expect(api.current, isFalse);
+          } else if (scenario.startsWith('community-')) {
+            final route = api.resolve(
+              const PushClick(user, canonical, proposed),
+            );
+            if (scenario == 'community-invalid') {
+              await expectLater(route, throwsA(isA<PushException>()));
+            } else {
+              final result = await route;
+              expect(result.kind, 'community');
+              expect(result.requestId, canonical);
+              expect(result.requestState, scenario.substring(10));
+            }
           } else if (scenario == 'invalid-operator') {
             await expectLater(
               api.resolve(const PushClick(user, canonical, proposed)),

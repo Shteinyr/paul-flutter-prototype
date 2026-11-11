@@ -20,7 +20,12 @@ void main() {
     controller.dispose();
     await repository.identities.close();
   });
-  Future<void> show(WidgetTester tester, {double width = 403}) async {
+  final communitySkills = <String>[];
+  Future<void> show(
+    WidgetTester tester, {
+    double width = 403,
+    bool community = false,
+  }) async {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
@@ -32,6 +37,7 @@ void main() {
                 contacts: const Text('Existing contacts'),
                 onOpen: (_) async {},
                 avatarFor: (_) => const CircleAvatar(radius: 32.5),
+                onAskCommunity: community ? communitySkills.add : null,
               ),
             ),
           ),
@@ -84,6 +90,17 @@ void main() {
     expect(find.text('No profiles found for this skill'), findsOneWidget);
     expect(find.text('Retry search'), findsNothing);
     expect(find.textContaining('Community'), findsNothing);
+  });
+
+  testWidgets('empty search opens community with the selected skill', (
+    tester,
+  ) async {
+    repository.searching = (q, k, c) async => page(q, k, []);
+    await show(tester, community: true);
+    await controller.select(marketing);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Ask our community'));
+    expect(communitySkills, ['Marketing']);
   });
 
   testWidgets(

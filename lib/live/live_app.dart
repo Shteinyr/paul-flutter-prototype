@@ -9,6 +9,9 @@ import '../app.dart';
 import '../admin/admin_api.dart';
 import '../admin/admin_view.dart';
 import '../admin/operator_inbox_view.dart';
+import '../community/community_api.dart';
+import '../community/community_controller.dart';
+import '../community/community_views.dart';
 import '../push/push_browser.dart';
 import '../push/push_api.dart';
 import '../push/push_controller.dart';
@@ -49,6 +52,7 @@ class PaulLiveApp extends StatefulWidget {
     this.draftPreferences,
     this.chatRepositoryFor,
     this.searchRepositoryFor,
+    this.communityRepositoryFor,
     this.pushBrowser,
     this.pushRepositoryFor,
   });
@@ -61,6 +65,7 @@ class PaulLiveApp extends StatefulWidget {
   final SharedPreferencesAsync? draftPreferences;
   final ChatRepository Function(String userId)? chatRepositoryFor;
   final SkillSearchRepository Function(String userId)? searchRepositoryFor;
+  final CommunityRepository Function(String userId)? communityRepositoryFor;
   final PushBrowser? pushBrowser;
   final PushRepository Function(String userId, String sessionId)?
   pushRepositoryFor;
@@ -81,6 +86,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
   set _network(MemberNetwork value) => _networkUpdates.value = value;
   LiveChatController? _chat;
   SkillSearchController? _search;
+  CommunityController? _community;
   late final PushBrowser _pushBrowser;
   late final StreamSubscription<PushClick> _pushClicks;
   PushController? _push;
@@ -407,7 +413,21 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
       _navigator.currentState?.popUntil((route) => route.isFirst);
       await WidgetsBinding.instance.endOfFrame;
       if (!current()) return;
-      if (route.kind == 'operator') {
+      if (route.kind == 'community') {
+        final controller = _ensureCommunity();
+        unawaited(
+          _navigator.currentState!.push<void>(
+            MaterialPageRoute(
+              builder: (_) => CommunityDetailView(
+                controller: controller,
+                requestId: route.requestId!,
+                onMessage: _openChat,
+                avatarFor: _peerAvatar,
+              ),
+            ),
+          ),
+        );
+      } else if (route.kind == 'operator') {
         final admin = SupabaseAdminApi(widget.client, click.recipientId);
         final access = await admin.context();
         if (!current()) return;
@@ -507,6 +527,42 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
   void _disposeSearch() {
     _search?.dispose();
     _search = null;
+    _community?.dispose();
+    _community = null;
+  }
+
+  CommunityController _ensureCommunity() => _community ??= CommunityController(
+    widget.communityRepositoryFor?.call(_identity!) ??
+        SupabaseCommunityApi(widget.client, _identity!),
+    drafts: SessionChatStateStore(),
+  );
+
+  Future<void> _openCommunity() async {
+    if (_identity == null || _network.own == null) return;
+    final controller = _ensureCommunity();
+    await _navigator.currentState!.push<void>(
+      MaterialPageRoute(
+        builder: (_) => CommunityFeedView(
+          controller: controller,
+          onMessage: _openChat,
+          onInvite: _openQr,
+          avatarFor: _peerAvatar,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _askCommunity(String skill) async {
+    if (_identity == null || _network.own == null) return;
+    await _navigator.currentState!.push<void>(
+      MaterialPageRoute(
+        builder: (_) => CommunityComposeView(
+          controller: _ensureCommunity(),
+          onInvite: _openQr,
+          initialSkill: skill,
+        ),
+      ),
+    );
   }
 
   @override
@@ -1041,6 +1097,8 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
         chatAvatar: (peer) => _peerAvatar(peer, size: 65),
         search: _search!,
         onSearchProfile: _openSearchProfile,
+        onCommunity: () => unawaited(_openCommunity()),
+        onAskCommunity: (skill) => unawaited(_askCommunity(skill)),
         searchAvatar: _searchAvatar,
         selectedTab: _tab,
         onSelected: (value) {
@@ -1305,6 +1363,8 @@ class _LiveContacts extends StatelessWidget {
     required this.search,
     required this.onSearchProfile,
     required this.searchAvatar,
+    required this.onCommunity,
+    required this.onAskCommunity,
     this.error,
   });
   final ProfileController profile;
@@ -1327,6 +1387,8 @@ class _LiveContacts extends StatelessWidget {
   final SkillSearchController search;
   final Future<void> Function(SkillSearchHit) onSearchProfile;
   final Widget Function(SkillSearchHit) searchAvatar;
+  final VoidCallback onCommunity;
+  final ValueChanged<String> onAskCommunity;
 
   @override
   Widget build(BuildContext context) => _EntryFrame(
@@ -1428,12 +1490,20 @@ class _LiveContacts extends StatelessWidget {
                   controller: search,
                   onOpen: onSearchProfile,
                   avatarFor: searchAvatar,
+                  onAskCommunity: onAskCommunity,
                   contacts: RefreshIndicator(
                     onRefresh: onRefresh,
                     child: ListView(
                       physics: const AlwaysScrollableScrollPhysics(),
                       padding: const EdgeInsets.fromLTRB(37.5, 26, 37.5, 80),
                       children: [
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton(
+                            onPressed: onCommunity,
+                            child: const Text('Network hiring'),
+                          ),
+                        ),
                         ListenableBuilder(
                           listenable: profile,
                           builder: (context, _) => ContactRow(

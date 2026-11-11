@@ -52,6 +52,12 @@ class _Push extends Repository {
       return const PushRoute('chat', secondThread, null);
     }
     if (forbidden) throw const PushException('push_forbidden');
+    if (kind.startsWith('community')) {
+      return PushRoute.community(
+        thread,
+        kind == 'community-unavailable' ? 'unavailable' : 'active',
+      );
+    }
     return PushRoute(kind, thread, kind == 'operator' ? managed : null);
   }
 }
@@ -101,6 +107,9 @@ void main() {
     'other-account',
     'signed-out',
     'queued',
+    'community',
+    'community-unavailable',
+    'community-stale',
   ]) {
     testWidgets(
       'notification click $kind uses fresh authorization and preserves identity',
@@ -115,10 +124,13 @@ void main() {
         final push = _Push()
           ..kind = kind == 'operator' || kind == 'disabled'
               ? 'operator'
+              : kind.startsWith('community')
+              ? kind
               : 'chat'
           ..forbidden = kind == 'revoked';
         var adminReads = 0;
         var operatorHistory = 0;
+        var communityReads = 0;
         final token =
             'e30.${base64Url.encode(utf8.encode(jsonEncode({'sub': user, 'session_id': session, 'aud': 'authenticated', 'role': 'authenticated', 'exp': DateTime.now().add(const Duration(hours: 1)).millisecondsSinceEpoch ~/ 1000}))).replaceAll('=', '')}.signature';
         Map<String, dynamic> profile(String id) => {
@@ -151,6 +163,31 @@ void main() {
             data = {
               'profile': profile(user),
               'contacts': [profile(peerId)],
+            };
+          } else if (request.url.path.endsWith('/community')) {
+            final body = jsonDecode(request.body) as Map;
+            expect(body, {'action': 'get', 'request_id': thread});
+            communityReads++;
+            data = {
+              'request': kind == 'community'
+                  ? {
+                      'id': thread,
+                      'author': {
+                        'id': peerId,
+                        'name': 'Community Author',
+                        'occupation': 'QA',
+                        'avatar_path': null,
+                      },
+                      'skill': 'Marketing',
+                      'message': 'Fresh request',
+                      'is_author': false,
+                      'created_at': DateTime.now().toUtc().toIso8601String(),
+                      'expires_at': DateTime.now()
+                          .toUtc()
+                          .add(const Duration(days: 30))
+                          .toIso8601String(),
+                    }
+                  : null,
             };
           } else if (request.url.path.endsWith('/admin')) {
             final action = (jsonDecode(request.body) as Map)['action'];
@@ -293,6 +330,20 @@ void main() {
           if (kind == 'disabled') {
             expect(adminReads, greaterThan(0));
             expect(operatorHistory, 0);
+          }
+          if (kind.startsWith('community')) {
+            expect(communityReads, 1);
+            expect(find.text('Hiring request'), findsOneWidget);
+            expect(
+              find.text('Message author'),
+              kind == 'community' ? findsOneWidget : findsNothing,
+            );
+            if (kind != 'community') {
+              expect(
+                find.text('This request is no longer available.'),
+                findsOneWidget,
+              );
+            }
           }
           expect(browser.prompts, 0);
           expect(tester.takeException(), isNull);
