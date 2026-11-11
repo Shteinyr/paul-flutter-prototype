@@ -38,11 +38,7 @@ class GuestSearchRepository implements SkillSearchRepository {
       query,
     );
     final catalogue = await _catalogue.suggest(query);
-    final keys = saved.map((item) => item.key).toSet();
-    return [
-      ...saved,
-      ...catalogue.where((item) => !keys.contains(item.key)),
-    ].take(10).toList();
+    return mergeSkillSuggestions([...saved, ...catalogue], query);
   }
 
   @override

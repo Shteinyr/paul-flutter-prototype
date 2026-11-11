@@ -18,6 +18,77 @@ class _Json extends Fake implements YAJsonIsolate {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  test(
+    'remote and catalogue MAR suggestions retain common marketing priority',
+    () async {
+      const userId = '10000000-0000-4000-8000-000000000001';
+      final transport = MockClient((request) async {
+        if (request.url.path.endsWith('/token')) {
+          return http.Response(
+            jsonEncode({
+              'access_token': token(userId),
+              'refresh_token': 'test-only',
+              'token_type': 'bearer',
+              'expires_in': 3600,
+              'user': {
+                'id': userId,
+                'aud': 'authenticated',
+                'created_at': DateTime.utc(2026).toIso8601String(),
+                'app_metadata': {},
+                'user_metadata': {},
+              },
+            }),
+            200,
+          );
+        }
+        expect(request.url.path, '/functions/v1/skill-search');
+        expect((jsonDecode(request.body) as Map)['query'], 'MAR');
+        return http.Response(
+          jsonEncode({
+            'suggestions': [
+              {'key': 'marathi', 'label': 'Marathi'},
+              {'key': 'marklogic', 'label': 'MarkLogic'},
+              {'key': 'digital marketing', 'label': 'DIGITAL MARKETING'},
+            ],
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      });
+      final client = SupabaseClient(
+        'https://search-test.invalid',
+        'test-key',
+        httpClient: transport,
+        isolate: _Json(),
+        authOptions: const AuthClientOptions(autoRefreshToken: false),
+      );
+      try {
+        await client.auth.signInWithPassword(
+          email: 'a@example.invalid',
+          password: 'test-only',
+        );
+        final items = await SupabaseSkillSearchApi(
+          client,
+          userId,
+        ).suggest('MAR', SkillSearchKind.all);
+        expect(items.take(3).map((item) => item.key), [
+          'marketing',
+          'content marketing',
+          'digital marketing',
+        ]);
+        expect(items[2].label, 'DIGITAL MARKETING');
+        expect(
+          items.where((item) => item.key == 'digital marketing'),
+          hasLength(1),
+        );
+      } finally {
+        await client.dispose();
+      }
+    },
+  );
+
   test(
     'search pins initiating JWT and rejects late response after identity switch',
     () async {
