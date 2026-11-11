@@ -1,0 +1,105 @@
+begin;
+create function pg_temp.assert_true(value boolean,description text) returns void language plpgsql as $$
+begin if value is distinct from true then raise exception 'Assertion failed: %',description; end if; end;
+$$;
+create function pg_temp.expect_error(statement text,expected text) returns void language plpgsql as $$
+begin
+  begin execute statement;
+  exception when others then if position(expected in sqlerrm)>0 then return; end if; raise; end;
+  raise exception 'Expected failure %',expected;
+end;
+$$;
+insert into auth.users(id) select ('72000000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid from generate_series(1,4)n;
+select private.save_profile(id,jsonb_build_object('name','Deletion QA','occupation','','summary','Test','skills',array['Design'],'searching_skills','[]'::jsonb))
+ from auth.users where id between '72000000-0000-4000-8000-000000000001' and '72000000-0000-4000-8000-000000000003';
+insert into private.memberships(user_id) select id from public.profiles where id::text like '72000000-%';
+insert into auth.sessions(id,user_id) select ('72100000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,('72000000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid from generate_series(1,4)n;
+insert into private.admin_roles(user_id,role,granted_by) values
+ ('72000000-0000-4000-8000-000000000001','admin',null),('72000000-0000-4000-8000-000000000003','admin','72000000-0000-4000-8000-000000000001');
+create temp table managed as select public.admin_prepare_create('72000000-0000-4000-8000-000000000003','72200000-0000-4000-8000-000000000003') id;
+select public.admin_save_profile('72000000-0000-4000-8000-000000000003',(select id from managed),true,'72200000-0000-4000-8000-000000000003',jsonb_build_object('name','Managed delete QA','occupation','','summary','Private text','skills',array['Design'],'searching_skills','[]'::jsonb));
+update private.managed_profile_grants set granted_by='72000000-0000-4000-8000-000000000001' where profile_id=(select id from managed);
+insert into private.managed_profile_grants(user_id,profile_id,can_reply) select '72000000-0000-4000-8000-000000000001',id,true from managed;
+select public.admin_prepare_create('72000000-0000-4000-8000-000000000001',gen_random_uuid());
+insert into private.invited_registrations(invitee_profile_id,inviter_profile_id,registered_at)
+ values('72000000-0000-4000-8000-000000000001','72000000-0000-4000-8000-000000000002',clock_timestamp());
+insert into public.connections(user_low,user_high) values('72000000-0000-4000-8000-000000000001','72000000-0000-4000-8000-000000000002');
+create temp table thread as select (public.chat_open('72000000-0000-4000-8000-000000000001','72000000-0000-4000-8000-000000000002')->>'id')::uuid id;
+select public.chat_send('72000000-0000-4000-8000-000000000001',(select id from thread),gen_random_uuid(),'Preserved first message');
+select public.chat_send('72000000-0000-4000-8000-000000000002',(select id from thread),gen_random_uuid(),'Preserved reply');
+insert into public.connections(user_low,user_high) values('72000000-0000-4000-8000-000000000001','72000000-0000-4000-8000-000000000003');
+create temp table former_thread as select (public.chat_open('72000000-0000-4000-8000-000000000001','72000000-0000-4000-8000-000000000003')->>'id')::uuid id;
+select public.chat_send('72000000-0000-4000-8000-000000000001',(select id from former_thread),gen_random_uuid(),'Former contact history');
+delete from public.connections where user_low='72000000-0000-4000-8000-000000000001' and user_high='72000000-0000-4000-8000-000000000003';
+create temp table original_messages as select md5(jsonb_agg(to_jsonb(m) order by id)::text) fingerprint from public.messages m where conversation_id=(select id from thread);
+insert into storage.objects(id,bucket_id,name,owner_id) values
+ (gen_random_uuid(),'avatars','72000000-0000-4000-8000-000000000001/'||repeat('a',64)||'.png','72000000-0000-4000-8000-000000000001'),
+ (gen_random_uuid(),'avatars','72000000-0000-4000-8000-000000000001/'||repeat('b',64)||'.png','72000000-0000-4000-8000-000000000001');
+insert into storage.objects(id,bucket_id,name,owner_id) select gen_random_uuid(),'avatars',id::text||'/'||repeat('c',64)||'.png',null from managed;
+update public.profiles set avatar_path='72000000-0000-4000-8000-000000000001/'||repeat('a',64)||'.png' where id='72000000-0000-4000-8000-000000000001';
+select public.issue_invitation('72000000-0000-4000-8000-000000000001',repeat('1',64),repeat('2',64));
+select public.issue_invitation('72000000-0000-4000-8000-000000000002',repeat('3',64),repeat('4',64));
+select public.push_subscribe('72000000-0000-4000-8000-000000000001','72100000-0000-4000-8000-000000000001','72300000-0000-4000-8000-000000000001','https://fcm.googleapis.com/fcm/send/delete-qa','B'||repeat('A',86),repeat('B',22));
+select pg_temp.expect_error($q$select public.member_delete_account('72000000-0000-4000-8000-000000000001','72100000-0000-4000-8000-000000000001','72000000-0000-4000-8000-000000000002','72200000-0000-4000-8000-000000000001',repeat('a',64))$q$,'identity_changed');
+select pg_temp.assert_true((select count(*)=0 from private.account_deletions),'Identity mismatch has no deletion side effect');
+select pg_temp.assert_true(public.member_delete_account('72000000-0000-4000-8000-000000000001','72100000-0000-4000-8000-000000000001','72000000-0000-4000-8000-000000000001','72200000-0000-4000-8000-000000000001',repeat('a',64))->>'state'='pending','Confirmed own deletion creates durable pending cleanup');
+select pg_temp.assert_true((select name='Удалённый пользователь' and summary='' and occupation='' and skills='{}' and searching_skills='{}' and avatar_path is null and auth_user_id is null and deleted_at is not null from public.profiles where id='72000000-0000-4000-8000-000000000001'),'Immediate scrub leaves only a tombstone');
+select pg_temp.assert_true((select count(*)=0 from auth.sessions where user_id='72000000-0000-4000-8000-000000000001'),'All target Auth sessions are revoked');
+select pg_temp.assert_true((select count(*)=0 from private.memberships where user_id='72000000-0000-4000-8000-000000000001'),'Deleted account loses membership');
+select pg_temp.assert_true((select count(*)=0 from private.admin_roles where user_id='72000000-0000-4000-8000-000000000001'),'Target administrative role is removed');
+select pg_temp.assert_true((select granted_by is null from private.admin_roles where user_id='72000000-0000-4000-8000-000000000003'),'Other admin role survives with detached grantor');
+select pg_temp.assert_true((select can_manage and granted_by is null from private.managed_profile_grants where user_id='72000000-0000-4000-8000-000000000003' and profile_id=(select id from managed)),'Other managed grant survives with detached grantor');
+select pg_temp.assert_true((select count(*)=0 from public.connections where user_low='72000000-0000-4000-8000-000000000001' or user_high='72000000-0000-4000-8000-000000000001'),'Target active connections are removed');
+select pg_temp.assert_true((select count(*)=1 from realtime.messages where topic='chat:user:72000000-0000-4000-8000-000000000003' and payload=jsonb_build_object('conversation_id',(select id from former_thread),'profile_changed',true)),'Former conversation receives a metadata-only refresh after deletion');
+select pg_temp.assert_true((select disabled_at is not null and endpoint is null and endpoint_hash is null and p256dh is null and auth is null from private.push_subscriptions where binding_id='72300000-0000-4000-8000-000000000001'),'Push capability is disabled and its private credentials erased');
+select pg_temp.assert_true((select count(*)=1 from auth.users where id='72000000-0000-4000-8000-000000000001'),'Auth remains pending until Storage is cleaned');
+select pg_temp.assert_true(public.account_deletion_status('72200000-0000-4000-8000-000000000001',repeat('a',64))->>'state'='pending','Receipt recovery works after session revocation');
+select pg_temp.assert_true(public.account_deletion_status('72200000-0000-4000-8000-000000000001',repeat('b',64)) is null,'Wrong receipt reveals no state');
+select pg_temp.expect_error($q$select public.member_require_auth_session('72000000-0000-4000-8000-000000000001','72100000-0000-4000-8000-000000000001')$q$,'session_revoked');
+select pg_temp.expect_error($q$select public.redeem_invitation('72000000-0000-4000-8000-000000000001',repeat('3',64),false,jsonb_build_object('name','Restore','occupation','','summary','Restore','skills',array['Design'],'searching_skills','[]'::jsonb))$q$,'account_deleted');
+select pg_temp.expect_error($q$select private.save_profile('72000000-0000-4000-8000-000000000001',jsonb_build_object('name','Restore','occupation','','summary','Restore','skills',array['Design'],'searching_skills','[]'::jsonb))$q$,'account_deleted');
+select pg_temp.expect_error($q$select public.save_member_profile('72000000-0000-4000-8000-000000000001','{}')$q$,'membership_required');
+set local role authenticated;
+set local request.jwt.claim.sub='72000000-0000-4000-8000-000000000001';
+select pg_temp.assert_true((select count(*)=0 from storage.objects),'Old JWT cannot read removed-profile files during pending cleanup');
+select pg_temp.expect_error($q$insert into storage.objects(id,bucket_id,name,owner_id) values(gen_random_uuid(),'avatars','72000000-0000-4000-8000-000000000001/'||repeat('d',64)||'.png','72000000-0000-4000-8000-000000000001')$q$,'profile_unavailable');
+select pg_temp.expect_error($q$select public.account_deletion_status('72200000-0000-4000-8000-000000000001',repeat('a',64))$q$,'permission denied');
+set local request.jwt.claim.sub='72000000-0000-4000-8000-000000000004';
+insert into storage.objects(id,bucket_id,name,owner_id) values(gen_random_uuid(),'avatars','72000000-0000-4000-8000-000000000004/'||repeat('d',64)||'.png','72000000-0000-4000-8000-000000000004');
+reset role;
+select pg_temp.assert_true((select count(*)=1 from storage.objects where owner_id='72000000-0000-4000-8000-000000000004'),'New Auth user still uploads before registration');
+create temp table first_claim as select * from jsonb_to_recordset(public.account_cleanup_claim('72200000-0000-4000-8000-000000000001',1)) as x(operation_id uuid,lease_token uuid);
+update private.account_deletions set lease_until=clock_timestamp()-interval '1 second' where operation_id='72200000-0000-4000-8000-000000000001';
+create temp table second_claim as select * from jsonb_to_recordset(public.account_cleanup_claim('72200000-0000-4000-8000-000000000001',1)) as x(operation_id uuid,lease_token uuid);
+select pg_temp.assert_true(public.account_cleanup_prepare((select operation_id from first_claim),(select lease_token from first_claim)) is null,'Expired fence cannot disclose Storage paths or Auth target');
+select pg_temp.assert_true(public.account_cleanup_finish((select operation_id from first_claim),(select lease_token from first_claim),true) is null,'Expired fence cannot finish a newer lease');
+select pg_temp.assert_true(jsonb_array_length(public.account_cleanup_prepare((select operation_id from second_claim),(select lease_token from second_claim))->'objects')=2,'Fresh cleanup reads current owned files');
+select pg_temp.assert_true(public.account_cleanup_finish((select operation_id from second_claim),(select lease_token from second_claim),true)->>'state'='pending','Success cannot be asserted while files and Auth still exist');
+select pg_temp.assert_true(jsonb_array_length(public.account_cleanup_claim('72200000-0000-4000-8000-000000000001',1))=0,'Cleanup backoff is enforced');
+-- Local Storage/Auth stand-ins simulate successful external API commits.
+delete from storage.objects where owner_id='72000000-0000-4000-8000-000000000001';
+update private.account_deletions set next_attempt_at=clock_timestamp()-interval '1 second' where operation_id='72200000-0000-4000-8000-000000000001';
+create temp table auth_claim as select * from jsonb_to_recordset(public.account_cleanup_claim('72200000-0000-4000-8000-000000000001',1)) as x(operation_id uuid,lease_token uuid);
+select pg_temp.assert_true(public.account_cleanup_finish((select operation_id from auth_claim),(select lease_token from auth_claim),true)->>'state'='pending','Auth failure cannot be mistaken for complete deletion');
+delete from auth.users where id='72000000-0000-4000-8000-000000000001';
+update private.account_deletions set next_attempt_at=clock_timestamp()-interval '1 second' where operation_id='72200000-0000-4000-8000-000000000001';
+create temp table complete_claim as select * from jsonb_to_recordset(public.account_cleanup_claim('72200000-0000-4000-8000-000000000001',1)) as x(operation_id uuid,lease_token uuid);
+select pg_temp.assert_true(public.account_cleanup_finish((select operation_id from complete_claim),(select lease_token from complete_claim),true)->>'state'='complete','Storage and hard Auth deletion complete once');
+select pg_temp.assert_true(public.member_delete_account('72000000-0000-4000-8000-000000000001','72100000-0000-4000-8000-000000000001','72000000-0000-4000-8000-000000000001','72200000-0000-4000-8000-000000000001',repeat('a',64))->>'state'='complete','Original receipt resolves a lost ACK after Auth is gone');
+select pg_temp.assert_true(private.invited_registration_count('72000000-0000-4000-8000-000000000002')=1,'Completed invitation count survives the invitee hard delete');
+select pg_temp.assert_true((select md5(jsonb_agg(to_jsonb(m) order by id)::text)=(select fingerprint from original_messages) from public.messages m where conversation_id=(select id from thread)),'Both counterpart messages remain byte-identical');
+select pg_temp.assert_true(public.chat_list('72000000-0000-4000-8000-000000000002')->'conversations'->0->'peer'->>'name'='Удалённый пользователь','Counterpart sees the deleted-user label');
+select pg_temp.assert_true(public.chat_list('72000000-0000-4000-8000-000000000002')->'conversations'->0->'peer'->>'deleted_at' is not null,'Counterpart receives explicit read-only tombstone state');
+select pg_temp.expect_error($q$select public.chat_send('72000000-0000-4000-8000-000000000002',(select id from thread),gen_random_uuid(),'Late reply')$q$,'conversation_forbidden');
+create temp table managed_version as select updated_at from public.profiles where id=(select id from managed);
+select pg_temp.expect_error($q$select public.admin_delete_profile('72000000-0000-4000-8000-000000000003','72100000-0000-4000-8000-000000000003',(select id from managed),'72200000-0000-4000-8000-000000000004',clock_timestamp()-interval '1 day')$q$,'profile_version_conflict');
+select pg_temp.assert_true(public.admin_delete_profile('72000000-0000-4000-8000-000000000003','72100000-0000-4000-8000-000000000003',(select id from managed),'72200000-0000-4000-8000-000000000004',(select updated_at from managed_version))->>'state'='pending','Managed confirmation starts independent file cleanup');
+select pg_temp.assert_true(public.admin_delete_profile('72000000-0000-4000-8000-000000000003','72100000-0000-4000-8000-000000000003',(select id from managed),'72200000-0000-4000-8000-000000000004',(select updated_at from managed_version))->>'state'='pending','Managed retry accepts the original expected version after its grant is gone');
+select pg_temp.assert_true((select bool_and(details='{"redacted":true}'::jsonb) from private.admin_audit where profile_id=(select id from managed) and action<>'profile_delete'),'Old managed materials are removed from audit details');
+select pg_temp.expect_error($q$insert into storage.objects(id,bucket_id,name,owner_id) select gen_random_uuid(),'avatars',id::text||'/'||repeat('e',64)||'.png',null from managed$q$,'profile_unavailable');
+select pg_temp.expect_error($q$select public.admin_save_profile('72000000-0000-4000-8000-000000000003',(select id from managed),true,'72200000-0000-4000-8000-000000000003',jsonb_build_object('name','Restore','occupation','','summary','Restore','skills',array['Design'],'searching_skills','[]'::jsonb))$q$,'managed_profile_forbidden');
+create temp table managed_claim as select * from jsonb_to_recordset(public.account_cleanup_claim('72200000-0000-4000-8000-000000000004',1)) as x(operation_id uuid,lease_token uuid);
+delete from storage.objects where starts_with(name,(select id::text||'/' from managed));
+select pg_temp.assert_true(public.account_cleanup_finish((select operation_id from managed_claim),(select lease_token from managed_claim),true)->>'state'='complete','Managed deletion completes without deleting any actor Auth identity');
+select pg_temp.assert_true((select count(*)=3 from auth.users where id::text like '72000000-%'),'Only the confirmed account Auth identity was removed');
+rollback;

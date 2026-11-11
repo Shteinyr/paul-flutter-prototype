@@ -5,7 +5,7 @@ import {
 } from "../push/shared.ts";
 import { deliverPush, type PreparedPush } from "../push/transport.ts";
 
-async function authorized(
+export async function authorized(
   value: string | null,
   secret: string,
 ): Promise<boolean> {
