@@ -1,0 +1,18 @@
+This service uses the ESCO classification of the European Commission.
+
+Source: ESCO v1.2.1 English preferred skill labels.
+Publisher: European Commission.
+https://esco.ec.europa.eu/en/use-esco
+
+The ESCO classification may be downloaded, used, reproduced and reused for
+any purpose free of charge under Commission Decision 2011/833/EU, subject
+to attribution and identifying modifications. Publisher reuse guidance:
+https://esco.ec.europa.eu/en/about-esco/faq?page=1
+
+The snapshot includes 13,939 active English skill concepts retrieved from
+the official ESCO API. Only concept UUIDs and preferred labels are kept.
+Translations, descriptions and alternative labels are omitted. Labels are
+unchanged. Inputs offer labels compatible with the existing 64-character
+field validation. Users may also save their own free-text skills.
+
+The ESCO API software is separately licensed. No API software is bundled.

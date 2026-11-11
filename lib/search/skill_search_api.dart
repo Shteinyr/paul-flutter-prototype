@@ -1,5 +1,8 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../skills/skill_catalogue.dart';
+export '../skills/skill_catalogue.dart' show SkillSuggestion;
+
 enum SkillSearchKind {
   all('All'),
   offering('Offering'),
@@ -20,12 +23,6 @@ class SkillSearchException implements Exception {
     'invalid_request' => 'Check the skill and try again.',
     _ => 'Could not search skills. Check your connection and try again.',
   };
-}
-
-class SkillSuggestion {
-  const SkillSuggestion({required this.key, required this.label});
-  final String key;
-  final String label;
 }
 
 class SkillSearchHit {
@@ -129,13 +126,22 @@ class SupabaseSkillSearchApi implements SkillSearchRepository {
     SkillSearchKind kind,
   ) async {
     final data = await _call('suggest', query, kind);
-    return (data['suggestions'] as List).map((value) {
+    final saved = (data['suggestions'] as List).map((value) {
       final item = value as Map;
       return SkillSuggestion(
         key: item['key'] as String,
         label: item['label'] as String,
       );
     }).toList();
+    final catalogue = await SkillCatalogue.shared.suggest(query);
+    _checkIdentity();
+    // Keep the server's ranked skills with actual profiles ahead of unused
+    // catalogue terms, so common prefixes still expose existing results.
+    final savedKeys = saved.map((item) => skillKey(item.key)).toSet();
+    return [
+      ...saved,
+      ...catalogue.where((item) => !savedKeys.contains(item.key)),
+    ].take(10).toList();
   }
 
   @override

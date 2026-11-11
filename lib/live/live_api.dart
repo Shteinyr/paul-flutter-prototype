@@ -126,6 +126,35 @@ class LiveApi implements InvitationIssuer {
     );
   }
 
+  Future<MemberProfile> member(String profileId) async {
+    final userId = client.auth.currentUser?.id;
+    final token = client.auth.currentSession?.accessToken;
+    if (userId == null || token == null) {
+      throw const LiveApiException('sign_in_required');
+    }
+    try {
+      final response = await client.functions
+          .invoke(
+            'account',
+            headers: {'Authorization': 'Bearer $token'},
+            body: {'action': 'profile', 'profile_id': profileId},
+          )
+          .timeout(const Duration(seconds: 25));
+      if (client.auth.currentUser?.id != userId) {
+        throw const LiveApiException('sign_in_required');
+      }
+      final profile = (response.data as Map)['profile'];
+      return MemberProfile.fromJson(Map<String, dynamic>.from(profile as Map));
+    } on FunctionException catch (error) {
+      final details = error.details;
+      throw LiveApiException(
+        details is Map
+            ? details['code'] as String? ?? 'server_unavailable'
+            : 'server_unavailable',
+      );
+    }
+  }
+
   Future<Map<String, dynamic>> profilePayload(
     UserProfile draft,
     String userId,

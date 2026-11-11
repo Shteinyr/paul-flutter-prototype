@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:paul_demo/live/live_app.dart';
 import 'package:paul_demo/profile/public_profile_view.dart';
+import 'package:paul_demo/skills/skill_catalogue.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:yet_another_json_isolate/yet_another_json_isolate.dart';
 
@@ -31,24 +32,28 @@ class _SignaledChatRepository extends QuietChatRepository {
 
 void main() {
   setUpAll(() async {
+    await SkillCatalogue.shared.suggest('marketing');
     await (FontLoader(
       'NotoSans',
     )..addFont(rootBundle.load('assets/fonts/NotoSans.ttf'))).load();
   });
-  for (final (disconnectBeforeOpen, delayedRead, backgroundRead) in [
+  for (final (unavailableBeforeOpen, delayedRead, backgroundRead) in [
     (false, false, false),
     (true, false, false),
     (true, true, false),
     (true, true, true),
   ]) {
     testWidgets(
-      'Contacts card access, disconnected=$disconnectBeforeOpen delayed=$delayedRead background=$backgroundRead',
+      'Global card access, unavailable=$unavailableBeforeOpen delayed=$delayedRead background=$backgroundRead',
       (tester) async {
         const actor = '10000000-0000-4000-8000-000000000001';
         const peer = '10000000-0000-4000-8000-000000000002';
         var connected = true;
+        var available = true;
         var networkReads = 0;
+        var profileReads = 0;
         Completer<void>? nextNetwork;
+        Completer<void>? nextProfile;
         Map<String, dynamic> profile(String id, String name) => {
           'id': id,
           'name': name,
@@ -85,6 +90,22 @@ void main() {
             final delayed = nextNetwork;
             nextNetwork = null;
             if (delayed != null) await delayed.future;
+          } else if (request.url.path.endsWith('/account')) {
+            final body = jsonDecode(request.body) as Map;
+            expect(body['action'], 'profile');
+            expect(body['profile_id'], peer);
+            profileReads++;
+            final delayed = nextProfile;
+            nextProfile = null;
+            if (delayed != null) await delayed.future;
+            if (!available) {
+              return http.Response(
+                jsonEncode({'code': 'profile_unavailable'}),
+                404,
+                headers: {'content-type': 'application/json'},
+              );
+            }
+            data = {'profile': profile(peer, 'Search Peer QA')};
           } else if (request.url.path.endsWith('/skill-search')) {
             final action = (jsonDecode(request.body) as Map)['action'];
             data = action == 'suggest'
@@ -144,41 +165,42 @@ void main() {
             'mar',
           );
           await tester.pump(const Duration(milliseconds: 300));
+          await tester.runAsync(() => Future<void>.delayed(Duration.zero));
           await tester.pumpAndSettle();
           await tester.tap(find.byKey(const ValueKey('suggest-marketing')));
           await tester.pumpAndSettle();
-          final before = networkReads;
+          final before = profileReads;
           final gate = delayedRead ? Completer<void>() : null;
-          nextNetwork = gate;
+          nextProfile = backgroundRead ? null : gate;
+          nextNetwork = backgroundRead ? gate : null;
           if (backgroundRead) {
             chat.signals.add('refresh');
             await tester.pump();
-            expect(networkReads, before + 1);
+            expect(networkReads, greaterThan(1));
           }
-          if (disconnectBeforeOpen) connected = false;
+          connected = false;
+          if (unavailableBeforeOpen) available = false;
           await tester.tap(find.byKey(const ValueKey('skill-result-$peer')));
           if (delayedRead) {
             await tester.pump();
-            expect(find.text('Opening profile…'), findsOneWidget);
+            if (!backgroundRead) {
+              expect(find.text('Opening profile…'), findsOneWidget);
+            }
             expect(find.byType(PublicProfileView), findsNothing);
             gate!.complete();
           }
           await tester.pumpAndSettle();
-          expect(networkReads, greaterThan(before));
+          expect(profileReads, greaterThan(before));
           expect(
             find.byType(PublicProfileView),
-            disconnectBeforeOpen ? findsNothing : findsOneWidget,
+            unavailableBeforeOpen ? findsNothing : findsOneWidget,
           );
-          if (disconnectBeforeOpen) {
+          if (unavailableBeforeOpen) {
             expect(
               find.text(
-                'This profile is no longer available in your contacts.',
+                'Could not open this profile. It may no longer be available.',
               ),
               findsOneWidget,
-            );
-            expect(
-              find.byKey(const ValueKey('skill-result-$peer')),
-              findsNothing,
             );
           }
           expect(tester.takeException(), isNull);

@@ -30,6 +30,7 @@ flutter:
   assets:
     - assets/icons/
     - assets/people/
+    - assets/skills/
   fonts:
     - family: NotoSans
       fonts:

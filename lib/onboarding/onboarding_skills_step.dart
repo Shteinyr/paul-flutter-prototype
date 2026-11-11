@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import '../profile/profile_controller.dart';
+import '../skills/skill_suggestions.dart';
 
 class OnboardingSkillsStep extends StatefulWidget {
   const OnboardingSkillsStep({
@@ -138,6 +139,17 @@ class _OnboardingSkillsStepState extends State<OnboardingSkillsStep> {
               ),
             ],
           ),
+        ),
+        SkillSuggestions(
+          controller: _input,
+          focusNode: _focus,
+          selected: _skills,
+          enabled: widget.enabled,
+          onSelected: (value) {
+            _input.text = value;
+            widget.onInputChanged(value);
+            _add();
+          },
         ),
         if (error != null)
           Padding(

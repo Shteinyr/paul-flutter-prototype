@@ -840,36 +840,22 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     final search = _search;
     final identity = _identity;
     final generation = _loadGeneration;
-    // A background snapshot may have started before a connection was removed.
-    // Settle it before initiating this card's authorization read.
-    await _networkRefresh;
+    MemberProfile member;
+    try {
+      member = await _api.member(hit.id);
+    } catch (_) {
+      if (mounted && identity == _identity && generation == _loadGeneration) {
+        _showMessage(
+          'Could not open this profile. It may no longer be available.',
+        );
+      }
+      return;
+    }
     if (!mounted ||
         identity != _identity ||
         generation != _loadGeneration ||
         !identical(search, _search) ||
         widget.client.auth.currentUser?.id != identity) {
-      return;
-    }
-    final refreshed = await _refreshNetwork();
-    if (!mounted ||
-        identity != _identity ||
-        generation != _loadGeneration ||
-        !identical(search, _search) ||
-        widget.client.auth.currentUser?.id != identity) {
-      return;
-    }
-    if (!refreshed) {
-      _showMessage(
-        'Could not check this profile. Check your connection and retry.',
-      );
-      return;
-    }
-    final member = hit.id == _network.own?.id
-        ? _network.own
-        : _network.contacts.where((member) => member.id == hit.id).firstOrNull;
-    if (member == null) {
-      _showMessage('This profile is no longer available in your contacts.');
-      await search?.retry();
       return;
     }
     await _openProfile(member);
@@ -879,9 +865,10 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     if (hit.id == _identity) {
       return ProfileAvatar(photo: _profile?.profile.photo, size: 65);
     }
-    return _peerAvatar(
-      ChatPeer(id: hit.id, name: hit.name, occupation: hit.occupation),
-      size: 65,
+    return _SearchProfileAvatar(
+      key: ValueKey('search-avatar-$_identity-${hit.id}'),
+      api: _api,
+      profileId: hit.id,
     );
   }
 
@@ -1420,6 +1407,29 @@ class _LiveContacts extends StatelessWidget {
           ),
       ],
     ),
+  );
+}
+
+class _SearchProfileAvatar extends StatefulWidget {
+  const _SearchProfileAvatar({
+    super.key,
+    required this.api,
+    required this.profileId,
+  });
+  final LiveApi api;
+  final String profileId;
+  @override
+  State<_SearchProfileAvatar> createState() => _SearchProfileAvatarState();
+}
+
+class _SearchProfileAvatarState extends State<_SearchProfileAvatar> {
+  late final _photo = _load();
+  Future<Uint8List?> _load() async =>
+      widget.api.photo(await widget.api.member(widget.profileId));
+  @override
+  Widget build(BuildContext context) => FutureBuilder<Uint8List?>(
+    future: _photo,
+    builder: (_, snapshot) => ProfileAvatar(photo: snapshot.data, size: 65),
   );
 }
 

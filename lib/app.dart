@@ -13,6 +13,7 @@ import 'photo_picker.dart';
 import 'profile/profile_controller.dart';
 import 'profile/public_profile_view.dart';
 import 'profile/user_profile.dart';
+import 'skills/skill_suggestions.dart';
 
 const _background = Color(0xFFF4F4F4);
 const _blue = Color(0xFF14679E);
@@ -1171,6 +1172,15 @@ class _SkillsEditorState extends State<_SkillsEditor> {
               child: _ValidationMessage('Required'),
             ),
         ],
+      ),
+      SkillSuggestions(
+        controller: _draft,
+        focusNode: _focus,
+        selected: widget.values,
+        onSelected: (value) {
+          _draft.text = value;
+          _add();
+        },
       ),
       if (_fieldError != null && _fieldError != 'Required')
         _ValidationMessage(_fieldError!),

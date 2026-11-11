@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'skill_search_api.dart';
 import 'skill_search_controller.dart';
+import '../skills/skill_suggestions.dart';
 
 const _blue = Color(0xFF14679E);
 
@@ -195,6 +196,13 @@ class _SkillSearchViewState extends State<SkillSearchView> {
                 unawaited(search.select(skill));
               },
             ),
+          TextButton(
+            onPressed: () => showSkillCatalogueAttribution(context),
+            child: const Text(
+              'Skill catalogue source',
+              style: TextStyle(fontSize: 10),
+            ),
+          ),
         ],
       );
     }
