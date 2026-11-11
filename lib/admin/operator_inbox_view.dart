@@ -19,12 +19,14 @@ class OperatorInboxView extends StatefulWidget {
     required this.profile,
     this.initialConversationId,
     this.embedded = false,
+    this.senderAvatar,
   });
   final ChatRepository repository;
   final String actorId;
   final ManagedProfile profile;
   final String? initialConversationId;
   final bool embedded;
+  final Widget? senderAvatar;
   @override
   State<OperatorInboxView> createState() => _OperatorInboxViewState();
 }
@@ -88,9 +90,10 @@ class _OperatorInboxViewState extends State<OperatorInboxView>
             controller: _chat,
             conversationId: thread.id,
             peer: thread.peer,
-            ownAvatar: const ProfileAvatar(size: 30),
-            peerAvatar: const ProfileAvatar(size: 30),
+            ownAvatar: widget.senderAvatar ?? const ProfileAvatar(size: 65),
+            peerAvatar: const ProfileAvatar(size: 65),
             replyingAs: widget.profile.name,
+            replyingAsAvatar: widget.senderAvatar,
           ),
         ),
       );

@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../app.dart';
 import '../admin/admin_api.dart';
 import '../admin/admin_view.dart';
+import '../admin/managed_profile_header.dart';
 import '../admin/operator_inbox_view.dart';
 import '../community/community_api.dart';
 import '../community/community_controller.dart';
@@ -477,6 +478,11 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
                 actorId: click.recipientId,
                 profile: profile,
                 initialConversationId: route.conversationId,
+                senderAvatar: ManagedProfileAvatar(
+                  repository: admin,
+                  profile: profile,
+                  size: 65,
+                ),
               ),
             ),
           ),

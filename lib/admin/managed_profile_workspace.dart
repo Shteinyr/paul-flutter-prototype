@@ -1,13 +1,12 @@
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
-import '../app.dart';
 import '../live/chat_api.dart';
 import '../profile/public_profile_view.dart';
 import 'admin_api.dart';
 import 'managed_profile_editor.dart';
+import 'managed_profile_header.dart';
 import 'operator_inbox_view.dart';
 
 class ManagedProfileWorkspace extends StatefulWidget {
@@ -30,7 +29,6 @@ class _ManagedProfileWorkspaceState extends State<ManagedProfileWorkspace> {
   AdminAccess? _access;
   ManagedProfile? _selected;
   ChatRepository? _inbox;
-  Future<Uint8List?>? _photo;
   String? _error;
   bool _loading = true;
   int _generation = 0;
@@ -59,12 +57,9 @@ class _ManagedProfileWorkspaceState extends State<ManagedProfileWorkspace> {
       if (selected == null) {
         throw const AdminException('managed_profile_forbidden');
       }
-      final photo = widget.repository.photo(selected);
-      photo.ignore();
       setState(() {
         _access = access;
         _selected = selected;
-        _photo = photo;
         _inbox = selected.canReply
             ? widget.repository.operatorFor(selected.id)
             : null;
@@ -121,42 +116,34 @@ class _ManagedProfileWorkspaceState extends State<ManagedProfileWorkspace> {
           )
         : Column(
             children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(28, 18, 28, 10),
-                child: Row(
-                  children: [
-                    FutureBuilder<Uint8List?>(
-                      future: _photo,
-                      builder: (_, snapshot) =>
-                          ProfileAvatar(photo: snapshot.data, size: 48),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: DropdownButton<String>(
-                        key: const Key('managed-profile-switcher'),
-                        value: _selectedId,
-                        isExpanded: true,
-                        underline: const SizedBox.shrink(),
-                        items: [
-                          for (final profile in _access!.profiles)
-                            DropdownMenuItem(
-                              value: profile.id,
-                              child: Text(
-                                profile.name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(fontSize: 14),
-                              ),
-                            ),
-                        ],
-                        onChanged: (id) {
-                          if (id == null || id == _selectedId) return;
-                          _selectedId = id;
-                          unawaited(_load());
-                        },
+              ManagedProfileHeader(
+                repository: widget.repository,
+                profile: _selected!,
+                nameControl: DropdownButton<String>(
+                  key: const Key('managed-profile-switcher'),
+                  value: _selectedId,
+                  isExpanded: true,
+                  underline: const SizedBox.shrink(),
+                  items: [
+                    for (final profile in _access!.profiles)
+                      DropdownMenuItem(
+                        value: profile.id,
+                        child: Text(
+                          profile.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
                       ),
-                    ),
                   ],
+                  onChanged: (id) {
+                    if (id == null || id == _selectedId) return;
+                    _selectedId = id;
+                    unawaited(_load());
+                  },
                 ),
               ),
               if (_selected!.canManage)
@@ -194,6 +181,11 @@ class _ManagedProfileWorkspaceState extends State<ManagedProfileWorkspace> {
                         actorId: widget.repository.userId,
                         profile: _selected!,
                         embedded: true,
+                        senderAvatar: ManagedProfileAvatar(
+                          repository: widget.repository,
+                          profile: _selected!,
+                          size: 65,
+                        ),
                       ),
               ),
             ],

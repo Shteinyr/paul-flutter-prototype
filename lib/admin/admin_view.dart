@@ -4,6 +4,7 @@ import '../profile/public_profile_view.dart';
 import 'admin_api.dart';
 import 'managed_profile_editor.dart';
 import 'managed_profile_workspace.dart';
+import 'managed_profile_header.dart';
 import '../live/chat_api.dart';
 
 Future<AdminAccess> _loadAccess(AdminRepository repository) {
@@ -273,41 +274,77 @@ class _AdminViewState extends State<AdminView> {
               if (access.profiles.isEmpty) const Text('No assigned profiles.'),
               for (final profile in access.profiles)
                 ListTile(
+                  key: ValueKey('managed-row-${profile.id}'),
                   contentPadding: EdgeInsets.zero,
                   onTap: () => _inbox(profile),
-                  title: Text(profile.name),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
+                  minVerticalPadding: 16,
+                  minTileHeight: 100,
+                  horizontalTitleGap: 21,
+                  leading: ManagedProfileAvatar(
+                    repository: widget.repository,
+                    profile: profile,
+                    size: 65,
+                  ),
+                  title: Text(
+                    profile.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  trailing: PopupMenuButton<String>(
+                    tooltip: 'User actions',
+                    onSelected: (action) {
+                      if (action == 'inbox') _inbox(profile);
+                      if (action == 'edit') _edit(profile);
+                      if (action == 'status') _status(profile);
+                    },
+                    itemBuilder: (_) => [
                       if (profile.canReply)
-                        IconButton(
-                          tooltip: 'Open inbox',
-                          onPressed: () => _inbox(profile),
-                          icon: const Icon(Icons.chat_bubble_outline, size: 20),
+                        const PopupMenuItem(
+                          value: 'inbox',
+                          child: Text('Open inbox'),
                         ),
                       if (profile.canManage) ...[
-                        IconButton(
-                          tooltip: 'Edit user',
-                          onPressed: () => _edit(profile),
-                          icon: const Icon(Icons.edit_outlined, size: 20),
+                        const PopupMenuItem(
+                          value: 'edit',
+                          child: Text('Edit user'),
                         ),
-                        IconButton(
-                          tooltip: profile.disabledAt == null
-                              ? 'Disable user'
-                              : 'Restore user',
-                          onPressed: () => _status(profile),
-                          icon: Icon(
+                        PopupMenuItem(
+                          value: 'status',
+                          child: Text(
                             profile.disabledAt == null
-                                ? Icons.pause_circle_outline
-                                : Icons.play_circle_outline,
-                            size: 20,
+                                ? 'Disable user'
+                                : 'Restore user',
                           ),
                         ),
                       ],
                     ],
                   ),
-                  subtitle: Text(
-                    profile.disabledAt == null ? 'Active' : 'Disabled',
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (profile.occupation.isNotEmpty)
+                        Text(
+                          profile.occupation,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w300,
+                          ),
+                        ),
+                      if (profile.disabledAt != null)
+                        const Text(
+                          'Disabled',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Color(0xFFFF645C),
+                          ),
+                        ),
+                    ],
                   ),
                 ),
             ],
