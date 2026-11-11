@@ -62,9 +62,9 @@ void main() {
   test(
     'bundled catalogue has the pinned English source and usable common skills',
     () async {
-      final raw =
-          jsonDecode(await rootBundle.loadString('assets/skills/esco_en.json'))
-              as Map;
+      final raw = jsonDecode(
+        await rootBundle.loadString('assets/skills/esco_en.json'),
+      ) as Map;
       expect(raw['version'], 'v1.2.1');
       expect(raw['language'], 'en');
       expect((raw['entries'] as List).length, 13939);
@@ -72,6 +72,43 @@ void main() {
       final items = await SkillCatalogue.shared.suggest('marketing');
       expect(items, isNotEmpty);
       expect(items.first.key, startsWith('marketing'));
+    },
+  );
+
+  test(
+    'common skills and services precede incidental word fragments',
+    () async {
+      final catalogue = SkillCatalogue.shared;
+      for (final label in [
+        'Flutter',
+        'Dart',
+        'Python',
+        'React',
+        'UX',
+        'Marketing',
+        'Digital Marketing',
+        'Design',
+        'Dog Walking',
+        'Cleaning',
+        'Plumbing',
+      ]) {
+        expect((await catalogue.suggest(label)).first.label, label);
+      }
+      final react = await catalogue.suggest('rea', limit: 3);
+      expect(
+        react.map((item) => item.label),
+        containsAll(['React', 'React Native']),
+      );
+      final ux = await catalogue.suggest('ux');
+      expect(ux.map((item) => item.label), containsAll(['UX', 'UX Research']));
+      expect(ux.any((item) => item.key.contains('flux')), isFalse);
+      expect((await catalogue.suggest('desing')), isEmpty);
+      expect((await catalogue.suggest('My own service')), isEmpty);
+      final marketing = await catalogue.suggest('marketing');
+      expect(
+        marketing.map((item) => item.key),
+        containsAll(['marketing', 'digital marketing']),
+      );
     },
   );
 
