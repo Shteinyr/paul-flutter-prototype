@@ -859,6 +859,9 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
       return;
     }
     await _openProfile(member);
+    if (mounted && identity == _identity && generation == _loadGeneration) {
+      await search?.retry();
+    }
   }
 
   Widget _searchAvatar(SkillSearchHit hit) {

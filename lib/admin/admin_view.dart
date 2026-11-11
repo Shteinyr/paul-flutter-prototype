@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../profile/public_profile_view.dart';
 import 'admin_api.dart';
 import 'managed_profile_editor.dart';
-import 'operator_inbox_view.dart';
+import 'managed_profile_workspace.dart';
 import '../live/chat_api.dart';
 
 Future<AdminAccess> _loadAccess(AdminRepository repository) {
@@ -109,14 +109,11 @@ class _AdminViewState extends State<AdminView> {
   }
 
   Future<void> _inbox(ManagedProfile profile) async {
-    final repository = widget.repository.operatorFor(profile.id);
-    final actorId = widget.repository.userId;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => OperatorInboxView(
-          repository: repository,
-          actorId: actorId,
-          profile: profile,
+        builder: (_) => ManagedProfileWorkspace(
+          repository: widget.repository,
+          profileId: profile.id,
         ),
       ),
     );
@@ -271,6 +268,7 @@ class _AdminViewState extends State<AdminView> {
               for (final profile in access.profiles)
                 ListTile(
                   contentPadding: EdgeInsets.zero,
+                  onTap: () => _inbox(profile),
                   title: Text(profile.name),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
