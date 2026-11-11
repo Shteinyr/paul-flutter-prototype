@@ -64,7 +64,7 @@ function profileValid(value: unknown): boolean {
         : skill
     );
     return new Set(normalized).size === value.length &&
-      value.length >= (required ? 1 : 0) && value.length <= 100 &&
+      value.length >= (required ? 1 : 0) && (required || value.length <= 100) &&
       value.every((s) =>
         typeof s === "string" && s.trim().length > 0 && graphemeLength(s) <= 64
       );
@@ -229,11 +229,19 @@ Deno.serve(async (request) => {
         "own_invitation",
         "membership_required",
         "invalid_profile",
+        "offering_limit_reached",
         "rate_limited",
       ];
       const problem = known.find((value) => error.message === value);
       if (problem) {
-        return reply(problem === "rate_limited" ? 429 : 400, { code: problem });
+        return reply(
+          problem === "rate_limited"
+            ? 429
+            : problem === "offering_limit_reached"
+            ? 403
+            : 400,
+          { code: problem },
+        );
       }
       // Do not include SQL, identifiers, credentials or internal errors in responses/logs.
       return reply(503, { code: "server_unavailable" });

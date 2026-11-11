@@ -42,8 +42,8 @@ reset role;
 set local role authenticated;
 set local request.jwt.claim.sub='50000000-0000-4000-8000-000000000001';
 select pg_temp.assert_true(private.skill_key(U&'\00A0Digital\2003\0009Marketing\FEFF')='digital marketing','Unicode whitespace follows saved server free-text semantics');
-select pg_temp.assert_true(jsonb_array_length(public.skill_search(' marketing ')->'results')=3,'All includes self, both and managed direct contact once');
-select pg_temp.assert_true(jsonb_array_length(public.skill_search('Marketing','offering')->'results')=3,'Offering uses saved skills');
+select pg_temp.assert_true(jsonb_array_length(public.skill_search(' marketing ')->'results')=4,'All includes every active registered and managed profile once');
+select pg_temp.assert_true(jsonb_array_length(public.skill_search('Marketing','offering')->'results')=4,'Offering uses all active saved skills');
 select pg_temp.assert_true(jsonb_array_length(public.skill_search('MARKETING','hiring')->'results')=1,'Hiring uses searching_skills');
 select pg_temp.assert_true(public.skill_search('marketing')->'results'->1->'matched_kinds'='["offering","hiring"]'::jsonb,'Double match retains both kinds without duplicate row');
 select pg_temp.assert_true(jsonb_array_length(public.skill_search('digital marketing')->'results')=1,'Digital Marketing stays separate');
@@ -51,12 +51,14 @@ select pg_temp.assert_true(jsonb_array_length(public.skill_search('unknown')->'r
 select pg_temp.assert_true(public.skill_suggest('mar')->'suggestions'->0->>'key'='marketing','Prefix precedes substring');
 select pg_temp.assert_true(public.skill_suggest('mar')->'suggestions'->1->>'key'='digital marketing','Separate substring suggestion');
 select pg_temp.assert_true(jsonb_array_length(public.skill_suggest('marketing','hiring')->'suggestions')=1,'Suggest uses selected kind');
-select pg_temp.assert_true(jsonb_array_length(public.skill_suggest('sentinel')->'suggestions')=0,'Hidden, unassigned and disabled skills never leak into suggestions');
+select pg_temp.assert_true(jsonb_array_length(public.skill_suggest('sentinel')->'suggestions')=2,'Global active member and unassigned managed hints are visible, disabled hints are excluded');
 select pg_temp.assert_true(jsonb_array_length(public.skill_suggest('%')->'suggestions')=1,'Percent is literal, never wildcard');
 select pg_temp.assert_true(public.skill_search('Marketing','all',null,1)->'results'->0->>'name'='Self','First page stable UUID ASC');
 select pg_temp.assert_true(public.skill_search('marketing','all',public.skill_search('Marketing','all',null,1)->'next_cursor',1)->'results'->0->>'name'='Both','Second page does not repeat first');
 select pg_temp.assert_true(public.skill_search('marketing','all',
- public.skill_search('marketing','all',public.skill_search('marketing','all',null,1)->'next_cursor',1)->'next_cursor',1)->'next_cursor'='null'::jsonb,'Last page ends with no cursor');
+ public.skill_search('marketing','all',public.skill_search('marketing','all',null,1)->'next_cursor',1)->'next_cursor',1)->'results'->0->>'name'='Hidden','Third page includes the active member outside current contacts');
+select pg_temp.assert_true(public.skill_search('marketing','all',
+ public.skill_search('marketing','all',public.skill_search('marketing','all',public.skill_search('marketing','all',null,1)->'next_cursor',1)->'next_cursor',1)->'next_cursor',1)->'next_cursor'='null'::jsonb,'Last global page ends with no cursor');
 select pg_temp.expect_error($q$select public.skill_search('python','all',public.skill_search('marketing','all',null,1)->'next_cursor')$q$,'invalid_request');
 select pg_temp.expect_error($q$select public.skill_search('marketing','hiring',public.skill_search('marketing','all',null,1)->'next_cursor')$q$,'invalid_request');
 select pg_temp.expect_error($q$select public.skill_search('marketing','all','[]')$q$,'invalid_request');
@@ -82,8 +84,8 @@ delete from public.connections where user_high='60000000-0000-4000-8000-00000000
 set local role authenticated;
 select pg_temp.assert_true(jsonb_array_length(public.skill_search('marketing','hiring')->'results')=0,'Removed hiring stops matching immediately');
 select pg_temp.assert_true(jsonb_array_length(public.skill_suggest('marketing','hiring')->'suggestions')=0,'Removed hiring disappears from catalogue');
-select pg_temp.assert_true(jsonb_array_length(public.skill_search('marketing')->'results')=2,'Disconnect removes profile from fresh results');
-select pg_temp.assert_true(jsonb_array_length(public.skill_suggest('Managed hiring')->'suggestions')=0,'Disconnect removes hints too');
+select pg_temp.assert_true(jsonb_array_length(public.skill_search('marketing')->'results')=4,'Disconnect preserves global active profile results');
+select pg_temp.assert_true(jsonb_array_length(public.skill_suggest('Managed hiring')->'suggestions')=1,'Disconnect preserves global active hints');
 reset role;
 select pg_temp.assert_true((select skills=array['  MARKETING  ','marketing'] from public.profiles where id='50000000-0000-4000-8000-000000000002'),'Legacy stored strings remain unchanged');
 rollback;
