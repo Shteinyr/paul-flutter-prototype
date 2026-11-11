@@ -1,10 +1,10 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
 import 'skill_search_api.dart';
 import 'skill_search_controller.dart';
-import '../skills/skill_suggestions.dart';
 
 const _blue = Color(0xFF14679E);
 
@@ -28,12 +28,14 @@ class SkillSearchView extends StatefulWidget {
 
 class _SkillSearchViewState extends State<SkillSearchView> {
   final _field = TextEditingController();
+  final _focus = FocusNode();
   String? _opening;
 
   @override
   void initState() {
     super.initState();
     _syncField();
+    _focus.addListener(_focusChanged);
     widget.controller.addListener(_syncField);
   }
 
@@ -45,6 +47,18 @@ class _SkillSearchViewState extends State<SkillSearchView> {
       widget.controller.addListener(_syncField);
       _syncField();
     }
+  }
+
+  void _focusChanged() {
+    if (mounted) setState(() {});
+  }
+
+  String _label(SkillSearchKind kind) =>
+      kind == SkillSearchKind.offering ? 'Offer' : kind.label;
+
+  void _submit() {
+    _focus.unfocus();
+    unawaited(widget.controller.submit());
   }
 
   void _syncField() {
@@ -79,8 +93,9 @@ class _SkillSearchViewState extends State<SkillSearchView> {
             child: TextField(
               key: const Key('skill-search-field'),
               controller: _field,
+              focusNode: _focus,
               onChanged: search.setQuery,
-              onSubmitted: (_) => unawaited(search.submit()),
+              onSubmitted: (_) => _submit(),
               textInputAction: TextInputAction.search,
               style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w300),
               decoration: InputDecoration(
@@ -111,7 +126,7 @@ class _SkillSearchViewState extends State<SkillSearchView> {
               ),
             ),
           ),
-          if (!search.idle)
+          if (search.selected != null)
             Padding(
               padding: const EdgeInsets.fromLTRB(37.5, 6, 30, 0),
               child: Row(
@@ -139,13 +154,37 @@ class _SkillSearchViewState extends State<SkillSearchView> {
                                 : null,
                           ),
                         ),
-                        child: Text(kind.label),
+                        child: Text(_label(kind)),
                       ),
                     ),
                 ],
               ),
             ),
-          Expanded(child: _content(search)),
+          Expanded(
+            child: LayoutBuilder(
+              builder: (context, constraints) => Stack(
+                children: [
+                  Positioned.fill(
+                    child: search.selected == null
+                        ? widget.contacts
+                        : _content(search),
+                  ),
+                  if (!search.idle &&
+                      search.selected == null &&
+                      _focus.hasFocus)
+                    Positioned(
+                      top: 8,
+                      left: 37.5,
+                      right: 37.5,
+                      child: _suggestions(
+                        search,
+                        math.min(192, math.max(0, constraints.maxHeight - 8)),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
         ],
       );
     },
@@ -164,49 +203,6 @@ class _SkillSearchViewState extends State<SkillSearchView> {
     if (search.idle) return widget.contacts;
     if (search.loading) {
       return const Center(child: CircularProgressIndicator(strokeWidth: 2));
-    }
-    if (search.selected == null) {
-      if (search.suggestions.isEmpty) {
-        return _SearchStatus(
-          text: 'No matching skills',
-          action: TextButton(
-            onPressed: search.submit,
-            child: const Text('Search this skill'),
-          ),
-        );
-      }
-      return ListView(
-        key: const Key('skill-suggestions'),
-        padding: const EdgeInsets.fromLTRB(37.5, 4, 37.5, 80),
-        children: [
-          for (final skill in search.suggestions)
-            ListTile(
-              key: ValueKey('suggest-${skill.key}'),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-              title: Text(
-                skill.label,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w300,
-                ),
-              ),
-              trailing: const Icon(Icons.north_west, size: 16, color: _blue),
-              onTap: () {
-                FocusScope.of(context).unfocus();
-                unawaited(search.select(skill));
-              },
-            ),
-          TextButton(
-            onPressed: () => showSkillCatalogueAttribution(context),
-            child: const Text(
-              'Skill catalogue source',
-              style: TextStyle(fontSize: 10),
-            ),
-          ),
-        ],
-      );
     }
     if (search.results.isEmpty) {
       return _SearchStatus(
@@ -249,38 +245,36 @@ class _SkillSearchViewState extends State<SkillSearchView> {
                                 fontWeight: FontWeight.w500,
                               ),
                             ),
-                            for (final kind in hit.matchedKinds)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 4),
-                                child: Row(
-                                  children: [
+                            Padding(
+                              padding: const EdgeInsets.only(top: 4),
+                              child: Row(
+                                children: [
+                                  if (search.kind != SkillSearchKind.all)
                                     Text(
-                                      '${kind.label} ',
-                                      style: const TextStyle(fontSize: 11),
+                                      '${_label(search.kind)}: ',
+                                      style: const TextStyle(fontSize: 12),
                                     ),
-                                    Flexible(
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 5,
-                                          vertical: 2,
-                                        ),
-                                        color: kind == SkillSearchKind.offering
-                                            ? const Color(0xFFFFBFBC)
-                                            : const Color(0xFFD5E8F5),
-                                        child: Text(
-                                          search.selected!.label,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: const TextStyle(
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.w300,
-                                          ),
+                                  Flexible(
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 5,
+                                        vertical: 2,
+                                      ),
+                                      color: const Color(0xFFFFBFBC),
+                                      child: Text(
+                                        search.selected!.label,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w300,
                                         ),
                                       ),
                                     ),
-                                  ],
-                                ),
+                                  ),
+                                ],
                               ),
+                            ),
                             if (_opening == hit.id)
                               const Padding(
                                 padding: EdgeInsets.only(top: 4),
@@ -329,9 +323,83 @@ class _SkillSearchViewState extends State<SkillSearchView> {
     );
   }
 
+  Widget _suggestions(SkillSearchController search, double maxHeight) =>
+      TextFieldTapRegion(
+        child: Material(
+          key: const Key('skill-suggestions'),
+          color: const Color(0xFFF4F4F4),
+          borderRadius: BorderRadius.circular(4),
+          elevation: 4,
+          shadowColor: const Color(0x33000000),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: maxHeight),
+            child: ListView(
+              shrinkWrap: true,
+              padding: EdgeInsets.zero,
+              children: [
+                if (search.loading)
+                  const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: Center(
+                      child: SizedBox.square(
+                        dimension: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    ),
+                  )
+                else if (search.error != null)
+                  ListTile(
+                    dense: true,
+                    title: Text(
+                      search.error!,
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    trailing: TextButton(
+                      onPressed: search.retry,
+                      child: const Text('Retry'),
+                    ),
+                  )
+                else if (search.suggestions.isEmpty)
+                  ListTile(
+                    dense: true,
+                    title: const Text(
+                      'Search this skill',
+                      style: TextStyle(fontSize: 13),
+                    ),
+                    onTap: _submit,
+                  )
+                else
+                  for (final skill in search.suggestions)
+                    ListTile(
+                      key: ValueKey('suggest-${skill.key}'),
+                      dense: true,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                      ),
+                      title: Text(
+                        skill.label,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w400,
+                        ),
+                      ),
+                      onTap: () {
+                        _focus.unfocus();
+                        unawaited(search.select(skill));
+                      },
+                    ),
+              ],
+            ),
+          ),
+        ),
+      );
+
   @override
   void dispose() {
     widget.controller.removeListener(_syncField);
+    _focus.dispose();
     _field.dispose();
     super.dispose();
   }

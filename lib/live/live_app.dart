@@ -1756,22 +1756,32 @@ class _LiveContacts extends StatelessWidget {
                 Positioned(
                   right: 28,
                   bottom: 24,
-                  child: FloatingActionButton.small(
-                    key: const Key('open-live-qr'),
-                    tooltip: 'My QR code',
-                    backgroundColor: _blue,
-                    foregroundColor: Colors.white,
-                    onPressed: onQr,
-                    child: const Icon(Icons.qr_code_scanner, size: 23),
+                  child: ListenableBuilder(
+                    listenable: search,
+                    builder: (context, _) => search.idle
+                        ? FloatingActionButton.small(
+                            key: const Key('open-live-qr'),
+                            tooltip: 'My QR code',
+                            backgroundColor: _blue,
+                            foregroundColor: Colors.white,
+                            onPressed: onQr,
+                            child: const Icon(Icons.qr_code_scanner, size: 23),
+                          )
+                        : const SizedBox.shrink(),
                   ),
                 ),
                 Positioned(
                   left: 28,
                   bottom: 24,
-                  child: IconButton(
-                    tooltip: 'Refresh contacts',
-                    onPressed: onRefresh,
-                    icon: const Icon(Icons.refresh, color: _blue),
+                  child: ListenableBuilder(
+                    listenable: search,
+                    builder: (context, _) => search.idle
+                        ? IconButton(
+                            tooltip: 'Refresh contacts',
+                            onPressed: onRefresh,
+                            icon: const Icon(Icons.refresh, color: _blue),
+                          )
+                        : const SizedBox.shrink(),
                   ),
                 ),
               ],

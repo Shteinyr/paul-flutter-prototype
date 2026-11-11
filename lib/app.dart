@@ -749,6 +749,13 @@ class _ProfileEditorState extends State<ProfileEditor> {
               ),
             ],
             ?widget.footer,
+            TextButton(
+              onPressed: () => showSkillCatalogueAttribution(context),
+              child: const Text(
+                'Skill catalogue source',
+                style: TextStyle(fontSize: 11),
+              ),
+            ),
           ],
         ),
       ),

@@ -118,12 +118,17 @@ class _GuestPreviewState extends State<GuestPreview> {
       Positioned(
         right: 28,
         bottom: 24,
-        child: FloatingActionButton.small(
-          tooltip: 'My QR code',
-          backgroundColor: const Color(0xFF14679E),
-          foregroundColor: Colors.white,
-          onPressed: widget.onRequireSignIn,
-          child: const Icon(Icons.qr_code_scanner, size: 23),
+        child: ListenableBuilder(
+          listenable: _search!,
+          builder: (context, _) => _search!.idle
+              ? FloatingActionButton.small(
+                  tooltip: 'My QR code',
+                  backgroundColor: const Color(0xFF14679E),
+                  foregroundColor: Colors.white,
+                  onPressed: widget.onRequireSignIn,
+                  child: const Icon(Icons.qr_code_scanner, size: 23),
+                )
+              : const SizedBox.shrink(),
         ),
       ),
     ],
