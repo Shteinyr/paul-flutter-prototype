@@ -61,6 +61,13 @@ class LiveChatController extends ChangeNotifier {
   final String senderProfileId;
   final bool Function()? _canSend;
   bool get canSend => _canSend?.call() ?? true;
+  bool _peerDeleted(String id) =>
+      conversations
+          .where((thread) => thread.id == id)
+          .firstOrNull
+          ?.peer
+          .deletedAt !=
+      null;
   final ChatStateStore _draftStore;
   final _messages = <String, List<ChatMessage>>{};
   final _pending = <String, List<PendingChatMessage>>{};
@@ -394,6 +401,7 @@ class LiveChatController extends ChangeNotifier {
         !loaded ||
         stateLoadFailed ||
         !canSend ||
+        _peerDeleted(id) ||
         text.trim().isEmpty ||
         text.contains('\u0000') ||
         text.characters.length > 2000 ||
@@ -418,6 +426,8 @@ class LiveChatController extends ChangeNotifier {
         !loaded ||
         stateLoadFailed ||
         item == null ||
+        !canSend ||
+        _peerDeleted(id) ||
         item.delivery == ChatDelivery.pending) {
       return false;
     }
@@ -426,7 +436,7 @@ class LiveChatController extends ChangeNotifier {
   }
 
   Future<bool> _send(String id, PendingChatMessage item) async {
-    if (!canSend) return false;
+    if (!canSend || _peerDeleted(id)) return false;
     final generation = _generation;
     error = null;
     lastSendErrorCode = null;
@@ -437,6 +447,9 @@ class LiveChatController extends ChangeNotifier {
         throw const ChatException('storage_unavailable');
       }
       if (!_current(generation)) return false;
+      if (_peerDeleted(id) || !canSend) {
+        throw const ChatException('conversation_forbidden');
+      }
       final result = await repository.send(id, item.clientMessageId, item.text);
       if (!_current(generation)) return false;
       if (result.message.clientMessageId != item.clientMessageId ||

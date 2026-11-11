@@ -1,5 +1,8 @@
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.108.2";
 
+import { decodeBase64, uuid as sessionUuid } from "../push/shared.ts";
+import { cleanupDeletions } from "../account/cleanup.ts";
+
 const cors = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -29,6 +32,7 @@ const statuses: Record<string, number> = {
   conversation_forbidden: 403,
   invalid_message: 400,
   message_id_conflict: 409,
+  session_revoked: 401,
 };
 const graphemes = new Intl.Segmenter("en", { granularity: "grapheme" });
 export async function handleAdmin(request: Request, database: SupabaseClient) {
@@ -83,6 +87,12 @@ export async function handleAdmin(request: Request, database: SupabaseClient) {
     }
     const fields: Record<string, string[]> = {
       context: [],
+      delete: [
+        "profile_id",
+        "client_operation_id",
+        "confirm",
+        "expected_updated_at",
+      ],
       save: [
         "profile_id",
         "create",
@@ -117,7 +127,12 @@ export async function handleAdmin(request: Request, database: SupabaseClient) {
     ) {
       return reply(400, { code: "invalid_request" });
     }
-    const command = action === "save" || action === "status";
+    const command = action === "save" || action === "status" ||
+      action === "delete";
+    if (
+      action === "delete" &&
+      (body.confirm !== true || typeof body.expected_updated_at !== "string")
+    ) return reply(400, { code: "invalid_request" });
     if (
       action !== "context" && !(action === "save" && body.create === true) &&
       !uuid(body.profile_id)
@@ -149,7 +164,22 @@ export async function handleAdmin(request: Request, database: SupabaseClient) {
       args.p_client_operation = body.client_operation_id;
       args.p_expected_updated_at = body.expected_updated_at ?? null;
     }
+    if (action === "delete") {
+      let session: unknown;
+      try {
+        session = JSON.parse(
+          new TextDecoder().decode(decodeBase64(bearer.split(".")[1])),
+        ).session_id;
+      } catch {
+        return reply(401, { code: "sign_in_required" });
+      }
+      if (!sessionUuid(session)) {
+        return reply(401, { code: "sign_in_required" });
+      }
+      args.p_session = session;
+    }
     let rpc = "admin_context";
+    if (action === "delete") rpc = "admin_delete_profile";
     if (action === "save") {
       if (
         typeof body.create !== "boolean" || !body.profile ||
@@ -296,6 +326,17 @@ export async function handleAdmin(request: Request, database: SupabaseClient) {
         ? error.message
         : "server_unavailable";
       return reply(statuses[code] ?? 503, { code });
+    }
+    if (action === "delete") {
+      try {
+        await cleanupDeletions(
+          database,
+          String(body.client_operation_id),
+          15000,
+        );
+      } catch { /* Durable cleanup proceeds without the UI session. */ }
+      const status = await database.rpc("admin_delete_profile", args);
+      return reply(200, status.data ?? data);
     }
     return reply(200, data);
   } catch {

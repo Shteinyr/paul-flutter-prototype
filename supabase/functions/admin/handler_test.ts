@@ -49,6 +49,70 @@ function request(body: unknown, authorization = "Bearer test-session") {
     body: JSON.stringify(body),
   });
 }
+Deno.test("managed deletion requires confirmation and a verified session and preserves its retry command", async () => {
+  const session = "72100000-0000-4000-8000-000000000003";
+  const profile = "72200000-0000-4000-8000-000000000004";
+  const version = "2026-11-11T00:00:00Z";
+  const body = {
+    action: "delete",
+    profile_id: profile,
+    client_operation_id: actor,
+    confirm: true,
+    expected_updated_at: version,
+  };
+  const authorization = "Bearer unit." +
+    btoa(JSON.stringify({ session_id: session })) + ".signature";
+  const { database, calls } = setup();
+  for (
+    const extra of [{ confirm: false }, { expected_updated_at: "invalid" }]
+  ) {
+    check(
+      (await handleAdmin(
+        request({ ...body, ...extra }, authorization),
+        database,
+      ))
+        .status === 400,
+      "Unconfirmed or malformed deletion is rejected",
+    );
+  }
+  check(
+    !calls.some((call) => call.url.endsWith("/admin_delete_profile")),
+    "Invalid deletion never reaches the command",
+  );
+  check(
+    (await handleAdmin(request(body), database)).status === 401,
+    "Live session UUID is required",
+  );
+  for (let attempt = 0; attempt < 2; attempt++) {
+    check(
+      (await handleAdmin(request(body, authorization), database)).status ===
+        200,
+      "Original deletion request remains retryable",
+    );
+  }
+  const deletions = calls.filter((call) =>
+    call.url.endsWith("/admin_delete_profile")
+  );
+  check(
+    deletions.length === 4,
+    "Each request invokes command then status retry",
+  );
+  const expected = JSON.stringify({
+    p_actor: actor,
+    p_profile: profile,
+    p_client_operation: actor,
+    p_expected_updated_at: version,
+    p_session: session,
+  });
+  check(
+    deletions.every((call) => JSON.stringify(call.body) === expected),
+    "Auth actor, target, operation, original version and session stay identical",
+  );
+  check(
+    !calls.some((call) => call.url.includes("/auth/v1/admin/users/")),
+    "Managed deletion never selects an Auth user for direct removal",
+  );
+});
 Deno.test("context actor comes exclusively from verified Auth", async () => {
   const { database, calls } = setup();
   const response = await handleAdmin(request({ action: "context" }), database);

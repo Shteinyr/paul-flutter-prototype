@@ -39,10 +39,20 @@ class PushConfiguration {
 }
 
 class PushRoute {
-  const PushRoute(this.kind, this.conversationId, this.managedProfileId);
+  const PushRoute(this.kind, this.conversationId, this.managedProfileId)
+    : requestId = null,
+      requestState = null;
+  const PushRoute.community(String id, String state)
+    : kind = 'community',
+      conversationId = '',
+      managedProfileId = null,
+      requestId = id,
+      requestState = state;
   final String kind;
   final String conversationId;
   final String? managedProfileId;
+  final String? requestId;
+  final String? requestState;
 }
 
 abstract interface class PushRepository {
@@ -146,6 +156,16 @@ class SupabasePushApi implements PushRepository {
     final kind = data['kind'];
     final conversation = data['conversation_id'];
     final managed = data['managed_profile_id'];
+    if (kind == 'community') {
+      final request = data['request_id'];
+      final state = data['state'];
+      if (request is! String ||
+          !pushUuid.hasMatch(request) ||
+          (state != 'active' && state != 'unavailable')) {
+        throw const PushException('push_forbidden');
+      }
+      return PushRoute.community(request, state as String);
+    }
     if ((kind != 'chat' && kind != 'operator') ||
         conversation is! String ||
         !pushUuid.hasMatch(conversation) ||

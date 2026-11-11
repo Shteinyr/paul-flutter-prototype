@@ -73,7 +73,7 @@ async function notify(data) {
       // completed before worker termination. Click/close also confirm it.
       if (!owns(await record(), data)) return;
       await self.registration.showNotification('Paul', {
-        body: 'New message', tag, renotify: false, data,
+        body: 'New activity', tag, renotify: false, data,
         icon: new URL('icons/Icon-192.png', self.registration.scope).href,
       });
     }

@@ -42,8 +42,15 @@ class _LiveChatViewState extends State<LiveChatView> {
 
   bool get _identityValid =>
       widget.controller.repository.currentUserId == widget.controller.userId;
+  ChatPeer get _peer =>
+      widget.controller.conversations
+          .where((thread) => thread.id == widget.conversationId)
+          .firstOrNull
+          ?.peer ??
+      widget.peer;
   bool get _ready =>
       _identityValid &&
+      _peer.deletedAt == null &&
       widget.canSend &&
       widget.controller.canSend &&
       widget.controller.loaded &&
@@ -124,7 +131,7 @@ class _LiveChatViewState extends State<LiveChatView> {
     final pending = controller.pending(id);
     final count = messages.length + pending.length;
     return ProfilePage(
-      title: widget.peer.name,
+      title: _peer.displayName,
       child: Column(
         children: [
           if (widget.replyingAs != null)
@@ -135,10 +142,15 @@ class _LiveChatViewState extends State<LiveChatView> {
                 style: const TextStyle(fontSize: 12, color: _blue),
               ),
             ),
-          if (!widget.canSend || !controller.canSend)
-            const Padding(
+          if (_peer.deletedAt != null || !widget.canSend || !controller.canSend)
+            Padding(
               padding: EdgeInsets.all(12),
-              child: Text('Profile disabled', style: TextStyle(fontSize: 12)),
+              child: Text(
+                _peer.deletedAt != null
+                    ? 'This user has deleted their profile.'
+                    : 'Profile disabled',
+                style: const TextStyle(fontSize: 12),
+              ),
             ),
           if (controller.error != null || _validation != null)
             Padding(
@@ -207,7 +219,7 @@ class _LiveChatViewState extends State<LiveChatView> {
                           outgoing: true,
                           avatar: widget.ownAvatar,
                           status: failed ? 'Not sent' : 'Sending…',
-                          onRetry: failed
+                          onRetry: failed && _peer.deletedAt == null
                               ? () => controller.retry(id, item.clientMessageId)
                               : null,
                         );
@@ -222,71 +234,78 @@ class _LiveChatViewState extends State<LiveChatView> {
                         key: ValueKey('message:${item.id}'),
                         text: item.text,
                         outgoing: outgoing,
-                        avatar: outgoing ? widget.ownAvatar : widget.peerAvatar,
+                        avatar: outgoing
+                            ? widget.ownAvatar
+                            : _peer.deletedAt == null
+                            ? widget.peerAvatar
+                            : const CircleAvatar(
+                                child: Icon(Icons.person_outline),
+                              ),
                         status: outgoing ? 'Sent' : null,
                       );
                     },
                   ),
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(24, 8, 16, 24),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Expanded(
-                  child: TextField(
-                    key: const Key('live-chat-message-field'),
-                    controller: _draft,
-                    focusNode: _focus,
-                    enabled: _ready,
-                    minLines: 1,
-                    maxLines: 4,
-                    maxLength: 2000,
-                    textCapitalization: TextCapitalization.sentences,
-                    textInputAction: TextInputAction.send,
-                    onChanged: (text) {
-                      _validation = null;
-                      controller.updateDraft(id, text);
-                    },
-                    onSubmitted: (_) => _send(),
-                    style: const TextStyle(fontSize: 13, height: 1.5),
-                    decoration: const InputDecoration(
-                      labelText: 'Message',
-                      counterText: '',
-                      border: UnderlineInputBorder(
-                        borderSide: BorderSide(color: Color(0x2214679E)),
-                      ),
-                      enabledBorder: UnderlineInputBorder(
-                        borderSide: BorderSide(color: Color(0x2214679E)),
+          if (_peer.deletedAt == null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 8, 16, 24),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Expanded(
+                    child: TextField(
+                      key: const Key('live-chat-message-field'),
+                      controller: _draft,
+                      focusNode: _focus,
+                      enabled: _ready,
+                      minLines: 1,
+                      maxLines: 4,
+                      maxLength: 2000,
+                      textCapitalization: TextCapitalization.sentences,
+                      textInputAction: TextInputAction.send,
+                      onChanged: (text) {
+                        _validation = null;
+                        controller.updateDraft(id, text);
+                      },
+                      onSubmitted: (_) => _send(),
+                      style: const TextStyle(fontSize: 13, height: 1.5),
+                      decoration: const InputDecoration(
+                        labelText: 'Message',
+                        counterText: '',
+                        border: UnderlineInputBorder(
+                          borderSide: BorderSide(color: Color(0x2214679E)),
+                        ),
+                        enabledBorder: UnderlineInputBorder(
+                          borderSide: BorderSide(color: Color(0x2214679E)),
+                        ),
                       ),
                     ),
                   ),
-                ),
-                ValueListenableBuilder<TextEditingValue>(
-                  valueListenable: _draft,
-                  builder: (context, value, _) {
-                    final sendingSameText = pending.any(
-                      (item) =>
-                          item.text == value.text &&
-                          item.delivery == ChatDelivery.pending,
-                    );
-                    return IconButton(
-                      key: const Key('send-live-chat-message'),
-                      tooltip: 'Send message',
-                      color: _blue,
-                      onPressed:
-                          !_ready ||
-                              value.text.trim().isEmpty ||
-                              sendingSameText
-                          ? null
-                          : _send,
-                      icon: const Icon(Icons.send_outlined, size: 23),
-                    );
-                  },
-                ),
-              ],
+                  ValueListenableBuilder<TextEditingValue>(
+                    valueListenable: _draft,
+                    builder: (context, value, _) {
+                      final sendingSameText = pending.any(
+                        (item) =>
+                            item.text == value.text &&
+                            item.delivery == ChatDelivery.pending,
+                      );
+                      return IconButton(
+                        key: const Key('send-live-chat-message'),
+                        tooltip: 'Send message',
+                        color: _blue,
+                        onPressed:
+                            !_ready ||
+                                value.text.trim().isEmpty ||
+                                sendingSameText
+                            ? null
+                            : _send,
+                        icon: const Icon(Icons.send_outlined, size: 23),
+                      );
+                    },
+                  ),
+                ],
+              ),
             ),
-          ),
         ],
       ),
     );

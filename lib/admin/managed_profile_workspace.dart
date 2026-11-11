@@ -15,9 +15,11 @@ class ManagedProfileWorkspace extends StatefulWidget {
     super.key,
     required this.repository,
     required this.profileId,
+    this.onDeleteProfile,
   });
   final AdminRepository repository;
   final String profileId;
+  final Future<void> Function(ManagedProfile)? onDeleteProfile;
   @override
   State<ManagedProfileWorkspace> createState() =>
       _ManagedProfileWorkspaceState();
@@ -170,6 +172,15 @@ class _ManagedProfileWorkspaceState extends State<ManagedProfileWorkspace> {
                   ),
                 ),
               const Divider(color: Color(0xFFCDDEE8)),
+              if (_selected!.canManage && widget.onDeleteProfile != null)
+                TextButton.icon(
+                  onPressed: () async {
+                    await widget.onDeleteProfile!(_selected!);
+                    if (mounted) await _load();
+                  },
+                  icon: const Icon(Icons.delete_outline, size: 18),
+                  label: const Text('Delete user'),
+                ),
               Expanded(
                 child: _inbox == null
                     ? const Center(

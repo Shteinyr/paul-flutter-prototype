@@ -17,8 +17,9 @@ Future<AdminAccess> _loadAccess(AdminRepository repository) {
 /// Each mount belongs to the host's current Auth identity. The repository pins
 /// that identity and the screen rechecks server access when it is opened.
 class AdminEntry extends StatefulWidget {
-  const AdminEntry({super.key, required this.repository});
+  const AdminEntry({super.key, required this.repository, this.onDeleteProfile});
   final AdminRepository repository;
+  final Future<void> Function(ManagedProfile)? onDeleteProfile;
   @override
   State<AdminEntry> createState() => _AdminEntryState();
 }
@@ -55,7 +56,10 @@ class _AdminEntryState extends State<AdminEntry> {
         onPressed: () async {
           await Navigator.of(context).push(
             MaterialPageRoute<void>(
-              builder: (_) => AdminView(repository: widget.repository),
+              builder: (_) => AdminView(
+                repository: widget.repository,
+                onDeleteProfile: widget.onDeleteProfile,
+              ),
             ),
           );
           if (mounted) {
@@ -78,8 +82,9 @@ class _AdminEntryState extends State<AdminEntry> {
 }
 
 class AdminView extends StatefulWidget {
-  const AdminView({super.key, required this.repository});
+  const AdminView({super.key, required this.repository, this.onDeleteProfile});
   final AdminRepository repository;
+  final Future<void> Function(ManagedProfile)? onDeleteProfile;
   @override
   State<AdminView> createState() => _AdminViewState();
 }
@@ -114,6 +119,7 @@ class _AdminViewState extends State<AdminView> {
         builder: (_) => ManagedProfileWorkspace(
           repository: widget.repository,
           profileId: profile.id,
+          onDeleteProfile: widget.onDeleteProfile,
         ),
       ),
     );

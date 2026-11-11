@@ -9,6 +9,13 @@ import '../app.dart';
 import '../admin/admin_api.dart';
 import '../admin/admin_view.dart';
 import '../admin/operator_inbox_view.dart';
+import '../community/community_api.dart';
+import '../community/community_controller.dart';
+import '../community/community_views.dart';
+import '../account/deletion.dart';
+import '../account/deletion_view.dart';
+import '../contacts/phone_discovery_api.dart';
+import '../contacts/phone_discovery_view.dart';
 import '../push/push_browser.dart';
 import '../push/push_api.dart';
 import '../push/push_controller.dart';
@@ -49,6 +56,11 @@ class PaulLiveApp extends StatefulWidget {
     this.draftPreferences,
     this.chatRepositoryFor,
     this.searchRepositoryFor,
+    this.communityRepositoryFor,
+    this.deletionStore,
+    this.deletionRepository,
+    this.recoverSignIn,
+    this.phoneRepositoryFor,
     this.pushBrowser,
     this.pushRepositoryFor,
   });
@@ -61,6 +73,11 @@ class PaulLiveApp extends StatefulWidget {
   final SharedPreferencesAsync? draftPreferences;
   final ChatRepository Function(String userId)? chatRepositoryFor;
   final SkillSearchRepository Function(String userId)? searchRepositoryFor;
+  final CommunityRepository Function(String userId)? communityRepositoryFor;
+  final DeletionStore? deletionStore;
+  final DeletionRepository? deletionRepository;
+  final Future<void> Function()? recoverSignIn;
+  final PhoneDiscoveryRepository Function(String userId)? phoneRepositoryFor;
   final PushBrowser? pushBrowser;
   final PushRepository Function(String userId, String sessionId)?
   pushRepositoryFor;
@@ -70,6 +87,7 @@ class PaulLiveApp extends StatefulWidget {
 
 class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
   late final LiveApi _api;
+  late final DeletionController _deletions;
   late final StreamSubscription<AuthState> _auth;
   final _navigator = GlobalKey<NavigatorState>();
   ProfileController? _profile;
@@ -81,6 +99,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
   set _network(MemberNetwork value) => _networkUpdates.value = value;
   LiveChatController? _chat;
   SkillSearchController? _search;
+  CommunityController? _community;
   late final PushBrowser _pushBrowser;
   late final StreamSubscription<PushClick> _pushClicks;
   PushController? _push;
@@ -110,6 +129,11 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _api = LiveApi(widget.client);
+    _deletions = DeletionController(
+      widget.deletionRepository ?? SupabaseDeletionApi(widget.client),
+      widget.deletionStore ?? PreferenceDeletionStore(),
+    );
+    unawaited(_deletions.load());
     final fragment = Uri.base.fragment;
     _credential = fragment.startsWith('invite=')
         ? fragment.substring(7)
@@ -139,6 +163,15 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     _auth = widget.client.auth.onAuthStateChange.listen(
       (event) {
         if (event.event == AuthChangeEvent.tokenRefreshed) return;
+        final userId = event.session?.user.id;
+        for (final record in _deletions.records.where(
+          (item) =>
+              item.self &&
+              item.actorId == userId &&
+              !_deletions.confirmed(item),
+        )) {
+          unawaited(_deletions.retry(record));
+        }
         unawaited(_load());
       },
       onError: (Object _) {
@@ -407,7 +440,21 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
       _navigator.currentState?.popUntil((route) => route.isFirst);
       await WidgetsBinding.instance.endOfFrame;
       if (!current()) return;
-      if (route.kind == 'operator') {
+      if (route.kind == 'community') {
+        final controller = _ensureCommunity();
+        unawaited(
+          _navigator.currentState!.push<void>(
+            MaterialPageRoute(
+              builder: (_) => CommunityDetailView(
+                controller: controller,
+                requestId: route.requestId!,
+                onMessage: _openChat,
+                avatarFor: _peerAvatar,
+              ),
+            ),
+          ),
+        );
+      } else if (route.kind == 'operator') {
         final admin = SupabaseAdminApi(widget.client, click.recipientId);
         final access = await admin.context();
         if (!current()) return;
@@ -507,6 +554,65 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
   void _disposeSearch() {
     _search?.dispose();
     _search = null;
+    _community?.dispose();
+    _community = null;
+  }
+
+  CommunityController _ensureCommunity() => _community ??= CommunityController(
+    widget.communityRepositoryFor?.call(_identity!) ??
+        SupabaseCommunityApi(widget.client, _identity!),
+    drafts: SessionChatStateStore(),
+  );
+
+  Future<void> _openCommunity() async {
+    if (_identity == null || _network.own == null) return;
+    final controller = _ensureCommunity();
+    await _navigator.currentState!.push<void>(
+      MaterialPageRoute(
+        builder: (_) => CommunityFeedView(
+          controller: controller,
+          onMessage: _openChat,
+          onInvite: _openQr,
+          avatarFor: _peerAvatar,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _askCommunity(String skill) async {
+    if (_identity == null || _network.own == null) return;
+    await _navigator.currentState!.push<void>(
+      MaterialPageRoute(
+        builder: (_) => CommunityComposeView(
+          controller: _ensureCommunity(),
+          onInvite: _openQr,
+          initialSkill: skill,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _findContacts() async {
+    final identity = _identity;
+    final factory = widget.phoneRepositoryFor;
+    if (identity == null || factory == null) return;
+    final repository = factory(identity);
+    await _navigator.currentState!.push<void>(
+      MaterialPageRoute(
+        builder: (_) => PhoneDiscoveryView(
+          repository: repository,
+          onInvite: _openQr,
+          onProfile: (id) => _openSearchProfile(
+            SkillSearchHit(
+              id: id,
+              name: '',
+              occupation: '',
+              matchedKinds: const {},
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -1014,8 +1120,105 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     await _refreshCapabilities();
   }
 
+  Future<void> _deleteAccount() async {
+    final identity = _identity;
+    final origin = _homeContext;
+    if (identity == null || origin == null || !origin.mounted) return;
+    if (!await confirmProfileDeletion(origin)) return;
+    if (!mounted || widget.client.auth.currentUser?.id != identity) return;
+    await _profile?.flush();
+    await _deletions.begin(identity);
+    if (mounted && _deletions.loadError != null) {
+      _showMessage(_deletions.loadError!);
+    }
+  }
+
+  Future<void> _signInDeletionRecovery(BuildContext context) async {
+    try {
+      if (widget.recoverSignIn != null) {
+        await widget.recoverSignIn!();
+        return;
+      }
+      final provider = await _chooseProvider(context);
+      if (provider != null && mounted) await _signIn(provider);
+    } catch (_) {
+      if (mounted) {
+        _showMessage(
+          'Could not open sign-in. Your deletion recovery is saved. Retry.',
+        );
+      }
+    }
+  }
+
+  Future<void> _deleteManaged(ManagedProfile profile) async {
+    final identity = _identity;
+    final origin = _navigator.currentContext;
+    if (identity == null || origin == null || profile.updatedAt == null) return;
+    if (!await confirmProfileDeletion(origin, name: profile.name)) return;
+    if (!mounted || widget.client.auth.currentUser?.id != identity) return;
+    final record = await _deletions.begin(
+      identity,
+      profileId: profile.id,
+      updatedAt: profile.updatedAt,
+    );
+    if (!mounted || widget.client.auth.currentUser?.id != identity) return;
+    if (record == null) {
+      _showMessage(_deletions.loadError ?? 'Could not start deletion. Retry.');
+      return;
+    }
+    await _navigator.currentState!.push<void>(
+      MaterialPageRoute(
+        builder: (context) => DeletionStatusView(
+          controller: _deletions,
+          record: record,
+          onDone: () => Navigator.of(context).pop(),
+        ),
+      ),
+    );
+  }
+
   Widget _home(BuildContext context) {
     _homeContext = context;
+    final deletion = _deletions.records
+        .where(
+          (record) =>
+              record.self && (_identity == null || record.actorId == _identity),
+        )
+        .firstOrNull;
+    if (deletion != null) {
+      return DeletionStatusView(
+        controller: _deletions,
+        record: deletion,
+        onSignIn: () => unawaited(_signInDeletionRecovery(context)),
+      );
+    }
+    if (_identity != null &&
+        !_loading &&
+        _network.own == null &&
+        _error != null &&
+        !_entering &&
+        !_acceptedInvite) {
+      return _EntryFrame(
+        child: Center(
+          key: const Key('member-startup-error'),
+          child: Padding(
+            padding: const EdgeInsets.all(32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(_error!, textAlign: TextAlign.center),
+                TextButton(
+                  key: const Key('member-startup-retry'),
+                  onPressed: _load,
+                  child: const Text('Retry'),
+                ),
+                TextButton(onPressed: _logout, child: const Text('Sign out')),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
     if (!_entering &&
         _network.own == null &&
         (_identity == null || !_loading)) {
@@ -1041,6 +1244,8 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
         chatAvatar: (peer) => _peerAvatar(peer, size: 65),
         search: _search!,
         onSearchProfile: _openSearchProfile,
+        onCommunity: () => unawaited(_openCommunity()),
+        onAskCommunity: (skill) => unawaited(_askCommunity(skill)),
         searchAvatar: _searchAvatar,
         selectedTab: _tab,
         onSelected: (value) {
@@ -1052,6 +1257,35 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
         },
         adminRepository: SupabaseAdminApi(widget.client, _identity!),
         onLogout: _logout,
+        onDelete: () => unawaited(_deleteAccount()),
+        onDeleteManaged: _deleteManaged,
+        onFindContacts: widget.phoneRepositoryFor == null
+            ? null
+            : () => unawaited(_findContacts()),
+        deletionRecovery: Column(
+          children: [
+            if (_deletions.loadError != null)
+              TextButton(
+                onPressed: _deletions.load,
+                child: const Text('Retry account deletion recovery'),
+              ),
+            for (final record in _deletions.records.where(
+              (item) => !item.self && item.actorId == _identity,
+            ))
+              TextButton(
+                onPressed: () => _navigator.currentState!.push<void>(
+                  MaterialPageRoute(
+                    builder: (context) => DeletionStatusView(
+                      controller: _deletions,
+                      record: record,
+                      onDone: () => Navigator.of(context).pop(),
+                    ),
+                  ),
+                ),
+                child: const Text('Check user deletion'),
+              ),
+          ],
+        ),
         memberLevel: MemberLevelStatus(
           capabilities: _capabilities,
           error: _capabilityError,
@@ -1138,12 +1372,16 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
         surface: const Color(0xFFF4F4F4),
       ),
     ),
-    home: Builder(builder: _home),
+    home: ListenableBuilder(
+      listenable: _deletions,
+      builder: (context, _) => _home(context),
+    ),
   );
 
   @override
   void dispose() {
     _loadGeneration++;
+    _deletions.dispose();
     unawaited(_auth.cancel());
     unawaited(_pushClicks.cancel());
     _push?.dispose();
@@ -1292,6 +1530,10 @@ class _LiveContacts extends StatelessWidget {
     required this.onRefresh,
     required this.onProfile,
     required this.onLogout,
+    required this.onDelete,
+    required this.onDeleteManaged,
+    this.onFindContacts,
+    required this.deletionRecovery,
     required this.memberLevel,
     this.push,
     required this.adminRepository,
@@ -1305,6 +1547,8 @@ class _LiveContacts extends StatelessWidget {
     required this.search,
     required this.onSearchProfile,
     required this.searchAvatar,
+    required this.onCommunity,
+    required this.onAskCommunity,
     this.error,
   });
   final ProfileController profile;
@@ -1313,6 +1557,10 @@ class _LiveContacts extends StatelessWidget {
   final Future<void> Function() onRefresh;
   final Future<void> Function(MemberProfile) onProfile;
   final VoidCallback onLogout;
+  final VoidCallback onDelete;
+  final Future<void> Function(ManagedProfile) onDeleteManaged;
+  final VoidCallback? onFindContacts;
+  final Widget deletionRecovery;
   final Widget memberLevel;
   final PushController? push;
   final AdminRepository adminRepository;
@@ -1327,6 +1575,8 @@ class _LiveContacts extends StatelessWidget {
   final SkillSearchController search;
   final Future<void> Function(SkillSearchHit) onSearchProfile;
   final Widget Function(SkillSearchHit) searchAvatar;
+  final VoidCallback onCommunity;
+  final ValueChanged<String> onAskCommunity;
 
   @override
   Widget build(BuildContext context) => _EntryFrame(
@@ -1395,6 +1645,7 @@ class _LiveContacts extends StatelessWidget {
                     child: ProfileEditor(
                       controller: profile,
                       onInvite: onQr,
+                      onDelete: onDelete,
                       occupationRequired: false,
                       onViewProfile: () => onProfile(network.own!),
                       footer: Padding(
@@ -1406,7 +1657,14 @@ class _LiveContacts extends StatelessWidget {
                             AdminEntry(
                               key: ValueKey(network.own!.id),
                               repository: adminRepository,
+                              onDeleteProfile: onDeleteManaged,
                             ),
+                            deletionRecovery,
+                            if (onFindContacts != null)
+                              TextButton(
+                                onPressed: onFindContacts,
+                                child: const Text('Find people you know'),
+                              ),
                             TextButton(
                               onPressed: onLogout,
                               child: const Text('Sign out'),
@@ -1428,12 +1686,20 @@ class _LiveContacts extends StatelessWidget {
                   controller: search,
                   onOpen: onSearchProfile,
                   avatarFor: searchAvatar,
+                  onAskCommunity: onAskCommunity,
                   contacts: RefreshIndicator(
                     onRefresh: onRefresh,
                     child: ListView(
                       physics: const AlwaysScrollableScrollPhysics(),
                       padding: const EdgeInsets.fromLTRB(37.5, 26, 37.5, 80),
                       children: [
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton(
+                            onPressed: onCommunity,
+                            child: const Text('Network hiring'),
+                          ),
+                        ),
                         ListenableBuilder(
                           listenable: profile,
                           builder: (context, _) => ContactRow(

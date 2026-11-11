@@ -34,6 +34,7 @@ class _Repository implements ChatRepository {
   final identities = StreamController<String?>.broadcast(sync: true);
   final signals = StreamController<String>.broadcast(sync: true);
   final server = <ChatMessage>[];
+  ChatPeer peer = _peer;
   final sends = <(String, String)>[];
   final removals = <(String, String)>[];
   Future<void> Function()? removing;
@@ -46,7 +47,7 @@ class _Repository implements ChatRepository {
   Future<List<ChatSummary>> list() async => [
     ChatSummary(
       id: 'chat',
-      peer: _peer,
+      peer: peer,
       lastSequence: server.length,
       lastReadSequence: 0,
       unread: 3,
@@ -143,6 +144,40 @@ void main() {
       'NotoSans',
     )..addFont(rootBundle.load('assets/fonts/NotoSans.ttf'))).load();
   });
+
+  testWidgets(
+    'open history refreshes a deleted peer and removes all send controls',
+    (tester) async {
+      final repository = _Repository();
+      final controller = LiveChatController(
+        repository,
+        'actor',
+        drafts: _Store(),
+      );
+      await controller.load();
+      await controller.openConversation('chat');
+      await _view(tester, controller);
+      await tester.enterText(
+        find.byKey(const Key('live-chat-message-field')),
+        'Retained draft',
+      );
+      repository.peer = ChatPeer(
+        id: _peer.id,
+        name: 'Удалённый пользователь',
+        occupation: '',
+        deletedAt: DateTime.utc(2026, 11, 11),
+      );
+      await controller.refresh();
+      await tester.pumpAndSettle();
+      expect(find.text('Deleted user'), findsOneWidget);
+      expect(find.byKey(const Key('live-chat-message-field')), findsNothing);
+      expect(find.byKey(const Key('send-live-chat-message')), findsNothing);
+      expect(await controller.send('chat', 'Late send'), isFalse);
+      expect(repository.sends, isEmpty);
+      expect(controller.draft('chat'), 'Retained draft');
+      await _close(tester, controller, repository);
+    },
+  );
 
   testWidgets(
     'pending becomes sent only after server acknowledgement and retains newer typed draft',
