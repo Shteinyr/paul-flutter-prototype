@@ -1,5 +1,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2.108.2";
 
+import { decodeBase64, uuid as sessionUuid } from "../push/shared.ts";
+
 const url = Deno.env.get("SUPABASE_URL")!;
 const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const database = createClient(url, serviceKey, {
@@ -159,6 +161,31 @@ Deno.serve(async (request) => {
       if (error || !data.user || data.user.is_anonymous) {
         return reply(401, { code: "sign_in_required" });
       }
+      let session: unknown;
+      try {
+        session = JSON.parse(
+          new TextDecoder().decode(decodeBase64(bearer.split(".")[1])),
+        ).session_id;
+      } catch {
+        return reply(401, { code: "sign_in_required" });
+      }
+      if (!sessionUuid(session)) {
+        return reply(401, { code: "sign_in_required" });
+      }
+      const sessionCheck = await database.rpc("member_require_auth_session", {
+        p_user: data.user.id,
+        p_session: session,
+      });
+      if (sessionCheck.error) {
+        return reply(
+          sessionCheck.error.message === "session_revoked" ? 401 : 503,
+          {
+            code: sessionCheck.error.message === "session_revoked"
+              ? "session_revoked"
+              : "server_unavailable",
+          },
+        );
+      }
       userId = data.user.id;
       await limit("user:" + userId, 60, 60);
     }
@@ -230,6 +257,7 @@ Deno.serve(async (request) => {
         "membership_required",
         "invalid_profile",
         "offering_limit_reached",
+        "account_deleted",
         "rate_limited",
       ];
       const problem = known.find((value) => error.message === value);
@@ -237,6 +265,8 @@ Deno.serve(async (request) => {
         return reply(
           problem === "rate_limited"
             ? 429
+            : problem === "account_deleted"
+            ? 410
             : problem === "offering_limit_reached"
             ? 403
             : 400,
