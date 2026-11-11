@@ -2,6 +2,10 @@
 
 The working platform is the Flutter application in the browser. Supabase and the browser hosting are configured. The sequence below retains implementation and client-acceptance boundaries. The first Figma column contains P01–P13 and the client's preliminary 60-hour estimate. Record agreed acceptance criteria, account dependencies, estimates and delivery dates when they are confirmed. Proposed M1/M2/M3 milestones and technical sub-issues are marked draft.
 
+## Rejected v18 correction
+
+Alexander rejected v18 on 11 November 2026. Epic #94 and issues #95–#102 cover the audited corrections. Contacts → Hiring → Chat → Profile is the agreed navigation; Hiring is the second tab. Search uses a compact dropdown over Contacts, portrait/name/matched-skill rows and All / Offer / Hiring. Onboarding retains the local draft/photo and originating step when returning from Join, including after reload. Admin retains the selected profile context and portraits. Remove unapproved Preview labels and visible technical QA text. Historical checks do not establish client acceptance; publish only the independently checked combined result. Real Google/Apple and physical notification acceptance remain separate.
+
 ## Accepted MVP decisions, 11 November 2026
 
 The interface follows the existing mobile Figma screens in Flutter for the browser. Alexander authorised implementation of the following decisions.

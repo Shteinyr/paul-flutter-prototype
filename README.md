@@ -32,6 +32,10 @@ Flutter-приложение для профессиональных связе�
 
 ## Текущая база
 
+Приёмочная v18 отклонена Александром 11.11.2026. Коррекция ведётся в [#94](https://github.com/Shteinyr/paul-flutter-prototype/issues/94), подзадачи #95–#102. Прежние технические проверки не означают клиентскую приёмку. Исправленный общий выпуск требует отдельной проверки и публикации.
+
+Порядок верхних вкладок по Figma и встрече: **Contacts → Hiring → Chat → Profile**. Hiring открывает общую ленту; отдельная кнопка Network hiring в Contacts удаляется. Подсказки раскрываются небольшим списком поверх Contacts, результаты показывают фотографии, имена и совпавшие навыки с фильтрами All / Offer / Hiring. Profile гостя открывает локальные P07–P09 до входа; возврат из Join сохраняет исходный шаг, текст и фото.
+
 Live-версия Flutter в браузере включает гостевой просмотр, контекстный вход, приглашения, профили, связи, текстовую переписку, глобальный поиск зарегистрированных участников и Admin с переключением управляемых профилей. Общий English ESCO-справочник сохраняет свободный ввод. Уровни 2/10 зависят от завершённых личных приглашений. До двух приглашённых разрешён один новый внешний собеседник в день с обновлением квоты в 00:00 UTC, с двух — свободная переписка, с десяти — расширенные offering skills и публикация Community.
 
 Community включает общую Hiring-ленту, публикацию, закрытие, удаление через 30 дней и браузерные Web Push согласившимся участникам. Подтверждённое удаление обычного или управляемого профиля скрывает его данные сразу и завершает очистку Storage/Auth через устойчивую серверную очередь. Очередь сохраняет префиксы фото незавершённого создания управляемых профилей, а сервер блокирует их позднюю загрузку после удаления создателя. Переписка собеседника сохраняется с подписью Deleted user. Добровольный поиск знакомых имеет отдельное действие внутри приложения, подтверждение телефона текущего аккаунта, управление обнаружением и проверку выбранных контактов.
@@ -133,7 +137,7 @@ Invitations last exactly 15 minutes. An open QR screen automatically replaces ex
 
 Supabase persists the main browser session across reopening. Pending invitation, profile snapshot and OAuth-finalization marker use sessionStorage. Logout clears the live pending state and onboarding draft. The current preview uses the SDK's JavaScript-readable browser storage.
 
-Google/Apple provider setup and their real OAuth acceptance remain pending. Client Terms/Privacy URLs and server account deletion remain open P06 criteria. Test fixture password sessions are confined to verification.
+Google/Apple provider setup, real OAuth acceptance and client Terms/Privacy URLs remain open P06 criteria. Server account deletion is implemented in #72; it does not complete those external requirements. Test fixture password sessions are confined to verification.
 
 Focused local checks include `test/invitation_controller_test.dart`, `test/live_app_auth_test.dart` and `supabase/tests/invitations.sql`. `scripts/test_live_invitations.py` runs against explicitly prepared disposable QA identities supplied through a private fixture. Its basic phase requires fresh inactive invitees. Keep fixture contents, tokens and invitation links out of command output and commits.
 
