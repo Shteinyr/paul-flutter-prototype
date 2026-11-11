@@ -75,6 +75,98 @@ void main() {
     removeSessionValue('paul.live.pending.finalize.v1');
   });
 
+  for (final transportFailure in [false, true]) {
+    testWidgets(
+      'member startup exposes retry after network failure, transport=$transportFailure',
+      (tester) async {
+        var failing = true;
+        var signIns = 0;
+        final transport = MockClient((request) async {
+          Object data;
+          if (request.url.path.endsWith('/token')) {
+            signIns++;
+            data = {
+              'access_token': _jwt(_a),
+              'refresh_token': 'original-refresh',
+              'token_type': 'bearer',
+              'expires_in': 3600,
+              'user': {
+                'id': _a,
+                'aud': 'authenticated',
+                'created_at': '2026-01-01T00:00:00Z',
+                'app_metadata': {},
+                'user_metadata': {},
+              },
+            };
+          } else if (request.url.path.endsWith('/invitations')) {
+            if (failing) {
+              if (transportFailure) {
+                throw http.ClientException('Connection reset');
+              }
+              return http.Response(
+                jsonEncode({'code': 'server_unavailable'}),
+                503,
+                headers: {'content-type': 'application/json'},
+              );
+            }
+            data = {
+              'profile': _profile(_a, 'Recovered member'),
+              'contacts': [],
+            };
+          } else {
+            return http.Response(
+              '{}',
+              503,
+              headers: {'content-type': 'application/json'},
+            );
+          }
+          return http.Response(
+            jsonEncode(data),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        });
+        final client = SupabaseClient(
+          'https://test.supabase.co',
+          'test-key',
+          httpClient: transport,
+          isolate: _Json(),
+          authOptions: const AuthClientOptions(autoRefreshToken: false),
+        );
+        try {
+          await client.auth.signInWithPassword(
+            email: 'a@example.invalid',
+            password: 'test-only',
+          );
+          final original = client.auth.currentSession;
+          await tester.pumpWidget(
+            PaulLiveApp(
+              client: client,
+              appUrl: Uri.parse('https://test.invalid'),
+              draftPreferences: DraftPreferences(),
+              chatRepositoryFor: (_) => QuietChatRepository(client),
+            ),
+          );
+          await tester.pumpAndSettle();
+          expect(find.byKey(const Key('member-startup-error')), findsOneWidget);
+          expect(find.text('Preview · Demonstration profiles'), findsNothing);
+          expect(client.auth.currentSession, same(original));
+          failing = false;
+          await tester.tap(find.byKey(const Key('member-startup-retry')));
+          await tester.pumpAndSettle();
+          expect(find.byKey(const Key('skill-search-field')), findsOneWidget);
+          expect(client.auth.currentUser?.id, _a);
+          expect(client.auth.currentSession, same(original));
+          expect(signIns, 1);
+          expect(tester.takeException(), isNull);
+        } finally {
+          await tester.pumpWidget(const SizedBox.shrink());
+          await tester.runAsync(client.dispose);
+        }
+      },
+    );
+  }
+
   testWidgets(
     'registration upload cannot redeem an invitation after account switch',
     (tester) async {

@@ -1192,6 +1192,33 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
         onSignIn: () => unawaited(_signInDeletionRecovery(context)),
       );
     }
+    if (_identity != null &&
+        !_loading &&
+        _network.own == null &&
+        _error != null &&
+        !_entering &&
+        !_acceptedInvite) {
+      return _EntryFrame(
+        child: Center(
+          key: const Key('member-startup-error'),
+          child: Padding(
+            padding: const EdgeInsets.all(32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(_error!, textAlign: TextAlign.center),
+                TextButton(
+                  key: const Key('member-startup-retry'),
+                  onPressed: _load,
+                  child: const Text('Retry'),
+                ),
+                TextButton(onPressed: _logout, child: const Text('Sign out')),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
     if (!_entering &&
         _network.own == null &&
         (_identity == null || !_loading)) {
