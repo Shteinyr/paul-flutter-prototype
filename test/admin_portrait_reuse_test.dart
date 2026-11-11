@@ -43,6 +43,7 @@ class _Fixture {
   bool denied = false;
   List<ManagedProfile> profiles = [_profile];
   final waits = <Completer<http.Response>>[];
+  final contextWaits = <Completer<http.Response>>[];
   late final SupabaseClient client = SupabaseClient(
     'https://portraits.invalid',
     'test-key',
@@ -87,31 +88,42 @@ class _Fixture {
     if (denied) return json({'code': 'managed_profile_forbidden'}, 403);
     final body = jsonDecode(request.body) as Map;
     if (body['action'] != 'context') return json({});
-    return json({
-      'role': 'admin',
-      'profiles': [
-        for (final p in profiles)
-          {
-            'id': p.id,
-            'name': p.name,
-            'occupation': p.occupation,
-            'summary': p.summary,
-            'skills': p.skills,
-            'searching_skills': p.searchingSkills,
-            'can_manage': p.canManage,
-            'can_reply': p.canReply,
-            'avatar_path': p.avatarPath,
-            'updated_at': p.updatedAt,
-            'disabled_at': p.disabledAt?.toIso8601String(),
-          },
-      ],
-    });
+    if (contextWaits.isNotEmpty) return contextWaits.removeAt(0).future;
+    return contextResponse(profiles);
   }
+
+  http.Response contextResponse(List<ManagedProfile> values) => json({
+    'role': 'admin',
+    'profiles': [
+      for (final p in values)
+        {
+          'id': p.id,
+          'name': p.name,
+          'occupation': p.occupation,
+          'summary': p.summary,
+          'skills': p.skills,
+          'searching_skills': p.searchingSkills,
+          'can_manage': p.canManage,
+          'can_reply': p.canReply,
+          'avatar_path': p.avatarPath,
+          'updated_at': p.updatedAt,
+          'disabled_at': p.disabledAt?.toIso8601String(),
+        },
+    ],
+  });
 
   Future<void> login() => client.auth.signInWithPassword(
     email: 'qa@example.invalid',
     password: 'local-only',
   );
+}
+
+class _Pops extends NavigatorObserver {
+  final names = <String?>[];
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    names.add(route.settings.name);
+  }
 }
 
 void main() {
@@ -292,6 +304,111 @@ void main() {
       await f.api.context();
       wait.complete(http.Response.bytes([1, 2, 3], 200));
       await assertion;
+    },
+  );
+
+  for (final status in [200, 403, 500]) {
+    test(
+      'race107 old context $status cannot invalidate a newer portrait',
+      () async {
+        final oldResponse = Completer<http.Response>();
+        f.contextWaits.add(oldResponse);
+        final old = f.api.context();
+        final oldResult = status == 200
+            ? expectLater(old, completes)
+            : expectLater(old, throwsA(isA<AdminException>()));
+        await Future<void>.delayed(Duration.zero);
+        const next = ManagedProfile(
+          id: 'managed',
+          name: 'Managed',
+          canManage: true,
+          canReply: true,
+          avatarPath: 'managed/new-hash.png',
+          updatedAt: 'v2',
+        );
+        f.profiles = [next];
+        await f.api.context();
+        final photoResponse = Completer<http.Response>();
+        f.waits.add(photoResponse);
+        final photo = f.api.photo(next);
+        final photoResult = expectLater(
+          photo,
+          completion(orderedEquals([1, 2, 3])),
+        );
+        await Future<void>.delayed(Duration.zero);
+        oldResponse.complete(
+          status == 200
+              ? f.contextResponse([_profile])
+              : f.json({
+                  'code': status == 403
+                      ? 'managed_profile_forbidden'
+                      : 'server_unavailable',
+                }, status),
+        );
+        await oldResult;
+        photoResponse.complete(http.Response.bytes([1, 2, 3], 200));
+        await photoResult;
+        await f.api.photo(next);
+        expect(f.downloads, 1);
+      },
+    );
+  }
+
+  testWidgets(
+    'race107 removed Admin route cannot pop Other in its delayed callback',
+    (tester) async {
+      final navigator = GlobalKey<NavigatorState>();
+      final observer = _Pops();
+      final selected = ValueNotifier(f.api);
+      var removeAdmin = false;
+      await tester.pumpWidget(
+        MaterialApp(
+          navigatorKey: navigator,
+          navigatorObservers: [observer],
+          home: const Scaffold(body: Text('Home')),
+        ),
+      );
+      unawaited(
+        navigator.currentState!.push<void>(
+          MaterialPageRoute<void>(
+            settings: const RouteSettings(name: 'Other'),
+            builder: (_) => const Scaffold(body: Text('Other')),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      unawaited(
+        navigator.currentState!.push<void>(
+          MaterialPageRoute<void>(
+            settings: const RouteSettings(name: 'Admin'),
+            builder: (_) => ValueListenableBuilder<SupabaseAdminApi>(
+              valueListenable: selected,
+              builder: (_, repository, _) {
+                if (removeAdmin) {
+                  removeAdmin = false;
+                  WidgetsBinding.instance.addPostFrameCallback(
+                    (_) => navigator.currentState!.pop(),
+                  );
+                }
+                return AdminView(repository: repository);
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await f.client.auth.signOut();
+      f.sessionId = _session2;
+      await f.login();
+      removeAdmin = true;
+      selected.value = SupabaseAdminApi(f.client, _actor);
+      await tester.pump();
+      expect(observer.names, ['Admin']);
+      expect(tester.takeException(), isNull);
+      await tester.pumpAndSettle();
+      expect(find.text('Other'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox.shrink());
+      selected.dispose();
     },
   );
 

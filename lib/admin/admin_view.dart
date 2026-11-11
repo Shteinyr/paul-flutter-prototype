@@ -122,9 +122,14 @@ class _AdminViewState extends State<AdminView> {
     if (sameContext) return;
     _useRepository(next);
     final route = ModalRoute.of(context);
+    final navigator = Navigator.of(context);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && route != null) {
-        Navigator.of(context).popUntil((candidate) => candidate == route);
+      if (mounted &&
+          navigator.mounted &&
+          route != null &&
+          route.isActive &&
+          identical(route.navigator, navigator)) {
+        navigator.popUntil((candidate) => candidate == route);
       }
     });
   }

@@ -109,6 +109,7 @@ class SupabaseAdminApi implements AdminRepository {
   final _pendingPortraits = <_PortraitRead>{};
   String? _portraitSession;
   int _portraitGeneration = 0;
+  int _contextGeneration = 0;
 
   String? get sessionIdForPortraitReuse =>
       _sessionId(client.auth.currentSession?.accessToken ?? '');
@@ -158,7 +159,10 @@ class SupabaseAdminApi implements AdminRepository {
     }
   }
 
-  Future<Map<String, dynamic>> request(Map<String, dynamic> fields) async {
+  Future<Map<String, dynamic>> request(
+    Map<String, dynamic> fields, {
+    bool invalidatePortraitsOnDenied = true,
+  }) async {
     _checkIdentity();
     final token = client.auth.currentSession?.accessToken;
     if (token == null) throw const AdminException('sign_in_required');
@@ -178,11 +182,12 @@ class SupabaseAdminApi implements AdminRepository {
       final code = details is Map
           ? details['code'] as String? ?? 'server_unavailable'
           : 'server_unavailable';
-      if (const {
-        'admin_forbidden',
-        'managed_profile_forbidden',
-        'sign_in_required',
-      }.contains(code)) {
+      if (invalidatePortraitsOnDenied &&
+          const {
+            'admin_forbidden',
+            'managed_profile_forbidden',
+            'sign_in_required',
+          }.contains(code)) {
         _invalidatePortraits();
       }
       throw AdminException(code);
@@ -191,8 +196,20 @@ class SupabaseAdminApi implements AdminRepository {
 
   @override
   Future<AdminAccess> context() async {
+    final generation = ++_contextGeneration;
+    final token = client.auth.currentSession?.accessToken;
+    final sessionId = sessionIdForPortraitReuse;
+    bool current() =>
+        generation == _contextGeneration &&
+        (sessionId == null
+            ? client.auth.currentSession?.accessToken == token
+            : sessionIdForPortraitReuse == sessionId);
     try {
-      final data = await request({'action': 'context'});
+      // Context reads can finish out of order. Only the latest read in this
+      // session may reconcile portraits or apply an access-denied result.
+      final data = await request({
+        'action': 'context',
+      }, invalidatePortraitsOnDenied: false);
       final access = AdminAccess(
         data['role'] as String,
         (data['profiles'] as List)
@@ -203,6 +220,7 @@ class SupabaseAdminApi implements AdminRepository {
             )
             .toList(),
       );
+      if (!current()) return access;
       final allowed = {
         for (final profile in access.profiles)
           if (profile.canManage || profile.canReply) profile.id: profile,
@@ -225,7 +243,7 @@ class SupabaseAdminApi implements AdminRepository {
       });
       return access;
     } on Object {
-      _invalidatePortraits();
+      if (current()) _invalidatePortraits();
       rethrow;
     }
   }
