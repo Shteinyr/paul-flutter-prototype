@@ -81,6 +81,40 @@ class PublicFixture implements PublicPreviewRepository {
   }
 }
 
+class _EntryHarness extends StatefulWidget {
+  const _EntryHarness(this.repository);
+  final PublicPreviewRepository repository;
+  @override
+  State<_EntryHarness> createState() => _EntryHarnessState();
+}
+
+class _EntryHarnessState extends State<_EntryHarness> {
+  final browsing = PublicGuestBrowsingState();
+  bool joining = false;
+  @override
+  Widget build(BuildContext context) => joining
+      ? Scaffold(
+          body: Column(
+            children: [
+              const Text('Join'),
+              TextButton(
+                onPressed: () => setState(() => joining = false),
+                child: const Text('Back'),
+              ),
+            ],
+          ),
+        )
+      : PublicGuestPreview(
+          repository: widget.repository,
+          browsingState: browsing,
+          onEditProfile: () {},
+          onRequireSignIn: () {
+            Navigator.of(context).popUntil((route) => route.isFirst);
+            setState(() => joining = true);
+          },
+        );
+}
+
 void main() {
   setUpAll(() async {
     final font = FontLoader('NotoSans')
@@ -142,6 +176,45 @@ void main() {
         throwsA(isA<CommunityException>()),
       );
       expect(fixture.calls, isEmpty);
+    },
+  );
+  testWidgets(
+    'Join cancellation restores the actual public profile and Hiring detail that requested entry',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData(fontFamily: 'NotoSans'),
+          home: _EntryHarness(PublicFixture()),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(person.profile.name));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('open-profile-chat')));
+      await tester.pumpAndSettle();
+      expect(find.text('Join'), findsOneWidget);
+      await tester.tap(find.text('Back'));
+      await tester.pumpAndSettle();
+      expect(find.text(person.profile.summary), findsOneWidget);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('tab-1')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.textContaining('Actual hiring skill', findRichText: true),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Message author'));
+      await tester.pumpAndSettle();
+      expect(find.text('Join'), findsOneWidget);
+      await tester.tap(find.text('Back'));
+      await tester.pumpAndSettle();
+      expect(find.text('An actual public request'), findsOneWidget);
+      expect(find.text('Close request'), findsNothing);
+      await tester.pumpWidget(const SizedBox());
     },
   );
   testWidgets(

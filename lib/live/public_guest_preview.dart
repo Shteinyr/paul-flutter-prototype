@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../app.dart';
@@ -16,25 +17,45 @@ class _PublicDraftStore implements ChatStateStore {
   Future<void> write(String userId, String state) async {}
 }
 
+class PublicGuestBrowsingState {
+  int tab = 0, epoch = 0;
+  String? profileId, requestId;
+  bool restoreOrigin = false, leavingForEntry = false;
+  void reset() {
+    tab = 0;
+    epoch++;
+    profileId = null;
+    requestId = null;
+    restoreOrigin = false;
+    leavingForEntry = false;
+  }
+}
+
 class PublicGuestPreview extends StatefulWidget {
   const PublicGuestPreview({
     super.key,
     required this.repository,
     required this.onRequireSignIn,
     required this.onEditProfile,
+    this.browsingState,
   });
   final PublicPreviewRepository repository;
   final VoidCallback onRequireSignIn;
   final VoidCallback onEditProfile;
+  final PublicGuestBrowsingState? browsingState;
   @override
   State<PublicGuestPreview> createState() => _PublicGuestPreviewState();
 }
 
 class _PublicGuestPreviewState extends State<PublicGuestPreview> {
+  late final _browse = widget.browsingState ?? PublicGuestBrowsingState();
   late final _repository = PublicSearchRepository(widget.repository);
   late final _search = SkillSearchController(_repository);
   late final _community = CommunityController(
-    PublicCommunityRepository(widget.repository),
+    PublicCommunityRepository(
+      widget.repository,
+      onOpenRequest: (id) => _browse.requestId = id,
+    ),
     drafts: _PublicDraftStore(),
   );
   List<PublicProfile> _profiles = const [];
@@ -45,7 +66,51 @@ class _PublicGuestPreviewState extends State<PublicGuestPreview> {
   @override
   void initState() {
     super.initState();
+    final epoch = ++_browse.epoch;
+    _tab = _browse.tab;
+    _browse.leavingForEntry = false;
+    final restore = _browse.restoreOrigin;
+    _browse.restoreOrigin = false;
     _load();
+    if (restore) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || _browse.epoch != epoch) return;
+        if (_browse.profileId != null) {
+          _open(_browse.profileId!);
+        } else if (_browse.requestId != null) {
+          _restoreRequest(_browse.requestId!);
+        }
+      });
+    }
+  }
+
+  void _requireSignIn() {
+    _browse.tab = _tab;
+    _browse.restoreOrigin = true;
+    _browse.leavingForEntry = true;
+    widget.onRequireSignIn();
+  }
+
+  void _restoreRequest(String id) {
+    final epoch = _browse.epoch;
+    unawaited(
+      Navigator.of(context)
+          .push<void>(
+            MaterialPageRoute(
+              builder: (_) => CommunityDetailView(
+                controller: _community,
+                requestId: id,
+                onMessage: (_, _) async => _requireSignIn(),
+                avatarFor: (peer) => _avatar(peer.id, 65),
+              ),
+            ),
+          )
+          .whenComplete(() {
+            if (_browse.epoch == epoch && !_browse.leavingForEntry) {
+              _browse.requestId = null;
+            }
+          }),
+    );
   }
 
   Future<void> _load({bool more = false}) async {
@@ -86,22 +151,36 @@ class _PublicGuestPreviewState extends State<PublicGuestPreview> {
     profile: widget.repository.cachedProfile(id) ?? _repository.saved[id],
     size: size,
   );
-  void _open(String id) => Navigator.of(context).push<void>(
-    MaterialPageRoute(
-      builder: (_) => _PublicProfilePage(
-        repository: widget.repository,
-        id: id,
-        onMessage: widget.onRequireSignIn,
-      ),
-    ),
-  );
+  void _open(String id) {
+    final epoch = _browse.epoch;
+    _browse.profileId = id;
+    _browse.requestId = null;
+    unawaited(
+      Navigator.of(context)
+          .push<void>(
+            MaterialPageRoute(
+              builder: (_) => _PublicProfilePage(
+                repository: widget.repository,
+                id: id,
+                onMessage: _requireSignIn,
+              ),
+            ),
+          )
+          .whenComplete(() {
+            if (_browse.epoch == epoch && !_browse.leavingForEntry) {
+              _browse.profileId = null;
+            }
+          }),
+    );
+  }
+
   Widget _contacts() => Stack(
     children: [
       SkillSearchView(
         controller: _search,
         avatarFor: (hit) => _avatar(hit.id, 65),
         onOpen: (hit) async => _open(hit.id),
-        onAskCommunity: (_) => widget.onRequireSignIn(),
+        onAskCommunity: (_) => _requireSignIn(),
         contacts: RefreshIndicator(
           onRefresh: _load,
           child: ListView(
@@ -142,7 +221,7 @@ class _PublicGuestPreviewState extends State<PublicGuestPreview> {
           tooltip: 'My QR code',
           backgroundColor: const Color(0xFF14679E),
           foregroundColor: Colors.white,
-          onPressed: widget.onRequireSignIn,
+          onPressed: _requireSignIn,
           child: const Icon(Icons.qr_code_scanner, size: 23),
         ),
       ),
@@ -167,6 +246,9 @@ class _PublicGuestPreviewState extends State<PublicGuestPreview> {
                       if (tab == 3) {
                         widget.onEditProfile();
                       } else {
+                        _browse.tab = tab;
+                        _browse.profileId = null;
+                        _browse.requestId = null;
                         setState(() => _tab = tab);
                       }
                     },
@@ -177,8 +259,8 @@ class _PublicGuestPreviewState extends State<PublicGuestPreview> {
                     1 => CommunityFeedView(
                       controller: _community,
                       embedded: true,
-                      onInvite: widget.onRequireSignIn,
-                      onMessage: (_, _) async => widget.onRequireSignIn(),
+                      onInvite: _requireSignIn,
+                      onMessage: (_, _) async => _requireSignIn(),
                       avatarFor: (peer) => _avatar(peer.id, 65),
                     ),
                     2 => Center(
@@ -187,7 +269,7 @@ class _PublicGuestPreviewState extends State<PublicGuestPreview> {
                         children: [
                           const Text('Sign in to view your messages.'),
                           TextButton(
-                            onPressed: widget.onRequireSignIn,
+                            onPressed: _requireSignIn,
                             child: const Text('Sign in'),
                           ),
                         ],

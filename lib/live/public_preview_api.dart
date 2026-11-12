@@ -262,8 +262,9 @@ class PublicSearchRepository implements SkillSearchRepository {
 }
 
 class PublicCommunityRepository implements CommunityRepository {
-  const PublicCommunityRepository(this.repository);
+  const PublicCommunityRepository(this.repository, {this.onOpenRequest});
   final PublicPreviewRepository repository;
+  final void Function(String id)? onOpenRequest;
   @override
   String get userId => 'public-preview';
   @override
@@ -274,8 +275,11 @@ class PublicCommunityRepository implements CommunityRepository {
   Future<CommunityPage> feed({Map<String, dynamic>? cursor}) =>
       repository.feed(cursor: cursor);
   @override
-  Future<CommunityRequest?> get(String requestId) =>
-      repository.request(requestId);
+  Future<CommunityRequest?> get(String requestId) {
+    onOpenRequest?.call(requestId);
+    return repository.request(requestId);
+  }
+
   @override
   Future<CommunityReceipt> create(
     String operationId,
