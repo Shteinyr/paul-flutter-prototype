@@ -309,9 +309,15 @@ class PublicProfileAvatar extends StatelessWidget {
     return ClipOval(
       child: Image.network(
         url,
+        key: ValueKey(url),
         width: size,
         height: size,
+        cacheWidth: (size * 3).round(),
         fit: BoxFit.cover,
+        frameBuilder: (context, child, frame, wasSynchronouslyLoaded) =>
+            frame != null || wasSynchronouslyLoaded
+            ? child
+            : ProfileAvatar(size: size, loading: true),
         errorBuilder: (_, _, _) => ProfileAvatar(size: size),
       ),
     );
