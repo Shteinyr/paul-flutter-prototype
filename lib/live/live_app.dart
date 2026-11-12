@@ -609,11 +609,18 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     _community = null;
   }
 
-  CommunityController _ensureCommunity() => _community ??= CommunityController(
-    widget.communityRepositoryFor?.call(_identity!) ??
-        SupabaseCommunityApi(widget.client, _identity!),
-    drafts: SessionChatStateStore(),
-  );
+  CommunityController _ensureCommunity() {
+    final existing = _community;
+    if (existing != null) return existing;
+    final controller = CommunityController(
+      widget.communityRepositoryFor?.call(_identity!) ??
+          SupabaseCommunityApi(widget.client, _identity!),
+      drafts: SessionChatStateStore(),
+    );
+    _community = controller;
+    unawaited(controller.refresh());
+    return controller;
+  }
 
   Future<void> _askCommunity(String skill) async {
     if (_identity == null || _network.own == null) return;

@@ -41,7 +41,9 @@ class _CommunityFeedViewState extends State<CommunityFeedView>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    unawaited(widget.controller.refresh());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(widget.controller.refresh());
+    });
     _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       if (_resumed && ModalRoute.of(context)?.isCurrent == true) {
         unawaited(widget.controller.refresh());
@@ -413,7 +415,9 @@ class _CommunityDetailViewState extends State<CommunityDetailView>
   String? _error;
   bool _loading = true;
   bool _closing = false;
+  bool _openingMessage = false;
   bool _resumed = true;
+  Future<void>? _refreshing;
   Timer? _timer;
   int _generation = 0;
 
@@ -435,22 +439,59 @@ class _CommunityDetailViewState extends State<CommunityDetailView>
     if (_resumed && !_closing) unawaited(_refresh());
   }
 
-  Future<void> _refresh() async {
+  Future<void> _refresh() {
+    if (!mounted || !widget.controller.current || _closing) {
+      return Future.value();
+    }
+    final running = _refreshing;
+    if (running != null) return running;
+    final operation = _fetch();
+    _refreshing = operation;
+    unawaited(
+      operation.whenComplete(() {
+        if (identical(_refreshing, operation)) _refreshing = null;
+      }),
+    );
+    return operation;
+  }
+
+  Future<void> _fetch() async {
     final generation = ++_generation;
+    setState(() {
+      if (_request?.expiresAt.isAfter(widget.controller.serverNow) != true) {
+        _request = null;
+      }
+      _loading = _request == null;
+      _error = null;
+    });
     try {
       final request = await widget.controller.repository.get(widget.requestId);
       if (!mounted || !widget.controller.current || generation != _generation) {
         return;
       }
       setState(() {
-        _request = request;
+        _request =
+            request?.expiresAt.isAfter(widget.controller.serverNow) == true
+            ? request
+            : null;
         _loading = false;
         _error = null;
       });
     } catch (failure) {
-      if (!mounted || generation != _generation) return;
+      if (!mounted || !widget.controller.current || generation != _generation) {
+        return;
+      }
       setState(() {
         _loading = false;
+        if (failure is CommunityException &&
+            const {
+              'sign_in_required',
+              'session_revoked',
+              'membership_required',
+              'community_forbidden',
+            }.contains(failure.code)) {
+          _request = null;
+        }
         _error = failure is CommunityException
             ? failure.toString()
             : const CommunityException('server_unavailable').toString();
@@ -478,25 +519,50 @@ class _CommunityDetailViewState extends State<CommunityDetailView>
     );
     if (confirmed != true || !mounted) return;
     _generation++;
+    _refreshing = null;
     setState(() => _closing = true);
     final closed = await widget.controller.closeRequest(widget.requestId);
     if (!mounted) return;
     setState(() {
       _closing = false;
+      _loading = false;
       _error = closed ? null : widget.controller.error;
       if (closed) _request = null;
     });
   }
 
   Future<void> _messageAuthor() async {
-    // Re-read before opening a conversation reached through an old feed or push.
-    await _refresh();
-    if (!mounted || _request == null || _error != null) return;
-    await widget.onMessage(context, _request!.author);
+    if (_openingMessage) return;
+    setState(() => _openingMessage = true);
+    try {
+      // Re-read before opening a conversation reached through an old feed or push.
+      await _refresh();
+      if (!mounted ||
+          !widget.controller.current ||
+          ModalRoute.of(context)?.isCurrent != true ||
+          _request == null ||
+          _error != null ||
+          !_request!.expiresAt.isAfter(widget.controller.serverNow)) {
+        return;
+      }
+      await widget.onMessage(context, _request!.author);
+    } finally {
+      if (mounted) setState(() => _openingMessage = false);
+    }
   }
 
   @override
-  Widget build(BuildContext context) => _CommunityFrame(
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: widget.controller,
+    builder: (context, _) => !widget.controller.current
+        ? const _CommunityFrame(
+            title: 'Hiring request',
+            child: Center(child: Text('Please sign in again to continue.')),
+          )
+        : _detail(context),
+  );
+
+  Widget _detail(BuildContext context) => _CommunityFrame(
     title: 'Hiring request',
     actions: [
       IconButton(
@@ -510,9 +576,13 @@ class _CommunityDetailViewState extends State<CommunityDetailView>
       children: [
         if (_loading) const Center(child: CircularProgressIndicator()),
         if (_error != null) _Status(_error!, onRetry: _refresh),
-        if (!_loading && _request == null && _error == null)
+        if (!_loading &&
+            (_request == null ||
+                !_request!.expiresAt.isAfter(widget.controller.serverNow)) &&
+            _error == null)
           const Text('This request is no longer available.'),
-        if (_request case final request?) ...[
+        if (_request case final request?
+            when request.expiresAt.isAfter(widget.controller.serverNow)) ...[
           _RequestBody(
             request: request,
             avatar: widget.avatarFor(request.author),
@@ -525,7 +595,7 @@ class _CommunityDetailViewState extends State<CommunityDetailView>
             )
           else
             FilledButton(
-              onPressed: _messageAuthor,
+              onPressed: _openingMessage ? null : _messageAuthor,
               child: const Text('Message author'),
             ),
         ],

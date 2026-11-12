@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:paul_demo/community/community_api.dart';
 import 'package:paul_demo/live/chat_api.dart';
 import 'package:paul_demo/live/live_app.dart';
 import 'package:paul_demo/live/guest_preview.dart';
@@ -15,6 +16,7 @@ import 'package:yet_another_json_isolate/yet_another_json_isolate.dart';
 
 import 'support/onboarding_preferences.dart';
 import 'support/quiet_chat_repository.dart';
+import 'community_controller_test.dart' show CommunityRepo, request;
 
 const _actor = '00000000-0000-4000-8000-000000000001';
 const _peer = '00000000-0000-4000-8000-000000000002';
@@ -76,15 +78,7 @@ class _Chat extends QuietChatRepository {
 }
 
 class _Fixture {
-  late final SupabaseClient client;
-  late final _Chat chat;
-  int networks = 0;
-  Completer<void>? networkGate;
-  bool member = true;
-  bool failNetwork = false;
-  String sessionId = '20000000-0000-4000-8000-000000000001';
-  String peerName = 'Julia';
-  _Fixture() {
+  _Fixture({this.community}) {
     client = SupabaseClient(
       'https://test.supabase.co',
       'test-key',
@@ -148,6 +142,15 @@ class _Fixture {
     );
     chat = _Chat(client);
   }
+  final CommunityRepository? community;
+  late final SupabaseClient client;
+  late final _Chat chat;
+  int networks = 0;
+  Completer<void>? networkGate;
+  bool member = true;
+  bool failNetwork = false;
+  String sessionId = '20000000-0000-4000-8000-000000000001';
+  String peerName = 'Julia';
   Map<String, Object> profile(String id, String name) => {
     'id': id,
     'name': name,
@@ -168,6 +171,7 @@ class _Fixture {
         appUrl: Uri.parse('https://test.invalid'),
         draftPreferences: DraftPreferences(),
         chatRepositoryFor: (_) => chat,
+        communityRepositoryFor: community == null ? null : (_) => community!,
       ),
     );
     await tester.pumpAndSettle();
@@ -185,6 +189,41 @@ void main() {
       'NotoSans',
     )..addFont(rootBundle.load('assets/fonts/NotoSans.ttf'))).load();
   });
+  testWidgets(
+    'Hiring starts before the first visit and joins its pending feed',
+    (tester) async {
+      final gate = Completer<CommunityPage>();
+      var calls = 0;
+      final repo = CommunityRepo()
+        ..userId = _actor
+        ..currentUserId = _actor;
+      repo.feeding = (_) {
+        calls++;
+        return gate.future;
+      };
+      final f = _Fixture(community: repo);
+      try {
+        await f.mount(tester);
+        expect(calls, 1);
+        expect(find.text('Paul'), findsOneWidget);
+        await tester.tap(find.byKey(const Key('tab-1')));
+        await tester.pump();
+        expect(calls, 1);
+        gate.complete(CommunityPage([request()], null, DateTime.now().toUtc()));
+        await tester.pumpAndSettle();
+        expect(find.text('Author'), findsOneWidget);
+        expect(find.text('Urgent Hiring:  Marketing'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      } finally {
+        if (!gate.isCompleted) {
+          gate.complete(CommunityPage([], null, DateTime.now().toUtc()));
+        }
+        await f.close(tester);
+        await repo.identities.close();
+      }
+    },
+  );
+
   testWidgets('returning to Contacts keeps the list visible during refresh', (
     tester,
   ) async {

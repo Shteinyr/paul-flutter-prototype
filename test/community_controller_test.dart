@@ -305,6 +305,37 @@ void main() {
     },
   );
 
+  test(
+    'concurrent feed refreshes share one response and close invalidates it',
+    () async {
+      final gate = Completer<CommunityPage>();
+      var calls = 0;
+      repository.feeding = (_) {
+        calls++;
+        return gate.future;
+      };
+      final first = controller.refresh();
+      final second = controller.refresh();
+      expect(identical(first, second), isTrue);
+      expect(calls, 1);
+      expect(await controller.closeRequest(requestId), isTrue);
+      gate.complete(CommunityPage([request()], null, DateTime.now().toUtc()));
+      await first;
+      expect(controller.requests, isEmpty);
+      expect(controller.loading, isFalse);
+    },
+  );
+
+  test('feed permission loss clears a previously visible request', () async {
+    await controller.refresh();
+    expect(controller.requests, hasLength(1));
+    repository.feeding = (_) =>
+        Future.error(const CommunityException('membership_required'));
+    await controller.refresh();
+    expect(controller.requests, isEmpty);
+    expect(controller.error, isNotNull);
+  });
+
   test('old pagination response cannot replace a refreshed feed', () async {
     final oldPage = Completer<CommunityPage>();
     var calls = 0;
