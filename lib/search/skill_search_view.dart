@@ -165,13 +165,11 @@ class _SkillSearchViewState extends State<SkillSearchView> {
               builder: (context, constraints) => Stack(
                 children: [
                   Positioned.fill(
-                    child: search.selected == null
+                    child: !search.hasSelection
                         ? widget.contacts
                         : _content(search),
                   ),
-                  if (!search.idle &&
-                      search.selected == null &&
-                      _focus.hasFocus)
+                  if (!search.idle && !search.hasSelection && _focus.hasFocus)
                     Positioned(
                       top: 8,
                       left: 37.5,
@@ -206,8 +204,10 @@ class _SkillSearchViewState extends State<SkillSearchView> {
     }
     if (search.results.isEmpty) {
       return _SearchStatus(
-        text: 'No profiles found for this skill',
-        action: widget.onAskCommunity == null
+        text: search.searchingNames
+            ? 'No profiles found with this name'
+            : 'No profiles found for this skill',
+        action: search.searchingNames || widget.onAskCommunity == null
             ? null
             : TextButton(
                 onPressed: () => widget.onAskCommunity!(search.selected!.label),
@@ -245,36 +245,48 @@ class _SkillSearchViewState extends State<SkillSearchView> {
                                 fontWeight: FontWeight.w500,
                               ),
                             ),
-                            Padding(
-                              padding: const EdgeInsets.only(top: 4),
-                              child: Row(
-                                children: [
-                                  if (search.kind != SkillSearchKind.all)
-                                    Text(
-                                      '${_label(search.kind)}: ',
-                                      style: const TextStyle(fontSize: 12),
-                                    ),
-                                  Flexible(
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 5,
-                                        vertical: 2,
+                            if (search.searchingNames)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Text(
+                                  hit.occupation,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w300,
+                                  ),
+                                ),
+                              )
+                            else
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Row(
+                                  children: [
+                                    if (search.kind != SkillSearchKind.all)
+                                      Text(
+                                        '${_label(search.kind)}: ',
+                                        style: const TextStyle(fontSize: 12),
                                       ),
-                                      color: const Color(0xFFFFBFBC),
-                                      child: Text(
-                                        search.selected!.label,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w300,
+                                    Flexible(
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 5,
+                                          vertical: 2,
+                                        ),
+                                        color: const Color(0xFFFFBFBC),
+                                        child: Text(
+                                          search.selected!.label,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w300,
+                                          ),
                                         ),
                                       ),
                                     ),
-                                  ),
-                                ],
+                                  ],
+                                ),
                               ),
-                            ),
                             if (_opening == hit.id)
                               const Padding(
                                 padding: EdgeInsets.only(top: 4),
@@ -337,6 +349,19 @@ class _SkillSearchViewState extends State<SkillSearchView> {
               shrinkWrap: true,
               padding: EdgeInsets.zero,
               children: [
+                if (search.canSearchNames)
+                  ListTile(
+                    key: const Key('search-people-by-name'),
+                    dense: true,
+                    title: Text(
+                      'Find people named “${search.query.trim()}”',
+                      style: const TextStyle(fontSize: 13),
+                    ),
+                    onTap: () {
+                      _focus.unfocus();
+                      unawaited(search.selectName(search.query));
+                    },
+                  ),
                 if (search.loading && search.suggestions.isEmpty)
                   const Padding(
                     padding: EdgeInsets.all(12),
