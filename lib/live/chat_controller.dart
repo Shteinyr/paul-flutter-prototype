@@ -75,11 +75,13 @@ class LiveChatController extends ChangeNotifier {
   final _olderAvailable = <String, bool>{};
   final _loadedThrough = <String, int>{};
   final _readThrough = <String, int>{};
+  final _reading = <String, Future<void>>{};
   late final StreamSubscription<String?> _identity;
   StreamSubscription<String>? _signals;
   Timer? _fallback;
   Future<bool> _draftWrites = Future<bool>.value(true);
   Future<void>? _refreshing;
+  Future<void>? _preparing;
   bool _refreshAgain = false;
   bool _disposed = false;
   bool _signedOut = false;
@@ -114,6 +116,30 @@ class LiveChatController extends ChangeNotifier {
   }
 
   Future<void> load() async {
+    await prepare();
+    if (!_valid || !loaded || stateLoadFailed) return;
+    resume();
+    // resume already starts the first list request. Joining it avoids a second
+    // full refresh before the first one has even returned.
+    await (_refreshing ?? refresh());
+  }
+
+  /// Restore the local journal without waiting for remote chat summaries.
+  Future<void> prepare() {
+    if (!_valid || (loaded && !stateLoadFailed)) return Future.value();
+    final running = _preparing;
+    if (running != null) return running;
+    final operation = _prepare();
+    _preparing = operation;
+    unawaited(
+      operation.whenComplete(() {
+        if (identical(_preparing, operation)) _preparing = null;
+      }),
+    );
+    return operation;
+  }
+
+  Future<void> _prepare() async {
     if (!_valid) return;
     final generation = _generation;
     stateLoadFailed = false;
@@ -150,8 +176,7 @@ class LiveChatController extends ChangeNotifier {
     }
     if (!_current(generation)) return;
     loaded = true;
-    resume();
-    await refresh();
+    _notify();
   }
 
   void resume() {
@@ -237,6 +262,26 @@ class LiveChatController extends ChangeNotifier {
     }
   }
 
+  /// Resolve a route target; history is loaded after its screen opens.
+  Future<String?> resolvePeer(String peerId) async {
+    if (!_valid) return null;
+    final known = conversations
+        .where((thread) => thread.peer.id == peerId)
+        .firstOrNull;
+    if (known != null) return known.id;
+    final generation = _generation;
+    try {
+      final id = await repository.open(peerId);
+      return _current(generation) ? id : null;
+    } catch (_) {
+      if (_current(generation)) {
+        error = 'Could not open this chat. Please retry.';
+        _notify();
+      }
+      return null;
+    }
+  }
+
   Future<void> openConversation(String id) =>
       _openConversation(id, ++_openGeneration);
 
@@ -255,6 +300,10 @@ class LiveChatController extends ChangeNotifier {
       _loadedThrough[id] = page.messages.lastOrNull?.sequence ?? 0;
       _olderAvailable[id] =
           page.messages.isNotEmpty && page.messages.first.sequence > 1;
+      // The history is available now; a slow read acknowledgement must not
+      // withhold it from the already visible conversation.
+      loadingHistory = false;
+      _notify();
       await _markVisibleRead(id, generation);
     } catch (_) {
       if (_current(generation) && opening == _openGeneration) {
@@ -351,12 +400,27 @@ class LiveChatController extends ChangeNotifier {
     if (!_current(generation) || !_resumed || activeConversationId != id) {
       return;
     }
+    final running = _reading[id];
+    if (running != null) {
+      await running;
+      // A newer message may have arrived while the earlier watermark was
+      // acknowledged. Recheck visibility before sending the next watermark.
+      return _markVisibleRead(id, generation);
+    }
     final through = _messages[id]?.lastOrNull?.sequence;
     if (through != null && through > (_readThrough[id] ?? 0)) {
-      await repository.read(id, through);
-      if (!_current(generation)) return;
-      _readThrough[id] = through;
-      _refreshAgain = true;
+      final operation = () async {
+        await repository.read(id, through);
+        if (!_current(generation)) return;
+        _readThrough[id] = through;
+        _refreshAgain = true;
+      }();
+      _reading[id] = operation;
+      try {
+        await operation;
+      } finally {
+        if (identical(_reading[id], operation)) _reading.remove(id);
+      }
     }
   }
 
@@ -489,6 +553,7 @@ class LiveChatController extends ChangeNotifier {
     _olderAvailable.clear();
     _loadedThrough.clear();
     _readThrough.clear();
+    _reading.clear();
     loaded = false;
     conversations = const [];
     activeConversationId = null;

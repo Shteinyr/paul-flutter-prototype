@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -8,6 +9,16 @@ import 'package:paul_demo/community/community_views.dart';
 
 import 'community_controller_test.dart';
 import 'live_chat_controller_test.dart' show Drafts;
+
+class _SlowDetailRepo extends CommunityRepo {
+  int gets = 0;
+  Future<CommunityRequest?> Function()? getting;
+  @override
+  Future<CommunityRequest?> get(String id) async {
+    gets++;
+    return getting == null ? item : getting!();
+  }
+}
 
 void main() {
   setUpAll(() async {
@@ -284,4 +295,94 @@ void main() {
     controller.dispose();
     await repo.identities.close();
   });
+
+  testWidgets(
+    'detail coalesces refresh, retries failures and hides lost identity',
+    (tester) async {
+      final repo = _SlowDetailRepo();
+      final gate = Completer<CommunityRequest?>();
+      repo.getting = () => gate.future;
+      final controller = CommunityController(repo, drafts: Drafts());
+      try {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: CommunityDetailView(
+              controller: controller,
+              requestId: requestId,
+              onMessage: (_, _) async {},
+              avatarFor: (_) => const CircleAvatar(),
+            ),
+          ),
+        );
+        await tester.tap(find.byTooltip('Refresh request'));
+        await tester.pump();
+        expect(repo.gets, 1);
+        gate.completeError(const CommunityException('server_unavailable'));
+        await tester.pumpAndSettle();
+        expect(find.text('Retry'), findsOneWidget);
+        repo.getting = () async => request();
+        await tester.tap(find.text('Retry'));
+        await tester.pumpAndSettle();
+        expect(repo.gets, 2);
+        expect(find.text('Help with a launch'), findsOneWidget);
+        expect(find.text('Message author'), findsOneWidget);
+        expect(find.text('Close request'), findsNothing);
+        repo.currentUserId = null;
+        repo.identities.add(null);
+        await tester.pumpAndSettle();
+        expect(find.text('Help with a launch'), findsNothing);
+        expect(find.text('Message author'), findsNothing);
+        expect(find.text('Please sign in again to continue.'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      } finally {
+        if (!gate.isCompleted) gate.complete(null);
+        await tester.pumpWidget(const SizedBox.shrink());
+        controller.dispose();
+        await repo.identities.close();
+      }
+    },
+  );
+
+  testWidgets(
+    'pending detail refresh cannot reopen a closed or expired request',
+    (tester) async {
+      final repo = _SlowDetailRepo()..item = request(own: true);
+      final controller = CommunityController(repo, drafts: Drafts());
+      final gate = Completer<CommunityRequest?>();
+      try {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: CommunityDetailView(
+              controller: controller,
+              requestId: requestId,
+              onMessage: (_, _) async {},
+              avatarFor: (_) => const CircleAvatar(),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        repo.getting = () => gate.future;
+        await tester.tap(find.byTooltip('Refresh request'));
+        await tester.pump();
+        await tester.tap(find.text('Close request'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(TextButton, 'Close request'));
+        await tester.pumpAndSettle();
+        gate.complete(request(own: true));
+        await tester.pumpAndSettle();
+        expect(
+          find.text('This request is no longer available.'),
+          findsOneWidget,
+        );
+        expect(find.text('Help with a launch'), findsNothing);
+        expect(find.text('Close request'), findsNothing);
+        expect(tester.takeException(), isNull);
+      } finally {
+        if (!gate.isCompleted) gate.complete(null);
+        await tester.pumpWidget(const SizedBox.shrink());
+        controller.dispose();
+        await repo.identities.close();
+      }
+    },
+  );
 }
