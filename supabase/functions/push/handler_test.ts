@@ -45,6 +45,7 @@ const prepared: PreparedPush = {
     delivery_id: delivery,
     binding_id: binding,
     recipient_user_id: actor,
+    kind: "message_created",
   },
 };
 
@@ -309,6 +310,24 @@ Deno.test("standard VAPID transport encrypts only the minimal payload and never 
     return new Response(null, { status: 201 });
   });
   assertEquals(calls, 1);
+  assertEquals(result.outcome, "sent");
+});
+
+Deno.test("Hiring type survives encrypted delivery without request content", async () => {
+  const item: PreparedPush = {
+    ...prepared,
+    payload: { ...prepared.payload, kind: "community_created" },
+  };
+  const result = await deliverPush(item, config, (_input, options) => {
+    const decoded = ece.decrypt(Buffer.from(options?.body as Uint8Array), {
+      version: "aes128gcm",
+      privateKey: recipientKey,
+      authSecret: auth,
+    });
+    assertEquals(JSON.parse(decoded.toString()), item.payload);
+    assertEquals(Object.keys(item.payload).length, 5);
+    return Promise.resolve(new Response(null, { status: 201 }));
+  });
   assertEquals(result.outcome, "sent");
 });
 

@@ -91,10 +91,10 @@ try {
     }
     throw new Error(`Timed out: ${label}`);
   }
-  async function inject(id = delivery, recipient = user, bindingId = bound) {
+  async function inject(id = delivery, recipient = user, bindingId = bound, kind = 'message_created') {
     assert.ok(registrationId);
     await cdp.send('ServiceWorker.deliverPushMessage', {origin, registrationId,
-      data: JSON.stringify({version: 1, delivery_id: id, recipient_user_id: recipient, binding_id: bindingId,
+      data: JSON.stringify({version: 1, delivery_id: id, recipient_user_id: recipient, binding_id: bindingId, kind,
         title: 'Private sender must never display', body: 'Private message must never display'})});
   }
   await page.evaluate(([user, session]) => paulPush.identity(user, session), [user, session]);
@@ -104,8 +104,15 @@ try {
   const displayed = await notifications();
   assert.equal(displayed.length, 1);
   assert.equal(displayed[0].title, 'Paul');
-  assert.equal(displayed[0].body, 'New activity');
-  assert.deepEqual(Object.keys(displayed[0].data).sort(), ['version', 'delivery_id', 'recipient_user_id', 'binding_id'].sort());
+  assert.equal(displayed[0].body, 'New message');
+  assert.deepEqual(Object.keys(displayed[0].data).sort(), ['version', 'delivery_id', 'recipient_user_id', 'binding_id', 'kind'].sort());
+  const hiringId = '40000000-0000-4000-8000-000000000002';
+  await inject(hiringId, user, bound, 'community_created');
+  await waitFor(async () => (await notifications()).length === 2, 'separate Hiring notification');
+  assert.equal((await notifications()).find(item => item.data.delivery_id === hiringId).body, 'New Hiring request');
+  await inject('40000000-0000-4000-8000-000000000003', user, bound, 'Private event');
+  await new Promise(resolve => setTimeout(resolve, 100));
+  assert.equal((await notifications()).length, 2);
   await page.evaluate(async () => { for (const item of await (await navigator.serviceWorker.ready).getNotifications()) item.close(); });
   await cdp.send('ServiceWorker.stopAllWorkers');
   await inject();
