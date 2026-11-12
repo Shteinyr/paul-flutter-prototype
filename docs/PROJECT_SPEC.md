@@ -46,11 +46,13 @@ Community имеет общую ленту, свободное количест�
 
 ## Обзор
 
+Александр принял P01–P03 и P12 12.11.2026. Новые исправления читаемости, подсказок и поиск по имени имеют отдельную приёмку и не отменяют это решение. Согласованные реальные гостевые карточки/Hiring и общие знакомые опубликованы в Sitesv23; v24 добавила раннюю загрузку служебного шрифта. Первый запуск остаётся отдельной открытой #102.
+
 | ID | Блок Figma | Текущий статус |
 | --- | --- | --- |
-| P01 | [Profile creation — Test](https://www.figma.com/design/8tCP0Pg2UghSOPP5bIg9Ra/UI?node-id=61869-1947) | Прототип готов |
-| P02 | [Profile creation — Next](https://www.figma.com/design/8tCP0Pg2UghSOPP5bIg9Ra/UI?node-id=61825-3487) | Прототип готов |
-| P03 | [Profile view → GitHub setup](https://www.figma.com/design/8tCP0Pg2UghSOPP5bIg9Ra/UI?node-id=61825-3849) | Прототип готов |
+| P01 | [Profile creation — Test](https://www.figma.com/design/8tCP0Pg2UghSOPP5bIg9Ra/UI?node-id=61869-1947) | Принято12.11.2026; исправления #98 отдельно |
+| P02 | [Profile creation — Next](https://www.figma.com/design/8tCP0Pg2UghSOPP5bIg9Ra/UI?node-id=61825-3487) | Принято12.11.2026; исправления #98 отдельно |
+| P03 | [Profile view → GitHub setup](https://www.figma.com/design/8tCP0Pg2UghSOPP5bIg9Ra/UI?node-id=61825-3849) | Принято12.11.2026; исправления #98 отдельно |
 | P04 | [QR code generation → Cloud setup](https://www.figma.com/design/8tCP0Pg2UghSOPP5bIg9Ra/UI?node-id=61825-3898) | Серверная приёмка |
 | P05 | [Contact access](https://www.figma.com/design/8tCP0Pg2UghSOPP5bIg9Ra/UI?node-id=61997-1790) | Браузерная интеграция на приёмке |
 | P06 | [Registration / Splash screen → Firebase](https://www.figma.com/design/8tCP0Pg2UghSOPP5bIg9Ra/UI?node-id=61825-4200) | Интеграция Auth |
@@ -59,11 +61,11 @@ Community имеет общую ленту, свободное количест�
 | P09 | [About You — 3/3](https://www.figma.com/design/8tCP0Pg2UghSOPP5bIg9Ra/UI?node-id=61852-2551) | Подключён server callback |
 | P10 | [Chat — Push → Firebase / WebSocket setup](https://www.figma.com/design/8tCP0Pg2UghSOPP5bIg9Ra/UI?node-id=61825-5087) | Переписка и Web Push на технической приёмке, системный tap и устройства отдельно |
 | P11 | [Admin + User management](https://www.figma.com/design/8tCP0Pg2UghSOPP5bIg9Ra/UI?node-id=61818-2313) | Admin workspace и окончательное удаление реализованы, клиентская приёмка открыта |
-| P12 | [Skill search + Filter](https://www.figma.com/design/8tCP0Pg2UghSOPP5bIg9Ra/UI?node-id=61818-2317) | Глобальный поиск и общий справочник реализованы, клиентская приёмка открыта |
+| P12 | [Skill search + Filter](https://www.figma.com/design/8tCP0Pg2UghSOPP5bIg9Ra/UI?node-id=61818-2317) | Принято12.11.2026; новые доработки #75/#112 на отдельной приёмке |
 | P13 | [Community reach out — Local](https://www.figma.com/design/8tCP0Pg2UghSOPP5bIg9Ra/UI?node-id=61818-2319) | Community/Hiring и Web Push реализованы, клиентская приёмка открыта |
-| P14 | [Connections — Search — Hiring — Chat](https://www.figma.com/design/8tCP0Pg2UghSOPP5bIg9Ra/UI?node-id=61824-2335) | Частично |
+| P14 | [Connections — Search — Hiring — Chat](https://www.figma.com/design/8tCP0Pg2UghSOPP5bIg9Ra/UI?node-id=61824-2335) | Отображение общих знакомых опубликовано, на приёмке |
 | P15 | [Pop-ups](https://www.figma.com/design/8tCP0Pg2UghSOPP5bIg9Ra/UI?node-id=61934-2314) | Частично |
-| P16 | [Web view — Prompts / Guest → Profile — React Online](https://www.figma.com/design/8tCP0Pg2UghSOPP5bIg9Ra/UI?node-id=61818-2325) | Запланировано |
+| P16 | [Web view — Prompts / Guest → Profile — React Online](https://www.figma.com/design/8tCP0Pg2UghSOPP5bIg9Ra/UI?node-id=61818-2325) | Реальные карточки и Hiring для гостя опубликованы, на приёмке |
 
 <a id="p01"></a>
 
@@ -209,7 +211,7 @@ Outbox записывается атомарно с новым сообщени�
 
 ## P12. Skill search + Filter
 
-Техническая приёмка #45/#46 пройдена 10.11.2026 для версии `5db83ad`. Клиентская приёмка остаётся открытой. [Макет](https://www.figma.com/design/8tCP0Pg2UghSOPP5bIg9Ra/UI?node-id=61818-2317).
+Александр принял глобальный поиск и общий справочник P12 12.11.2026. Новые поиск по имени #75 и ускорение подсказок #112 опубликованы в Sitesv23 и ожидают отдельной приёмки. [Макет](https://www.figma.com/design/8tCP0Pg2UghSOPP5bIg9Ra/UI?node-id=61818-2317).
 
 В Contacts требуются компактные подсказки поверх списка, результаты с фото/именем/совпадением, All по умолчанию, Offer, Hiring и последовательная загрузка страниц. Offer использует `skills`, Hiring использует `searching_skills`, All объединяет совпадения по одному профилю. Marketing и Digital Marketing остаются отдельными навыками.
 
@@ -239,7 +241,7 @@ Outbox записывается атомарно с новым сообщени�
 
 ## P14. Connections — Search — Hiring — Chat
 
-**Статус:** Частично. [Макет](https://www.figma.com/design/8tCP0Pg2UghSOPP5bIg9Ra/UI?node-id=61824-2335).
+**Статус:** Согласованное отображение общих знакомых опубликовано, клиентская приёмка открыта. [Макет](https://www.figma.com/design/8tCP0Pg2UghSOPP5bIg9Ra/UI?node-id=61824-2335).
 
 **Состав:** Свои/сетевые/взаимные контакты, поиск, Offer / Hiring, переход к чату и hiring-ленте.
 
