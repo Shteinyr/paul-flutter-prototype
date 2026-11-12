@@ -14,10 +14,10 @@ The interface follows the existing mobile Figma screens in Flutter for the brows
 2. Invitation levels count completed registrations through a personal invitation. Below two invitees, one new external recipient per day. From two, unrestricted messaging. From ten, expanded offering skills and Community publishing. Search and Hiring readership are available at every level.
 3. Community requests are visible to all registered members. Authors can have any number of active requests. Closing a request or reaching30days deletes its record. Push targets registered members with current notification consent.
 4. Confirmed account/profile deletion immediately removes photo, description, skills and connections. Counterpart conversation history uses the label «Удалённый пользователь».
-5. Find acquaintances is voluntary after the user has started using the system. Its explicit activation includes adding a phone to the existing account, SMS verification, discovery consent and selecting contacts. Matching and invitation fallback use the supported browser capabilities.
-6. Company tariffs/limits and request history/statistics are future tasks #84/#85. Real Google/Apple/SMS integration is verified against actual owner configuration and service results.
+5. Updated12November: P05 only invites a friend through copying, system sharing or the user's SMS app, with local contact selection where supported. Own-phone linking, SMS verification, discovery consent and phone matching (#70) are excluded. No external SMS provider is required. Actual phone sharing and client acceptance remain #34/#35/#41.
+6. Company tariffs/limits and request history/statistics are future tasks #84/#85. Real Google/Apple integration is verified against actual owner configuration and service results.
 
-Implementation issues are #43/#45/#46/#47/#48/#70/#72/#76/#86. Existing local checks and client acceptance are recorded separately.
+Implementation issues are #43/#45/#46/#47/#48/#72/#76/#86. #70 is cancelled following the scope change, not accepted as completed. Existing local checks and client acceptance are recorded separately.
 
 ## Proposed sequence
 
@@ -29,23 +29,22 @@ Implementation issues are #43/#45/#46/#47/#48/#70/#72/#76/#86. Existing local ch
 | 4. Discovery | Search, filters, sorting and pagination for the agreed fields | Specified combinations return expected results, including empty and paged states |
 | 5. Messaging and connections | Persisted conversations, realtime delivery, unread state and idempotent connection creation | Two real accounts exchange messages and connect exactly once; history survives a reconnect |
 | 6. Browser Push | Web Push subscriptions, server outbox worker, fixed Message/Hiring type labels and authorized routing | Actual Chrome deliveries passed, system tap and final device acceptance remain open |
-| 7. Invites and contacts | Server-issued invitation tokens with expiry/revocation; deep links; consent-based contact matching | A valid invite connects once; expired or revoked invites fail; denied permission has a usable fallback |
+| 7. Invites and contacts | Server-issued invitation tokens with expiry/revocation; invitation links, copying, system sharing and optional local contact selection | The current invitation reaches the user's chosen sharing app; cancellation or denied contact permission retains the manual path; expired or revoked invites fail |
 | 8. Delivery | Browser QA, error recovery, identified web build and handover | Owner opens the agreed URL and reproduces accepted scenarios |
 
-The live implementation includes guest preview, invitations, onboarding, profiles, text chat, managed-profile administration, global registered-member search, shared ESCO suggestions with free text, invitation levels, Community and browser Web Push. Account and managed-profile deletion retain counterpart histories. Voluntary phone discovery has client/server implementation. Real SMS awaits provider configuration and delivery acceptance. Technical results and client acceptance are tracked per block in PROJECT_SPEC and GitHub.
+The live implementation includes guest preview, invitations, onboarding, profiles, text chat, managed-profile administration, global registered-member search, shared ESCO suggestions with free text, invitation levels, Community and browser Web Push. Account and managed-profile deletion retain counterpart histories. The obsolete phone-discovery entry is removed from the application; historical backend data and migrations are preserved. Technical results and client acceptance are tracked per block in PROJECT_SPEC and GitHub.
 
 ## Current backend
 
 Flutter in the browser uses the separate Paul Supabase project for PostgreSQL, Auth, Storage, Realtime and Edge Functions. Browser Web Push uses VAPID and the existing server outbox, with server-generated keys in Supabase Vault. A separate maintenance worker expires Community requests and completes deletion cleanup independently of push availability.
 
-Keep profile and chat storage behind the existing store interfaces. Authenticated user IDs, membership checks, migrations and row-level policies are implemented. Multi-user history lives on the server, local preferences retain drafts and cache state. Contact matching and invite acceptance belong on authenticated server endpoints.
+Keep profile and chat storage behind the existing store interfaces. Authenticated user IDs, membership checks, migrations and row-level policies are implemented. Multi-user history lives on the server, local preferences retain drafts and cache state. Invite acceptance belongs on authenticated server endpoints. Selected invitation contacts stay local and are not matched against server phone numbers.
 
 ## Owner-controlled services needed for real integrations
 
 - GitHub repository/organisation and developer access.
 - Transfer of the existing Supabase project and service ownership to the agreed client account.
 - Google/Apple web OAuth configuration, provider consents and developer access.
-- SMS-provider configuration and a separately approved real verification message. Phone authentication is currently disabled and provider credentials are empty.
 - Actual operating-system notification acceptance for the mobile Figma scenarios.
 - Client-owned browser domains when required for provider configuration.
 
