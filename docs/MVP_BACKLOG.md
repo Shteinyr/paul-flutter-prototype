@@ -28,7 +28,7 @@ Implementation issues are #43/#45/#46/#47/#48/#70/#72/#76/#86. Existing local ch
 | 3. Profiles and photos | Server-backed profile and photo storage; field validation and access rules | Edits appear after signing in on a second device; unauthorised edits are rejected |
 | 4. Discovery | Search, filters, sorting and pagination for the agreed fields | Specified combinations return expected results, including empty and paged states |
 | 5. Messaging and connections | Persisted conversations, realtime delivery, unread state and idempotent connection creation | Two real accounts exchange messages and connect exactly once; history survives a reconnect |
-| 6. Browser Push | Web Push subscriptions, server outbox worker, generic notifications and authorized routing | Actual Chrome deliveries passed, system tap and final device acceptance remain open |
+| 6. Browser Push | Web Push subscriptions, server outbox worker, fixed Message/Hiring type labels and authorized routing | Actual Chrome deliveries passed, system tap and final device acceptance remain open |
 | 7. Invites and contacts | Server-issued invitation tokens with expiry/revocation; deep links; consent-based contact matching | A valid invite connects once; expired or revoked invites fail; denied permission has a usable fallback |
 | 8. Delivery | Browser QA, error recovery, identified web build and handover | Owner opens the agreed URL and reproduces accepted scenarios |
 

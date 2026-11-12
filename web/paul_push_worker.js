@@ -30,9 +30,13 @@ function record(change) {
 function payload(value) {
   if (!value || value.version !== 1 || !uuid.test(value.recipient_user_id) ||
       !uuid.test(value.binding_id) || !uuid.test(value.delivery_id)) return null;
-  // Only these identifiers survive. Sender names and message text never render.
+  const kind = value.kind;
+  if (kind !== undefined && kind !== 'message_created' && kind !== 'community_created') return null;
+  // Keep only routing identifiers and a fixed event type, never personal content.
+  // Missing kind is supported for deliveries already in flight during an update.
   return {version: 1, recipient_user_id: value.recipient_user_id,
-    binding_id: value.binding_id, delivery_id: value.delivery_id};
+    binding_id: value.binding_id, delivery_id: value.delivery_id,
+    ...(kind === undefined ? {} : {kind})};
 }
 function owns(current, data) {
   return current?.active === true && current.user_id === data.recipient_user_id &&
@@ -73,7 +77,9 @@ async function notify(data) {
       // completed before worker termination. Click/close also confirm it.
       if (!owns(await record(), data)) return;
       await self.registration.showNotification('Paul', {
-        body: 'New activity', tag, renotify: false, data,
+        body: data.kind === 'message_created' ? 'New message' :
+          data.kind === 'community_created' ? 'New Hiring request' : 'New activity',
+        tag, renotify: false, data,
         icon: new URL('icons/Icon-192.png', self.registration.scope).href,
       });
     }

@@ -9,6 +9,7 @@ export interface PreparedPush {
     delivery_id: string;
     binding_id: string;
     recipient_user_id: string;
+    kind: "message_created" | "community_created";
   };
 }
 export interface DeliveryResult {

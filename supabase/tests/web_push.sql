@@ -46,7 +46,8 @@ create temp table claims as select * from jsonb_to_recordset(public.push_claim(2
 select pg_temp.assert_true((select count(*)=3 from claims),'Two devices plus assigned operator only');
 select pg_temp.assert_true(jsonb_array_length(public.push_claim(20))=0,'Already leased deliveries never double claim');
 create temp table prepared as select c.*,public.push_prepare(c.delivery_id,c.lease_token) data from claims c;
-select pg_temp.assert_true((select bool_and(data->'payload' ?& array['version','delivery_id','binding_id','recipient_user_id']) and bool_and((select count(*)=4 from jsonb_object_keys(data->'payload'))) from prepared),'Exact minimal push DTO');
+select pg_temp.assert_true((select bool_and(data->'payload' ?& array['version','delivery_id','binding_id','recipient_user_id','kind']) and bool_and((select count(*)=5 from jsonb_object_keys(data->'payload'))) from prepared),'Exact minimal typed push DTO');
+select pg_temp.assert_true((select bool_and(data->'payload'->>'kind'='message_created') from prepared),'Personal and operator messages both carry the message type');
 select pg_temp.assert_true((select bool_and(not (data->'payload' ?| array['text','name','conversation_id','managed_profile_id','endpoint'])) from prepared),'No message or profile PII in payload');
 create temp table operator_delivery as select p.* from prepared p where data->'payload'->>'recipient_user_id'='78000000-0000-4000-8000-000000000003';
 select pg_temp.assert_true(public.push_resolve('78000000-0000-4000-8000-000000000003','78100000-0000-4000-8000-000000000003',(select delivery_id from operator_delivery),'78200000-0000-4000-8000-000000000003')->>'kind'='operator','Resolve uses Auth operator and managed route');
