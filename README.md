@@ -139,7 +139,7 @@ Owner activation uses a separate one-use, seven-day invitation issued only by th
 
 Supabase persists the main browser session across reopening. Pending invitation, profile snapshot and OAuth-finalization marker use sessionStorage. Logout clears the live pending state and onboarding draft. The current preview uses the SDK's JavaScript-readable browser storage.
 
-Google/Apple provider setup, real OAuth acceptance and client Terms/Privacy URLs remain open P06 criteria. Server account deletion is implemented in #72; it does not complete those external requirements. Test fixture password sessions are confined to verification.
+The test Google provider is configured and real browser OAuth has returned successfully on Mac. Full invited-member registration and physical-phone acceptance are tracked separately. Apple is paused pending an active Developer Program account. Server account deletion is implemented in #72. Test fixture password sessions are confined to verification.
 
 Focused local checks include `test/invitation_controller_test.dart`, `test/live_app_auth_test.dart` and `supabase/tests/invitations.sql`. `scripts/test_live_invitations.py` runs against explicitly prepared disposable QA identities supplied through a private fixture. Its basic phase requires fresh inactive invitees. Keep fixture contents, tokens and invitation links out of command output and commits.
 
