@@ -133,7 +133,9 @@ bash scripts/build_live.sh --dart-define-from-file=/absolute/path/to/live.json
 
 The script produces `dist/` from an isolated build with its own asset manifest. The guest preview bundles the provided Paul and Julia portraits. Member portraits load from private Storage.
 
-Invitations last exactly 15 minutes. An open QR screen automatically replaces expired QR and numeric code. Multiple users can redeem within that lifetime. Reissuing the same token retains the original deadline. The server checks expiry again after Auth, activates membership/profile and creates a unique connection atomically. First-owner bootstrap is a controlled one-use server invitation with no issuer. Keep its raw credential in a private local file.
+Ordinary invitations last exactly 15 minutes. An open QR screen automatically replaces expired QR and numeric code. Multiple users can redeem within that lifetime. Reissuing the same token retains the original deadline. The server checks expiry again after Auth, activates membership/profile and creates a unique connection atomically.
+
+Owner activation uses a separate one-use, seven-day invitation issued only by the trusted provisioning operator. It is bound to the intended Google email and an explicit list of existing managed profiles. The Edge function derives the confirmed email from Auth's verified Google identity; editable request/profile metadata cannot grant access. Successful registration atomically creates the member, owner role, assigned-profile grants and audit record, without adding referral credit. A retry by the same account reuses the claim and cannot restore a revoked role. Ordinary QR codes never grant Admin. Keep the raw owner link in a private local file and deliver it only to its intended recipient.
 
 Supabase persists the main browser session across reopening. Pending invitation, profile snapshot and OAuth-finalization marker use sessionStorage. Logout clears the live pending state and onboarding draft. The current preview uses the SDK's JavaScript-readable browser storage.
 

@@ -18,6 +18,8 @@ class LiveApiException implements Exception {
     'own_invitation' =>
       'This is your own invitation. Open another person’s QR or code to connect.',
     'membership_required' => 'Complete registration with an invitation first.',
+    'invitation_account_mismatch' =>
+      'Sign in with the Google account this invitation was sent to.',
     'sign_in_required' ||
     'session_revoked' => 'Please sign in again to continue.',
     'invalid_profile' =>
