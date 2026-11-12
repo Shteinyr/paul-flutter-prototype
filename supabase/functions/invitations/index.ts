@@ -1,6 +1,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2.108.2";
 
 import { decodeBase64, uuid as sessionUuid } from "../push/shared.ts";
+import { verifiedGoogleEmail } from "./verified_google.ts";
 
 const url = Deno.env.get("SUPABASE_URL")!;
 const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -152,6 +153,7 @@ Deno.serve(async (request) => {
     }
 
     let userId: string | undefined;
+    let googleEmail: string | null = null;
     if (action !== "check") {
       const bearer = request.headers.get("Authorization")?.match(
         /^Bearer (.+)$/i,
@@ -187,6 +189,7 @@ Deno.serve(async (request) => {
         );
       }
       userId = data.user.id;
+      googleEmail = verifiedGoogleEmail(data.user);
       await limit("user:" + userId, 60, 60);
     }
 
@@ -230,7 +233,9 @@ Deno.serve(async (request) => {
         return reply(400, { code: "invalid_invitation" });
       }
       const manual = credential.length === 8;
-      rpc = action === "check" ? "check_invitation" : "redeem_invitation";
+      rpc = action === "check"
+        ? "check_registration_invitation"
+        : "redeem_registration_invitation";
       args = {
         p_hash: await digest(
           manual ? serviceKey + ":code:" + credential : "token:" + credential,
@@ -244,6 +249,7 @@ Deno.serve(async (request) => {
         }
         args.p_user = userId;
         args.p_profile = body.profile ?? {};
+        args.p_verified_google_email = googleEmail;
       }
     }
     const { data, error } = await database.rpc(rpc, args);
@@ -256,6 +262,7 @@ Deno.serve(async (request) => {
         "own_invitation",
         "membership_required",
         "invalid_profile",
+        "invitation_account_mismatch",
         "offering_limit_reached",
         "account_deleted",
         "rate_limited",
