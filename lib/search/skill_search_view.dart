@@ -287,6 +287,15 @@ class _SkillSearchViewState extends State<SkillSearchView> {
                                   ],
                                 ),
                               ),
+                            if (hit.mutualContacts.isNotEmpty &&
+                                hit.mutualContactCount > 0)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Align(
+                                  alignment: Alignment.centerRight,
+                                  child: MutualContactAttribution(hit: hit),
+                                ),
+                              ),
                             if (_opening == hit.id)
                               const Padding(
                                 padding: EdgeInsets.only(top: 4),
@@ -450,4 +459,39 @@ class _SearchStatus extends StatelessWidget {
       ),
     ),
   );
+}
+
+class MutualContactAttribution extends StatelessWidget {
+  const MutualContactAttribution({super.key, required this.hit});
+  final SkillSearchHit hit;
+  @override
+  Widget build(BuildContext context) {
+    final contacts = hit.mutualContacts.take(3).toList();
+    if (contacts.isEmpty || hit.mutualContactCount <= 0) {
+      return const SizedBox.shrink();
+    }
+    final names = contacts.map((c) => c.name).join(', ');
+    final label = hit.mutualContactCount == 1
+        ? '${contacts.first.name}’s contact'
+        : 'Mutual contacts (${hit.mutualContactCount})';
+    return Semantics(
+      label: hit.mutualContactCount == 1 ? label : '$label: $names',
+      excludeSemantics: true,
+      child: Tooltip(
+        message: names,
+        child: Text(
+          label,
+          key: ValueKey('mutual-contact-${hit.id}'),
+          textAlign: TextAlign.right,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w300,
+            color: _blue,
+          ),
+        ),
+      ),
+    );
+  }
 }

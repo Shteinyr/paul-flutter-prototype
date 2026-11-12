@@ -11,11 +11,13 @@ insert into public.profiles(id,profile_kind,name,occupation,summary,skills,searc
 insert into public.profiles(id,profile_kind,name,occupation,summary,skills,searching_skills,disabled_at) values('76000000-0000-4000-8000-000000000002','managed','Julia Disabled','Designer','Test',array['Marketing'],array[]::text[],now());
 select pg_temp.assert_true(not has_function_privilege('anon','public.profile_name_search(text,jsonb,integer)','execute'),'No anon grant');
 select pg_temp.assert_true((select not prosecdef and proconfig=array['search_path=""'] from pg_proc where oid='public.profile_name_search(text,jsonb,integer)'::regprocedure),'Invoker with fixed search path');
+insert into auth.sessions(id,user_id) values('75000000-1111-4111-8111-000000000001','75000000-0000-4000-8000-000000000001');
 set local role anon;
 select pg_temp.expect_error($q$select public.profile_name_search('Julia')$q$,'permission denied');
 reset role;
 set local role authenticated;
 set local request.jwt.claim.sub='75000000-0000-4000-8000-000000000001';
+set local request.jwt.claims='{"session_id":"75000000-1111-4111-8111-000000000001"}';
 select pg_temp.assert_true(jsonb_array_length(public.profile_name_search(' JULIA ')->'results')=4,'Global active registered and managed only');
 select pg_temp.assert_true(public.profile_name_search('julia')->'results'->0->>'name'='Julia','Exact first');
 select pg_temp.assert_true(public.profile_name_search('julia')->'results'->1->>'name'='Julia Managed','Prefixes before substring');

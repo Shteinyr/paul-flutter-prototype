@@ -17,12 +17,32 @@ class SkillSearchException implements Exception {
   final String code;
   @override
   String toString() => switch (code) {
-    'sign_in_required' => 'Please sign in again to search.',
+    'sign_in_required' ||
+    'session_revoked' => 'Please sign in again to search.',
     'membership_required' => 'Complete registration with an invitation first.',
     'rate_limited' => 'Too many searches. Wait a minute and try again.',
     'invalid_request' => 'Check your search and try again.',
     _ => 'Could not search. Check your connection and try again.',
   };
+}
+
+class MutualContact {
+  const MutualContact({
+    required this.id,
+    required this.name,
+    required this.occupation,
+    this.avatarPath,
+  });
+  final String id;
+  final String name;
+  final String occupation;
+  final String? avatarPath;
+  factory MutualContact.fromJson(Map<String, dynamic> data) => MutualContact(
+    id: data['id'] as String,
+    name: data['name'] as String,
+    occupation: data['occupation'] as String,
+    avatarPath: data['avatar_path'] as String?,
+  );
 }
 
 class SkillSearchHit {
@@ -31,11 +51,15 @@ class SkillSearchHit {
     required this.name,
     required this.occupation,
     required this.matchedKinds,
+    this.mutualContacts = const [],
+    this.mutualContactCount = 0,
   });
   final String id;
   final String name;
   final String occupation;
   final Set<SkillSearchKind> matchedKinds;
+  final List<MutualContact> mutualContacts;
+  final int mutualContactCount;
 }
 
 class SkillSearchPage {
@@ -176,6 +200,16 @@ class SupabaseSkillSearchApi
           id: item['id'] as String,
           name: item['name'] as String,
           occupation: item['occupation'] as String,
+          mutualContacts: List.unmodifiable(
+            (item['mutual_contacts'] as List? ?? const [])
+                .take(3)
+                .map(
+                  (v) => MutualContact.fromJson(
+                    Map<String, dynamic>.from(v as Map),
+                  ),
+                ),
+          ),
+          mutualContactCount: item['mutual_contact_count'] as int? ?? 0,
           matchedKinds: (item['matched_kinds'] as List)
               .map((value) => SkillSearchKind.values.byName(value as String))
               .toSet(),

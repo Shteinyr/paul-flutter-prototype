@@ -226,3 +226,23 @@ Deno.test("name request rejects short queries, skill modes and spoofed viewer", 
     check(r.status === 400 && f.reads.length === 0, "Rejected before reads");
   }
 });
+
+Deno.test("session and membership failures retain authentication status for both searches", async () => {
+  for (const action of ["search", "search_names"]) {
+    for (
+      const [message, status] of [["session_revoked", 401], [
+        "membership_required",
+        403,
+      ]] as const
+    ) {
+      const f = fixture({ rpcError: { message, code: "42501" } });
+      const r = await handleSkillSearch(
+        request({ action, query: "Julia" }),
+        f.service,
+        f.userClient,
+      );
+      check(r.status === status, "Not a generic503");
+      check((await r.json()).code === message, "Preserve error code");
+    }
+  }
+});
