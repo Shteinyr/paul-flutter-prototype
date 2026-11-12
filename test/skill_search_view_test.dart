@@ -14,7 +14,11 @@ void main() {
   late SkillSearchController controller;
   setUp(() {
     repository = SearchRepository();
-    controller = SkillSearchController(repository, debounce: Duration.zero);
+    controller = SkillSearchController(
+      repository,
+      debounce: Duration.zero,
+      localSuggest: (_) async => [],
+    );
   });
   tearDown(() async {
     controller.dispose();
@@ -215,4 +219,33 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.byKey(const ValueKey('skill-result-1')), findsOneWidget);
   });
+  testWidgets(
+    'local rows are selectable while remote suggestions are pending',
+    (tester) async {
+      controller.dispose();
+      final pending = Completer<List<SkillSuggestion>>();
+      repository.suggesting = (_, _) => pending.future;
+      controller = SkillSearchController(
+        repository,
+        debounce: Duration.zero,
+        localSuggest: (_) async => [marketing],
+      );
+      await show(tester, width: 320);
+      await tester.enterText(
+        find.byKey(const Key('skill-search-field')),
+        'mar',
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 20));
+      expect(controller.loading, isTrue);
+      expect(find.byKey(const ValueKey('suggest-marketing')), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('suggest-marketing')));
+      await tester.pumpAndSettle();
+      expect(repository.searches.single.$1, 'marketing');
+      pending.complete([digital]);
+      await tester.pumpAndSettle();
+      expect(controller.selected, marketing);
+      expect(controller.suggestions, isEmpty);
+    },
+  );
 }
