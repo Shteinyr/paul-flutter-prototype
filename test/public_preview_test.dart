@@ -11,6 +11,7 @@ import 'package:paul_demo/live/public_guest_preview.dart';
 import 'package:paul_demo/live/public_preview_api.dart';
 import 'package:paul_demo/profile/user_profile.dart';
 import 'package:paul_demo/search/skill_search_api.dart';
+import 'package:paul_demo/skills/skill_catalogue.dart';
 
 const person = PublicProfile(
   id: '10000000-0000-4000-8000-000000000001',
@@ -44,7 +45,7 @@ class PublicFixture implements PublicPreviewRepository {
     Map<String, dynamic>? cursor,
     bool namesOnly = false,
   }) async {
-    calls.add('profiles');
+    calls.add(namesOnly ? 'names' : 'profiles');
     if (fail) throw StateError('unavailable');
     return PublicProfilePage([person], query, null);
   }
@@ -176,6 +177,44 @@ void main() {
         throwsA(isA<CommunityException>()),
       );
       expect(fixture.calls, isEmpty);
+    },
+  );
+  testWidgets(
+    'guest name search opens real public cards without exposing mutual contacts',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final repo = PublicFixture();
+      var signIns = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData(fontFamily: 'NotoSans'),
+          home: PublicGuestPreview(
+            repository: repo,
+            onRequireSignIn: () => signIns++,
+            onEditProfile: () {},
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.runAsync(() => SkillCatalogue.shared.suggest('Real'));
+      await tester.enterText(
+        find.byKey(const Key('skill-search-field')),
+        'Real',
+      );
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.byKey(const Key('search-people-by-name')));
+      await tester.pumpAndSettle();
+      expect(repo.calls, contains('names'));
+      expect(signIns, 0);
+      expect(find.text('All'), findsNothing);
+      expect(find.textContaining('Mutual contacts'), findsNothing);
+      await tester.tap(find.text(person.profile.name));
+      await tester.pumpAndSettle();
+      expect(find.text(person.profile.summary), findsOneWidget);
+      expect(signIns, 0);
+      await tester.pumpWidget(const SizedBox());
     },
   );
   testWidgets(

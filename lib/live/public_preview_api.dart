@@ -171,7 +171,8 @@ class PublicPreviewApi implements PublicPreviewRepository {
   }
 }
 
-class PublicSearchRepository implements SkillSearchRepository {
+class PublicSearchRepository
+    implements SkillSearchRepository, ProfileNameSearchRepository {
   PublicSearchRepository(this.repository);
   final PublicPreviewRepository repository;
   final saved = <String, PublicProfile>{};
@@ -255,6 +256,7 @@ class PublicSearchRepository implements SkillSearchRepository {
     SkillSearchKind kind, {
     Map<String, dynamic>? cursor,
   }) => _search(query, kind, cursor: cursor);
+  @override
   Future<SkillSearchPage> searchNames(
     String query, {
     Map<String, dynamic>? cursor,

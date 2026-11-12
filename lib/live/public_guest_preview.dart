@@ -8,6 +8,7 @@ import '../profile/public_profile_view.dart';
 import '../search/skill_search_controller.dart';
 import '../search/skill_search_view.dart';
 import 'public_preview_api.dart';
+import 'public_avatar_image.dart';
 import 'chat_controller.dart';
 
 class _PublicDraftStore implements ChatStateStore {
@@ -307,12 +308,11 @@ class PublicProfileAvatar extends StatelessWidget {
     final url = profile?.avatarUrl;
     if (url == null) return ProfileAvatar(size: size);
     return ClipOval(
-      child: Image.network(
-        url,
+      child: Image(
         key: ValueKey(url),
+        image: publicAvatarImage(url),
         width: size,
         height: size,
-        cacheWidth: (size * 3).round(),
         fit: BoxFit.cover,
         frameBuilder: (context, child, frame, wasSynchronouslyLoaded) =>
             frame != null || wasSynchronouslyLoaded
