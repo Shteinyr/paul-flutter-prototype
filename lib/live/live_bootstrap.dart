@@ -9,12 +9,17 @@ import 'browser_storage.dart';
 import 'auth_callback.dart';
 import 'guest_preview.dart';
 import 'live_app.dart';
+import 'public_preview_api.dart';
 
 Future<Widget> buildLiveApp({
   required String url,
   required String key,
   required String appUrl,
 }) async {
+  final previewUrl = Uri.tryParse(url);
+  final publicPreview = previewUrl?.hasAuthority == true && key.isNotEmpty
+      ? PublicPreviewApi(url: previewUrl!, publishableKey: key)
+      : null;
   Future<void> retry() async =>
       runApp(await buildLiveApp(url: url, key: key, appUrl: appUrl));
   const probe = 'paul.live.storage.check.v1';
@@ -29,6 +34,7 @@ Future<Widget> buildLiveApp({
   } catch (_) {
     return GuestUnavailableApp(
       onRetry: retry,
+      publicPreviewRepository: publicPreview,
       message:
           'Browser storage is unavailable. Allow storage for this site, then retry to sign in. You can keep exploring the preview.',
     );
@@ -65,6 +71,7 @@ Future<Widget> buildLiveApp({
     }
     return PaulLiveApp(
       client: Supabase.instance.client,
+      publicPreviewRepository: publicPreview,
       appUrl: Uri.parse(appUrl),
       authCallback: authCallback,
       authCallbackFailed: callbackResult == AuthCallbackResult.failed,
@@ -85,6 +92,9 @@ Future<Widget> buildLiveApp({
       },
     );
   } catch (_) {
-    return GuestUnavailableApp(onRetry: retry);
+    return GuestUnavailableApp(
+      onRetry: retry,
+      publicPreviewRepository: publicPreview,
+    );
   }
 }

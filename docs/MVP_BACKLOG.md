@@ -15,7 +15,7 @@ The interface follows the existing mobile Figma screens in Flutter for the brows
 3. Community requests are visible to all registered members. Authors can have any number of active requests. Closing a request or reaching30days deletes its record. Push targets registered members with current notification consent.
 4. Confirmed account/profile deletion immediately removes photo, description, skills and connections. Counterpart conversation history uses the label «Удалённый пользователь».
 5. Updated12November: P05 only invites a friend through copying, system sharing or the user's SMS app, with local contact selection where supported. Own-phone linking, SMS verification, discovery consent and phone matching (#70) are excluded. No external SMS provider is required. Actual phone sharing and client acceptance remain #34/#35/#41.
-6. Company tariffs/limits and request history/statistics are future tasks #84/#85. Real Google/Apple integration is verified against actual owner configuration and service results.
+6. Company tariffs/limits and optional request statistics remain future tasks #84/#85. Closed and expired Hiring requests are hidden from everyone; do not add a history screen. Real Google/Apple integration is verified against actual owner configuration and service results.
 
 Implementation issues are #43/#45/#46/#47/#48/#72/#76/#86. #70 is cancelled following the scope change, not accepted as completed. Existing local checks and client acceptance are recorded separately.
 

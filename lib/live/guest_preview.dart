@@ -12,6 +12,8 @@ import '../profile/user_profile.dart';
 import '../search/skill_search_controller.dart';
 import '../search/skill_search_view.dart';
 import 'guest_search_repository.dart';
+import 'public_preview_api.dart';
+import 'public_guest_preview.dart';
 
 /// Sample data is independent of membership, demo history and onboarding storage.
 class GuestPreview extends StatefulWidget {
@@ -280,11 +282,27 @@ class GuestUnavailableApp extends StatelessWidget {
   const GuestUnavailableApp({
     super.key,
     required this.onRetry,
+    this.publicPreviewRepository,
     this.message =
         'Could not connect to Paul. You can keep exploring the preview or retry to sign in.',
   });
   final VoidCallback onRetry;
+  final PublicPreviewRepository? publicPreviewRepository;
   final String message;
+
+  Widget _preview({
+    required VoidCallback onRequireSignIn,
+    required VoidCallback onEditProfile,
+  }) => publicPreviewRepository == null
+      ? GuestPreview(
+          onRequireSignIn: onRequireSignIn,
+          onEditProfile: onEditProfile,
+        )
+      : PublicGuestPreview(
+          repository: publicPreviewRepository!,
+          onRequireSignIn: onRequireSignIn,
+          onEditProfile: onEditProfile,
+        );
 
   @override
   Widget build(BuildContext context) => MaterialApp(
@@ -297,7 +315,7 @@ class GuestUnavailableApp extends StatelessWidget {
       colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF14679E)),
     ),
     home: Builder(
-      builder: (context) => GuestPreview(
+      builder: (context) => _preview(
         onEditProfile: () => Navigator.of(context).push<void>(
           MaterialPageRoute(
             builder: (draftContext) => OnboardingFlow(

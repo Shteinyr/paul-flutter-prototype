@@ -33,6 +33,8 @@ import 'live_api.dart';
 import 'member_capabilities.dart';
 import 'live_qr_view.dart';
 import 'guest_preview.dart';
+import 'public_preview_api.dart';
+import 'public_guest_preview.dart';
 import 'chat_api.dart';
 import 'chat_controller.dart';
 import 'live_chat_list.dart';
@@ -66,6 +68,7 @@ class PaulLiveApp extends StatefulWidget {
     this.recoverSignIn,
     this.pushBrowser,
     this.pushRepositoryFor,
+    this.publicPreviewRepository,
   });
   final SupabaseClient client;
   final Uri appUrl;
@@ -82,6 +85,7 @@ class PaulLiveApp extends StatefulWidget {
   final DeletionRepository? deletionRepository;
   final Future<void> Function()? recoverSignIn;
   final PushBrowser? pushBrowser;
+  final PublicPreviewRepository? publicPreviewRepository;
   final PushRepository Function(String userId, String sessionId)?
   pushRepositoryFor;
   @override
@@ -93,13 +97,18 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
   late final DeletionController _deletions;
   late final StreamSubscription<AuthState> _auth;
   final _navigator = GlobalKey<NavigatorState>();
+  final _publicBrowsing = PublicGuestBrowsingState();
   ProfileController? _profile;
   MemberCapabilities? _capabilities;
   String? _capabilityError;
   int _capabilityGeneration = 0;
   final _networkUpdates = ValueNotifier(const MemberNetwork());
   MemberNetwork get _network => _networkUpdates.value;
-  set _network(MemberNetwork value) => _networkUpdates.value = value;
+  set _network(MemberNetwork value) {
+    _networkUpdates.value = value;
+    if (value.own != null) _publicBrowsing.reset();
+  }
+
   LiveChatController? _chat;
   SkillSearchController? _search;
   CommunityController? _community;
@@ -1335,6 +1344,14 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
           initialDraft: _draft,
           onBack: _backToGuest,
           onContinueToRegistration: _continueGuestDraft,
+        );
+      }
+      if (widget.publicPreviewRepository != null) {
+        return PublicGuestPreview(
+          repository: widget.publicPreviewRepository!,
+          browsingState: _publicBrowsing,
+          onRequireSignIn: _beginEntry,
+          onEditProfile: _editGuestDraft,
         );
       }
       return GuestPreview(

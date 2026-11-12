@@ -72,10 +72,12 @@ export async function handleSkillSearch(
       ? (body.action === "suggest" ? 10 : 20)
       : body.limit;
     if (
-      (body.action !== "suggest" && body.action !== "search") ||
+      (!["suggest", "search", "search_names"].includes(String(body.action))) ||
       Object.keys(body).some((key) => !allowed.includes(key)) ||
       typeof body.query !== "string" || !body.query.trim() ||
       body.query.includes("\0") ||
+      (body.action === "search_names" && [...body.query.trim()].length < 2) ||
+      (body.action === "search_names" && kind !== "all") ||
       new TextEncoder().encode(body.query).byteLength > 32768 ||
       typeof kind !== "string" ||
       !["all", "offering", "hiring"].includes(kind) ||
@@ -99,12 +101,20 @@ export async function handleSkillSearch(
       p_kind: kind,
       p_limit: limit,
     };
-    if (body.action === "search") args.p_cursor = body.cursor ?? null;
+    if (body.action !== "suggest") args.p_cursor = body.cursor ?? null;
+    if (body.action === "search_names") delete args.p_kind;
     const { data, error } = await userClient(token).rpc(
-      body.action === "suggest" ? "skill_suggest" : "skill_search",
+      body.action === "search_names"
+        ? "profile_name_search"
+        : body.action === "suggest"
+        ? "skill_suggest"
+        : "skill_search",
       args,
     );
     if (error) {
+      if (error.message === "session_revoked") {
+        return reply(401, { code: "session_revoked" });
+      }
       if (error.message === "membership_required") {
         return reply(403, { code: "membership_required" });
       }

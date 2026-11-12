@@ -172,4 +172,90 @@ void main() {
       }
     },
   );
+  test(
+    'name capability sends separate action with all kind and preserves cursor',
+    () async {
+      const id = '10000000-0000-4000-8000-000000000001';
+      final cursor = {'query': 'julia', 'mode': 'names', 'after': 'one'};
+      final transport = MockClient((request) async {
+        if (request.url.path.endsWith('/token')) {
+          return http.Response(
+            jsonEncode({
+              'access_token': token(id),
+              'refresh_token': 'test-only',
+              'token_type': 'bearer',
+              'expires_in': 3600,
+              'user': {
+                'id': id,
+                'aud': 'authenticated',
+                'created_at': DateTime.utc(2026).toIso8601String(),
+                'app_metadata': {},
+                'user_metadata': {},
+              },
+            }),
+            200,
+          );
+        }
+        expect(request.url.path, '/functions/v1/skill-search');
+        expect(jsonDecode(request.body), {
+          'action': 'search_names',
+          'query': 'Julia',
+          'kind': 'all',
+          'cursor': cursor,
+        });
+        return http.Response(
+          jsonEncode({
+            'query': 'julia',
+            'kind': 'all',
+            'results': [
+              {
+                'id': id,
+                'name': 'Julia',
+                'occupation': 'Designer',
+                'matched_kinds': [],
+                'mutual_contact_count': 5,
+                'mutual_contacts': List.generate(
+                  4,
+                  (i) => {
+                    'id': 'mutual-$i',
+                    'name': 'Contact $i',
+                    'occupation': 'Designer',
+                    'avatar_path': null,
+                  },
+                ),
+              },
+            ],
+            'next_cursor': null,
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      });
+      final client = SupabaseClient(
+        'https://search-test.invalid',
+        'test-key',
+        httpClient: transport,
+        isolate: _Json(),
+        authOptions: const AuthClientOptions(autoRefreshToken: false),
+      );
+      try {
+        await client.auth.signInWithPassword(
+          email: 'a@example.invalid',
+          password: 'test-only',
+        );
+        final result = await SupabaseSkillSearchApi(
+          client,
+          id,
+        ).searchNames('Julia', cursor: cursor);
+        expect(result.results.single.name, 'Julia');
+        expect(result.results.single.mutualContactCount, 5);
+        expect(result.results.single.mutualContacts.length, 3);
+        expect(result.results.single.mutualContacts.first.name, 'Contact 0');
+        expect(result.results.single.matchedKinds, isEmpty);
+        expect(result.nextCursor, isNull);
+      } finally {
+        await client.dispose();
+      }
+    },
+  );
 }
