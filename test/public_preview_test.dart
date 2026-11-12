@@ -1,0 +1,222 @@
+import 'dart:convert';
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'package:paul_demo/community/community_api.dart';
+import 'package:paul_demo/live/chat_api.dart';
+import 'package:paul_demo/live/public_guest_preview.dart';
+import 'package:paul_demo/live/public_preview_api.dart';
+import 'package:paul_demo/profile/user_profile.dart';
+import 'package:paul_demo/search/skill_search_api.dart';
+
+const person = PublicProfile(
+  id: '10000000-0000-4000-8000-000000000001',
+  profile: UserProfile(
+    name: 'Real community member',
+    occupation: 'Designer',
+    summary: 'Actual public biography',
+    skills: ['Design'],
+  ),
+);
+Map<String, dynamic> wireProfile() => {
+  'id': person.id,
+  'name': person.profile.name,
+  'occupation': person.profile.occupation,
+  'summary': person.profile.summary,
+  'skills': ['Design'],
+  'searching_skills': <String>[],
+  'contact_count': 2,
+  'avatar_url': null,
+};
+
+class PublicFixture implements PublicPreviewRepository {
+  bool fail = false;
+  final calls = <String>[];
+  @override
+  PublicProfile? cachedProfile(String id) => id == person.id ? person : null;
+  @override
+  Future<PublicProfilePage> profiles({
+    String query = '',
+    SkillSearchKind kind = SkillSearchKind.all,
+    Map<String, dynamic>? cursor,
+    bool namesOnly = false,
+  }) async {
+    calls.add('profiles');
+    if (fail) throw StateError('unavailable');
+    return PublicProfilePage([person], query, null);
+  }
+
+  @override
+  Future<PublicProfile?> profile(String id) async {
+    calls.add('profile');
+    return cachedProfile(id);
+  }
+
+  CommunityRequest get hiring => CommunityRequest(
+    id: '20000000-0000-4000-8000-000000000001',
+    author: ChatPeer(
+      id: person.id,
+      name: person.profile.name,
+      occupation: person.profile.occupation,
+    ),
+    skill: 'Actual hiring skill',
+    message: 'An actual public request',
+    createdAt: DateTime.now().toUtc(),
+    expiresAt: DateTime.now().toUtc().add(const Duration(days: 1)),
+    isAuthor: false,
+  );
+  @override
+  Future<CommunityPage> feed({Map<String, dynamic>? cursor}) async {
+    calls.add('feed');
+    return CommunityPage([hiring], null, DateTime.now().toUtc());
+  }
+
+  @override
+  Future<CommunityRequest?> request(String id) async {
+    calls.add('get');
+    return hiring;
+  }
+}
+
+void main() {
+  setUpAll(() async {
+    final font = FontLoader('NotoSans')
+      ..addFont(rootBundle.load('assets/fonts/NotoSans.ttf'));
+    await font.load();
+  });
+  test(
+    'public transport uses only public API key and never a user token or private function',
+    () async {
+      final actions = <String>[];
+      final client = MockClient((r) async {
+        expect(r.url.path, '/functions/v1/public-preview');
+        expect(r.headers['authorization'], isNull);
+        expect(r.headers['apikey'], 'public-key');
+        final b = jsonDecode(r.body) as Map;
+        actions.add(b['action'] as String);
+        return http.Response(
+          jsonEncode(
+            b['action'] == 'profile'
+                ? {'profile': wireProfile()}
+                : {
+                    'query': 'real',
+                    'profiles': [wireProfile()],
+                    'next_cursor': null,
+                  },
+          ),
+          200,
+        );
+      });
+      final api = PublicPreviewApi(
+        url: Uri.parse('https://public.invalid'),
+        publishableKey: 'public-key',
+        transport: client,
+      );
+      expect(
+        (await api.profiles()).profiles.single.profile.name,
+        person.profile.name,
+      );
+      expect(
+        (await api.profile(person.id))!.profile.summary,
+        person.profile.summary,
+      );
+      await PublicSearchRepository(api).searchNames('real');
+      expect(actions, ['profiles', 'profile', 'names']);
+      client.close();
+    },
+  );
+  test(
+    'public community repository cannot create or close a request',
+    () async {
+      final fixture = PublicFixture();
+      final repo = PublicCommunityRepository(fixture);
+      await expectLater(
+        repo.create('id', 'Design', 'text'),
+        throwsA(isA<CommunityException>()),
+      );
+      await expectLater(
+        repo.close('id', 'request'),
+        throwsA(isA<CommunityException>()),
+      );
+      expect(fixture.calls, isEmpty);
+    },
+  );
+  testWidgets(
+    'guest browses actual profiles and Hiring while messaging requires sign in',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final repo = PublicFixture();
+      var signIns = 0;
+      var edits = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData(fontFamily: 'NotoSans'),
+          home: PublicGuestPreview(
+            repository: repo,
+            onRequireSignIn: () => signIns++,
+            onEditProfile: () => edits++,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text(person.profile.name), findsOneWidget);
+      expect(find.text('Julia Robinson'), findsNothing);
+      await tester.tap(find.text(person.profile.name));
+      await tester.pumpAndSettle();
+      expect(find.text(person.profile.summary), findsOneWidget);
+      await tester.tap(find.byKey(const Key('open-profile-chat')));
+      await tester.pumpAndSettle();
+      expect(signIns, 1);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('tab-1')));
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining('Actual hiring skill', findRichText: true),
+        findsOneWidget,
+      );
+      expect(find.text('Sales Representative'), findsNothing);
+      expect(find.text('Close request'), findsNothing);
+      await tester.tap(find.byKey(const Key('tab-2')));
+      await tester.pumpAndSettle();
+      expect(find.text('Sign in to view your messages.'), findsOneWidget);
+      expect(signIns, 1); // A tab inspection itself does not force Join.
+      await tester.tap(find.byKey(const Key('tab-3')));
+      await tester.pumpAndSettle();
+      expect(edits, 1);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+  testWidgets(
+    'failed public loading shows Retry and never substitutes demonstration people',
+    (tester) async {
+      final repo = PublicFixture()..fail = true;
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData(fontFamily: 'NotoSans'),
+          home: PublicGuestPreview(
+            repository: repo,
+            onRequireSignIn: () {},
+            onEditProfile: () {},
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.text('Could not load profiles. Please retry.'),
+        findsOneWidget,
+      );
+      expect(find.text('Paul Galda'), findsNothing);
+      repo.fail = false;
+      await tester.tap(find.text('Retry'));
+      await tester.pumpAndSettle();
+      expect(find.text(person.profile.name), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+}

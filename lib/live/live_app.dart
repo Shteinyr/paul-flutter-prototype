@@ -33,6 +33,8 @@ import 'live_api.dart';
 import 'member_capabilities.dart';
 import 'live_qr_view.dart';
 import 'guest_preview.dart';
+import 'public_preview_api.dart';
+import 'public_guest_preview.dart';
 import 'chat_api.dart';
 import 'chat_controller.dart';
 import 'live_chat_list.dart';
@@ -66,6 +68,7 @@ class PaulLiveApp extends StatefulWidget {
     this.recoverSignIn,
     this.pushBrowser,
     this.pushRepositoryFor,
+    this.publicPreviewRepository,
   });
   final SupabaseClient client;
   final Uri appUrl;
@@ -82,6 +85,7 @@ class PaulLiveApp extends StatefulWidget {
   final DeletionRepository? deletionRepository;
   final Future<void> Function()? recoverSignIn;
   final PushBrowser? pushBrowser;
+  final PublicPreviewRepository? publicPreviewRepository;
   final PushRepository Function(String userId, String sessionId)?
   pushRepositoryFor;
   @override
@@ -1279,6 +1283,13 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
           initialDraft: _draft,
           onBack: _backToGuest,
           onContinueToRegistration: _continueGuestDraft,
+        );
+      }
+      if (widget.publicPreviewRepository != null) {
+        return PublicGuestPreview(
+          repository: widget.publicPreviewRepository!,
+          onRequireSignIn: _beginEntry,
+          onEditProfile: _editGuestDraft,
         );
       }
       return GuestPreview(
