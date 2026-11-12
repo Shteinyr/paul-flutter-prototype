@@ -117,6 +117,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
   UserProfile? _draft;
   String? _credential;
   String? _identity;
+  String? _authSession;
   String? _error;
   bool _loading = true;
   bool _acceptedInvite = false;
@@ -162,6 +163,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
       }
     }
     _identity = widget.client.auth.currentUser?.id;
+    _authSession = pushSessionId(widget.client);
     _pushBrowser = widget.pushBrowser ?? createPushBrowser();
     final click = _pushBrowser.takeClick();
     if (click?.recipientId == _identity) _pendingPushClick = click;
@@ -238,11 +240,12 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     if (!mounted) return;
     final generation = ++_loadGeneration;
     final identity = widget.client.auth.currentUser?.id;
+    final session = pushSessionId(widget.client);
     setState(() {
       _loading = true;
       _error = null;
     });
-    if (_identity != identity) {
+    if (_identity != identity || _authSession != session) {
       _pendingPushClick = null;
       _push?.dispose();
       _push = null;
@@ -272,6 +275,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
         return;
       }
       _identity = identity;
+      _authSession = session;
     }
     if (!mounted ||
         generation != _loadGeneration ||
@@ -282,7 +286,11 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
       var network = identity == null
           ? const MemberNetwork()
           : await _api.network();
-      if (!mounted || generation != _loadGeneration) return;
+      if (!mounted ||
+          generation != _loadGeneration ||
+          session != pushSessionId(widget.client)) {
+        return;
+      }
       try {
         if (_credential != null && !_deferInvitation) {
           if (network.own != null) {
@@ -648,6 +656,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
 
   Future<bool> _fetchNetwork() async {
     final identity = _identity;
+    final session = _authSession;
     final generation = _loadGeneration;
     final chat = _chat;
     try {
@@ -657,6 +666,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
           identity != _identity ||
           generation != _loadGeneration ||
           !identical(chat, _chat) ||
+          session != pushSessionId(widget.client) ||
           widget.client.auth.currentUser?.id != identity) {
         return false;
       }
@@ -734,6 +744,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     final profile = _profile;
     final identity = _identity;
     final generation = _loadGeneration;
+    final session = _authSession;
     if (chat == null ||
         profile == null ||
         identity == null ||
@@ -744,11 +755,12 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     }
     _openingChat = true;
     try {
-      if (!chat.loaded) await chat.load();
+      if (!chat.loaded) await chat.prepare();
       if (!mounted ||
           !origin.mounted ||
           !identical(chat, _chat) ||
           generation != _loadGeneration ||
+          session != pushSessionId(widget.client) ||
           identity != widget.client.auth.currentUser?.id ||
           ModalRoute.of(origin)?.isCurrent != true) {
         return;
@@ -759,33 +771,48 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
         );
         return;
       }
-      final id = conversationId ?? await chat.openPeer(peer.id);
-      if (conversationId != null) await chat.openConversation(conversationId);
+      final id = conversationId ?? await chat.resolvePeer(peer.id);
       if (!mounted ||
           !origin.mounted ||
           id == null ||
           !identical(chat, _chat) ||
           generation != _loadGeneration ||
+          session != pushSessionId(widget.client) ||
           identity != widget.client.auth.currentUser?.id ||
           ModalRoute.of(origin)?.isCurrent != true) {
         return;
       }
+      bool current() =>
+          mounted &&
+          identical(profile, _profile) &&
+          identical(chat, _chat) &&
+          identity == widget.client.auth.currentUser?.id &&
+          session == pushSessionId(widget.client);
+      final updates = Listenable.merge([profile, _networkUpdates]);
       final route = _navigator.currentState!.push(
         MaterialPageRoute<void>(
-          builder: (_) => ListenableBuilder(
-            listenable: Listenable.merge([profile, _networkUpdates]),
-            builder: (_, _) => LiveChatView(
-              key: ValueKey('$identity:$id'),
-              controller: chat,
-              conversationId: id,
-              peer: peer,
-              ownAvatar: ProfileAvatar(photo: profile.profile.photo, size: 65),
-              peerAvatar: _peerAvatar(peer, size: 65),
-              onInvite: _openQr,
-            ),
-          ),
+          builder: (_) => !current()
+              ? const SizedBox.shrink()
+              : ListenableBuilder(
+                  listenable: updates,
+                  builder: (_, _) => !current()
+                      ? const SizedBox.shrink()
+                      : LiveChatView(
+                          key: ValueKey('$identity:$id'),
+                          controller: chat,
+                          conversationId: id,
+                          peer: peer,
+                          ownAvatar: ProfileAvatar(
+                            photo: profile.profile.photo,
+                            size: 65,
+                          ),
+                          peerAvatar: _peerAvatar(peer, size: 65),
+                          onInvite: _openQr,
+                        ),
+                ),
         ),
       );
+      unawaited(chat.openConversation(id));
       opening?.complete();
       await route;
     } finally {
@@ -1315,7 +1342,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
         onSelected: (value) {
           unawaited(_profile!.flush());
           setState(() => _tab = value);
-          if (value == 0) unawaited(_load());
+          if (value == 0) unawaited(_refreshNetwork());
           if (value == 2) unawaited(_chat?.refresh());
           if (value == 3) unawaited(_refreshCapabilities());
         },
@@ -1780,10 +1807,18 @@ class _LiveContacts extends StatelessWidget {
                           ),
                         ),
                         for (final member in network.contacts)
-                          _MemberRow(
+                          ContactRow(
                             key: ValueKey('${member.id}:${member.avatarPath}'),
-                            member: member,
-                            api: api,
+                            name: member.profile.name,
+                            occupation: member.profile.occupation,
+                            avatar: chatAvatar(
+                              ChatPeer(
+                                id: member.id,
+                                name: member.profile.name,
+                                occupation: member.profile.occupation,
+                                avatarPath: member.avatarPath,
+                              ),
+                            ),
                             onOpen: () => onProfile(member),
                           ),
                       ],
@@ -1849,33 +1884,5 @@ class _SearchProfileAvatarState extends State<_SearchProfileAvatar> {
   Widget build(BuildContext context) => FutureBuilder<Uint8List?>(
     future: _photo,
     builder: (_, snapshot) => ProfileAvatar(photo: snapshot.data, size: 65),
-  );
-}
-
-class _MemberRow extends StatefulWidget {
-  const _MemberRow({
-    super.key,
-    required this.member,
-    required this.api,
-    required this.onOpen,
-  });
-  final MemberProfile member;
-  final LiveApi api;
-  final VoidCallback onOpen;
-  @override
-  State<_MemberRow> createState() => _MemberRowState();
-}
-
-class _MemberRowState extends State<_MemberRow> {
-  late final _photo = widget.api.photo(widget.member);
-  @override
-  Widget build(BuildContext context) => FutureBuilder(
-    future: _photo,
-    builder: (context, snapshot) => ContactRow(
-      name: widget.member.profile.name,
-      occupation: widget.member.profile.occupation,
-      avatar: ProfileAvatar(photo: snapshot.data, size: 65),
-      onOpen: widget.onOpen,
-    ),
   );
 }
