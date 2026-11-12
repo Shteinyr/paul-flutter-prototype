@@ -12,7 +12,7 @@
 - [M2 — Invites, Contacts, Chat & Push](https://github.com/Shteinyr/paul-flutter-prototype/milestone/2)
 - [M3 — Admin, Search & Community](https://github.com/Shteinyr/paul-flutter-prototype/milestone/3)
 
-Подзадачи G01–G32 связаны с существующими epics. GH01 ведёт настройку и подготовку клиентского доступа отдельно. Статус draft сохраняется до согласования конкретного этапа. Представление общих друзей и полный P16 guest web имеют отдельные задачи. Принятые11.11.2026 уровни2/10 ведутся в текущей исполнительской #86.
+Подзадачи G01–G32 связаны с существующими epics. GH01 ведёт настройку и подготовку клиентского доступа отдельно. Статус draft сохраняется до согласования конкретного этапа. Общие знакомые P14 и реальные гостевые карточки/Hiring P16 опубликованы в Sitesv23; клиентская приёмка открыта. Отдельный React-продукт не назначен. Принятые11.11.2026 уровни2/10 ведутся в текущей исполнительской #86.
 
 ## Принятая очередь реализации от 11.11.2026
 
@@ -40,8 +40,8 @@
 - [ ] [#12](https://github.com/Shteinyr/paul-flutter-prototype/issues/12) **P11 — Admin + User management**. Admin workspace, глобальное первое обращение #76 и окончательное удаление #43 реализованы. Клиентская приёмка и реальная роль Пола #77 открыты. [Требования и приёмка](PROJECT_SPEC.md#p11)
 - [ ] [#13](https://github.com/Shteinyr/paul-flutter-prototype/issues/13) **P12 — Skill search + Filter**. Глобальный поиск зарегистрированных участников и общий справочник со свободным вводом #45/#46 реализованы. Клиентская приёмка открыта. [Требования и приёмка](PROJECT_SPEC.md#p12)
 - [ ] [#14](https://github.com/Shteinyr/paul-flutter-prototype/issues/14) **P13 — Community reach out — Local**. Hiring/feed/create/close/30-day expiry и Web Push реализованы в #47/#48. Клиентская и системная приёмка уведомлений открыты. [Требования и приёмка](PROJECT_SPEC.md#p13)
-- [ ] [#15](https://github.com/Shteinyr/paul-flutter-prototype/issues/15) **P14 — Connections — Search — Hiring — Chat**. Статус базы: Частично. [Требования и приёмка](PROJECT_SPEC.md#p14)
+- [ ] [#15](https://github.com/Shteinyr/paul-flutter-prototype/issues/15) **P14 — Connections — Search — Hiring — Chat**. Общие знакомые опубликованы, ожидается приёмка. [Требования и приёмка](PROJECT_SPEC.md#p14)
 - [ ] [#16](https://github.com/Shteinyr/paul-flutter-prototype/issues/16) **P15 — Pop-ups**. Статус базы: Частично. [Требования и приёмка](PROJECT_SPEC.md#p15)
-- [ ] [#17](https://github.com/Shteinyr/paul-flutter-prototype/issues/17) **P16 — Web view — Prompts / Guest → Profile — React Online**. Статус базы: Запланировано. [Требования и приёмка](PROJECT_SPEC.md#p16)
+- [ ] [#17](https://github.com/Shteinyr/paul-flutter-prototype/issues/17) **P16 — Реальные карточки и Hiring для гостя во Flutter**. Опубликовано, ожидается приёмка. [Требования и приёмка](PROJECT_SPEC.md#p16)
 
 Порядок: согласование scope и backend → доступы/окружения → auth/profile → messaging/connections → push/invites/contacts → согласованные discovery/admin/community/web.
