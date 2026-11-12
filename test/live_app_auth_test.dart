@@ -325,6 +325,14 @@ void main() {
             200,
           );
         }
+        if (request.url.path.endsWith('/avatar_upload_begin')) {
+          return http.Response(
+            'null',
+            200,
+            request: request,
+            headers: {'content-type': 'application/json'},
+          );
+        }
         if (request.url.path.startsWith('/storage/')) return upload.future;
         redemptions++;
         return http.Response(
@@ -415,6 +423,14 @@ void main() {
           }
           if (request.url.path.endsWith('/logout')) {
             return http.Response('{}', 200);
+          }
+          if (request.url.path.endsWith('/avatar_upload_begin')) {
+            return http.Response(
+              'null',
+              200,
+              request: request,
+              headers: {'content-type': 'application/json'},
+            );
           }
           if (request.url.path.startsWith('/storage/')) {
             downloads++;
@@ -571,6 +587,14 @@ void main() {
                 },
               }),
               200,
+            );
+          }
+          if (request.url.path.endsWith('/avatar_upload_begin')) {
+            return http.Response(
+              'null',
+              200,
+              request: request,
+              headers: {'content-type': 'application/json'},
             );
           }
           if (request.url.path.startsWith('/storage/')) {

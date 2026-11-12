@@ -2,6 +2,8 @@ import { authorized } from "../push-worker/handler.ts";
 import { readBody } from "../push/shared.ts";
 import { type AccountDatabase, cleanupDeletions } from "../account/cleanup.ts";
 
+import { cleanupAvatars } from "../photo-cleanup/cleanup.ts";
+
 export async function handleMaintenance(
   request: Request,
   database: AccountDatabase,
@@ -23,16 +25,25 @@ export async function handleMaintenance(
     return reply(400, { code: "invalid_request" });
   }
   try {
+    const started = performance.now();
     const expired = await database.rpc("community_expire", { p_limit: 200 });
     const communityPending = expired.error?.code === "PGRST202";
     const communityError = !!expired.error && !communityPending;
     const cleanup = await cleanupDeletions(database);
-    return reply(communityError || cleanup.failed ? 503 : 200, {
-      community_expired: expired.error ? 0 : expired.data,
-      community_pending: communityPending,
-      community_error: communityError,
-      cleanup,
-    });
+    const photos = await cleanupAvatars(
+      database,
+      Math.max(0, Math.min(8000, 45000 - (performance.now() - started))),
+    );
+    return reply(
+      communityError || cleanup.failed || photos.failed ? 503 : 200,
+      {
+        community_expired: expired.error ? 0 : expired.data,
+        community_pending: communityPending,
+        community_error: communityError,
+        cleanup,
+        photos,
+      },
+    );
   } catch {
     return reply(503, { code: "server_unavailable" });
   }

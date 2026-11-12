@@ -1,0 +1,62 @@
+begin;
+create function pg_temp.assert_true(v boolean,d text) returns void language plpgsql as $$begin if v is distinct from true then raise exception 'Assertion: %',d;end if;end;$$;
+create function pg_temp.expect_error(s text,e text) returns void language plpgsql as $$begin begin execute s;exception when others then if position(e in sqlerrm)>0 then return;end if;raise;end;raise exception 'Expected %',e;end;$$;
+insert into auth.users(id) values('73300000-0000-4000-8000-000000000001');
+select private.save_profile('73300000-0000-4000-8000-000000000001',jsonb_build_object('name','Admin lifecycle','occupation','','summary','Test','skills',array['Design'],'searching_skills','[]'::jsonb));
+insert into private.memberships(user_id) values('73300000-0000-4000-8000-000000000001');
+insert into private.admin_roles(user_id,role) values('73300000-0000-4000-8000-000000000001','admin');
+create temp table f as select public.admin_prepare_create('73300000-0000-4000-8000-000000000001','73310000-0000-4000-8000-000000000001') id,null::jsonb as allocation,null::jsonb as draft,null::text as old_path;
+grant all on f to service_role;
+set local role service_role;
+update f set allocation=public.admin_avatar_upload_begin('73300000-0000-4000-8000-000000000001',id,true,'73310000-0000-4000-8000-000000000001',repeat('1',64));
+select pg_temp.assert_true((select (allocation->>'upload')::boolean from f),'First attempt uploads');
+select pg_temp.assert_true((select public.admin_avatar_upload_begin('73300000-0000-4000-8000-000000000001',id,true,'73310000-0000-4000-8000-000000000001',repeat('1',64))=allocation from f),'Same unconfirmed operation returns same path');
+reset role;
+insert into storage.objects(id,bucket_id,name,owner_id) select gen_random_uuid(),'avatars',allocation->>'path',null from f;
+update f set draft=jsonb_build_object('name','Managed lifecycle','occupation','','summary','Test','skills',array['Design'],'searching_skills','[]'::jsonb,'avatar_path',allocation->>'path'),old_path=allocation->>'path';
+set local role service_role;
+select public.admin_save_profile('73300000-0000-4000-8000-000000000001',(select id from f),true,'73310000-0000-4000-8000-000000000001',(select draft from f));
+select pg_temp.assert_true(not (select (public.admin_avatar_upload_begin('73300000-0000-4000-8000-000000000001',id,true,'73310000-0000-4000-8000-000000000001',repeat('1',64))->>'upload')::boolean from f),'Lost successful response does not re-upload');
+select pg_temp.expect_error($q$select public.admin_avatar_upload_begin('73300000-0000-4000-8000-000000000001',(select id from f),true,'73310000-0000-4000-8000-000000000001',repeat('2',64))$q$,'operation_id_conflict');
+-- Later edit allocates another immutable version even if photo content is the same.
+update f set allocation=public.admin_avatar_upload_begin('73300000-0000-4000-8000-000000000001',id,false,'73310000-0000-4000-8000-000000000002',repeat('1',64));
+select pg_temp.assert_true((select allocation->>'path'<>old_path from f),'Different save operation owns different path');
+reset role;
+insert into storage.objects(id,bucket_id,name,owner_id) select gen_random_uuid(),'avatars',allocation->>'path',null from f;
+set local role service_role;
+select public.admin_save_profile('73300000-0000-4000-8000-000000000001',(select id from f),false,'73310000-0000-4000-8000-000000000002',(select draft||jsonb_build_object('avatar_path',allocation->>'path') from f),(select updated_at from public.profiles where id=(select id from f)));
+select public.avatar_cleanup_set_enabled(true);
+reset role;
+update private.avatar_uploads set protected_until=clock_timestamp()-interval '1 second' where path=(select old_path from f);
+set local role service_role;
+select pg_temp.assert_true(jsonb_array_length(public.avatar_cleanup_claim())=1,'Replaced managed version retired');
+select pg_temp.assert_true(not (select (public.admin_avatar_upload_begin('73300000-0000-4000-8000-000000000001',id,true,'73310000-0000-4000-8000-000000000001',repeat('1',64))->>'upload')::boolean from f),'Late retry of completed old save cannot resurrect retired file');
+select pg_temp.assert_true((public.admin_save_profile('73300000-0000-4000-8000-000000000001',(select id from f),true,'73310000-0000-4000-8000-000000000001',(select draft from f))->>'replayed')::boolean,'Original receipt remains idempotent after replacement');
+-- Failed operation expires without a receipt; retry gets a fresh path.
+update f set allocation=public.admin_avatar_upload_begin('73300000-0000-4000-8000-000000000001',id,false,'73310000-0000-4000-8000-000000000003',repeat('3',64));
+reset role;
+update private.avatar_uploads set protected_until=clock_timestamp()-interval '1 second' where path=(select allocation->>'path' from f);
+set local role service_role;
+select public.avatar_cleanup_claim();
+select pg_temp.assert_true((select public.admin_avatar_upload_begin('73300000-0000-4000-8000-000000000001',id,false,'73310000-0000-4000-8000-000000000003',repeat('3',64))->>'path'<>allocation->>'path' from f),'Retry after cleanup fence gets fresh protected object');
+reset role;
+-- Active managed reservation remains protected despite artificially aged journal.
+create temp table r as select public.admin_prepare_create('73300000-0000-4000-8000-000000000001','73310000-0000-4000-8000-000000000004') id;
+grant select on r to service_role;
+insert into storage.objects(id,bucket_id,name) select gen_random_uuid(),'avatars',id::text||'/'||repeat('f',64)||'.png' from r;
+update private.avatar_uploads set protected_until=clock_timestamp()-interval '1 second' where owner_profile_id=(select id from r);
+set local role service_role;
+select pg_temp.assert_true(not exists(select 1 from jsonb_array_elements(public.avatar_cleanup_claim()) x where x->>'path'=(select id::text||'/'||repeat('f',64)||'.png' from r)),'Active create reservation not collected');
+reset role;
+update private.managed_profile_reservations set created_at=clock_timestamp()-interval '25 hours' where profile_id=(select id from r);
+set local role service_role;
+select pg_temp.assert_true(exists(select 1 from jsonb_array_elements(public.avatar_cleanup_claim())x where x->>'path'=(select id::text||'/'||repeat('f',64)||'.png' from r)),'Abandoned tracked reservation upload eligible after full grace');
+reset role;
+-- Account-deletion queue retains exclusive ownership of its complete prefix.
+insert into private.account_deletions(operation_id,actor_profile_id,target_profile_id,kind,request)
+select gen_random_uuid(),'73300000-0000-4000-8000-000000000001',id,'managed','{}'::jsonb from f;
+update private.avatar_uploads set protected_until=clock_timestamp()-interval '1 second',lease_until=null where owner_profile_id=(select id from f);
+set local role service_role;
+select pg_temp.assert_true(not exists(select 1 from jsonb_array_elements(public.avatar_cleanup_claim())x where starts_with(x->>'path',(select id::text||'/' from f))),'No conflict with immediate account/profile deletion queue');
+reset role;
+rollback;
