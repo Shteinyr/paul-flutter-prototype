@@ -9,7 +9,6 @@ import 'browser_storage.dart';
 import 'auth_callback.dart';
 import 'guest_preview.dart';
 import 'live_app.dart';
-import '../contacts/phone_discovery_api.dart';
 
 Future<Widget> buildLiveApp({
   required String url,
@@ -69,12 +68,6 @@ Future<Widget> buildLiveApp({
       appUrl: Uri.parse(appUrl),
       authCallback: authCallback,
       authCallbackFailed: callbackResult == AuthCallbackResult.failed,
-      phoneRepositoryFor: (userId) => SupabasePhoneDiscoveryApi(
-        Supabase.instance.client,
-        userId,
-        url: url,
-        key: key,
-      ),
       loadAuthProviders: () async {
         final response = await http
             .get(Uri.parse('$url/auth/v1/settings'), headers: {'apikey': key})
