@@ -213,6 +213,16 @@ void main() {
                 'name': 'Julia',
                 'occupation': 'Designer',
                 'matched_kinds': [],
+                'mutual_contact_count': 5,
+                'mutual_contacts': List.generate(
+                  4,
+                  (i) => {
+                    'id': 'mutual-$i',
+                    'name': 'Contact $i',
+                    'occupation': 'Designer',
+                    'avatar_path': null,
+                  },
+                ),
               },
             ],
             'next_cursor': null,
@@ -238,6 +248,9 @@ void main() {
           id,
         ).searchNames('Julia', cursor: cursor);
         expect(result.results.single.name, 'Julia');
+        expect(result.results.single.mutualContactCount, 5);
+        expect(result.results.single.mutualContacts.length, 3);
+        expect(result.results.single.mutualContacts.first.name, 'Contact 0');
         expect(result.results.single.matchedKinds, isEmpty);
         expect(result.nextCursor, isNull);
       } finally {

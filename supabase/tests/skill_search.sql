@@ -36,11 +36,13 @@ select pg_temp.assert_true((select bool_and(not prosecdef and proconfig=array['s
  'RPCs are invoker with fixed search_path');
 select pg_temp.assert_true((select not exists(select 1 from aclexplode(coalesce(proacl,acldefault('f',proowner))) where grantee=0)
  from pg_proc where oid='public.skill_search(text,text,jsonb,integer)'::regprocedure),'No default PUBLIC execute');
+insert into auth.sessions(id,user_id) values('50000000-1111-4111-8111-000000000001','50000000-0000-4000-8000-000000000001');
 set local role anon;
 select pg_temp.expect_error($q$select public.skill_suggest('mark')$q$,'permission denied');
 reset role;
 set local role authenticated;
 set local request.jwt.claim.sub='50000000-0000-4000-8000-000000000001';
+set local request.jwt.claims='{"session_id":"50000000-1111-4111-8111-000000000001"}';
 select pg_temp.assert_true(private.skill_key(U&'\00A0Digital\2003\0009Marketing\FEFF')='digital marketing','Unicode whitespace follows saved server free-text semantics');
 select pg_temp.assert_true(jsonb_array_length(public.skill_search(' marketing ')->'results')=4,'All includes every active registered and managed profile once');
 select pg_temp.assert_true(jsonb_array_length(public.skill_search('Marketing','offering')->'results')=4,'Offering uses all active saved skills');
@@ -77,7 +79,7 @@ set local request.jwt.claim.sub='50000000-0000-4000-8000-000000000001';
 set local request.jwt.claims='{"is_anonymous":true}';
 select pg_temp.expect_error($q$select public.skill_search('Marketing')$q$,'membership_required');
 select pg_temp.expect_error($q$select public.skill_suggest('Marketing')$q$,'membership_required');
-set local request.jwt.claims='{}';
+set local request.jwt.claims='{"session_id":"50000000-1111-4111-8111-000000000001"}';
 reset role;
 update public.profiles set searching_skills='{}' where id='50000000-0000-4000-8000-000000000002';
 delete from public.connections where user_high='60000000-0000-4000-8000-000000000001';

@@ -112,6 +112,9 @@ export async function handleSkillSearch(
       args,
     );
     if (error) {
+      if (error.message === "session_revoked") {
+        return reply(401, { code: "session_revoked" });
+      }
       if (error.message === "membership_required") {
         return reply(403, { code: "membership_required" });
       }
