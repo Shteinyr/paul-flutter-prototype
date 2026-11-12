@@ -38,8 +38,7 @@ PY
 (
   cd "$live_source"
   flutter pub get --enforce-lockfile
-  # Ship the smaller skwasm runtime with Flutter's CanvasKit/JS browser fallback.
-  flutter build web --release --wasm --no-web-resources-cdn \
+  flutter build web --release --no-web-resources-cdn --no-wasm-dry-run \
     --pwa-strategy=none --dart-define=PAUL_LIVE=true "$@"
 )
 python3 - "$project_root" "$live_source" <<'PY'
