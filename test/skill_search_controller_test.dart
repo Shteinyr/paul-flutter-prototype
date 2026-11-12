@@ -76,7 +76,11 @@ void main() {
   late SkillSearchController controller;
   setUp(() {
     repository = SearchRepository();
-    controller = SkillSearchController(repository, debounce: Duration.zero);
+    controller = SkillSearchController(
+      repository,
+      debounce: Duration.zero,
+      localSuggest: (_) async => [],
+    );
   });
   tearDown(() async {
     controller.dispose();
@@ -279,4 +283,115 @@ void main() {
       expect(controller.selected!.label, 'Unknown skill');
     },
   );
+  test(
+    'bundled suggestions appear before debounce and a delayed server',
+    () async {
+      controller.dispose();
+      final remote = Completer<List<SkillSuggestion>>();
+      repository.suggesting = (_, _) => remote.future;
+      controller = SkillSearchController(
+        repository,
+        debounce: const Duration(milliseconds: 250),
+        localSuggest: (_) async => [marketing],
+      );
+      controller.setQuery('mar');
+      await settle();
+      expect(controller.suggestions.single, marketing);
+      expect(controller.loading, isTrue);
+      expect(repository.suggestions, isEmpty);
+      await Future<void>.delayed(const Duration(milliseconds: 260));
+      expect(repository.suggestions.length, 1);
+      remote.complete([digital, marketing]);
+      await settle();
+      expect(controller.suggestions.map((s) => s.key), [
+        'marketing',
+        'digital marketing',
+      ]);
+      expect(controller.loading, isFalse);
+    },
+  );
+
+  test(
+    'remote failure retains local rows and retry adds custom skills',
+    () async {
+      controller.dispose();
+      repository.suggesting = (_, _) async => throw StateError('offline');
+      controller = SkillSearchController(
+        repository,
+        debounce: Duration.zero,
+        localSuggest: (_) async => [marketing],
+      );
+      controller.setQuery('mar');
+      await settle();
+      expect(controller.suggestions.single, marketing);
+      expect(controller.error, isNotNull);
+      repository.suggesting = (_, _) async => [
+        const SkillSuggestion(key: 'mars custom', label: 'Mars custom'),
+        const SkillSuggestion(key: 'marketing', label: 'MARKETING'),
+      ];
+      await controller.retry();
+      expect(controller.error, isNull);
+      expect(controller.suggestions.map((s) => s.label), [
+        'MARKETING',
+        'Mars custom',
+      ]);
+    },
+  );
+
+  for (final change in [
+    'new query',
+    'clear',
+    'select',
+    'identity',
+    'dispose',
+  ]) {
+    test('late local and remote rows are rejected after $change', () async {
+      controller.dispose();
+      final local = Completer<List<SkillSuggestion>>();
+      final remote = Completer<List<SkillSuggestion>>();
+      repository.suggesting = (q, _) =>
+          q == 'mar' ? remote.future : Future.value([]);
+      controller = SkillSearchController(
+        repository,
+        debounce: Duration.zero,
+        localSuggest: (q) => q == 'mar' ? local.future : Future.value([]),
+      );
+      controller.setQuery('mar');
+      await settle();
+      switch (change) {
+        case 'new query':
+          controller.setQuery('design');
+        case 'clear':
+          controller.setQuery('');
+        case 'select':
+          await controller.select(digital);
+        case 'identity':
+          repository.currentUserId = 'b';
+          repository.identities.add('b');
+          repository.currentUserId = 'a';
+          repository.identities.add('a');
+        case 'dispose':
+          controller.dispose();
+      }
+      local.complete([marketing]);
+      remote.complete([marketing]);
+      await settle();
+      expect(controller.suggestions, isEmpty);
+      if (change == 'dispose') {
+        controller = SkillSearchController(
+          repository,
+          localSuggest: (_) async => [],
+        );
+      }
+    });
+  }
+
+  test('same query does not restart debounce or repeat remote reads', () async {
+    controller.setQuery('mar');
+    controller.setQuery('mar');
+    await settle();
+    controller.setQuery('mar');
+    await settle();
+    expect(repository.suggestions.length, 1);
+  });
 }
