@@ -264,13 +264,39 @@ export async function handleAdmin(request: Request, database: SupabaseClient) {
           digest,
           (byte) => byte.toString(16).padStart(2, "0"),
         ).join("");
-        draft.avatar_path = `${body.profile_id}/${hash}.png`;
-        const { error: uploadError } = await database.storage.from("avatars")
-          .upload(String(draft.avatar_path), photo, {
-            contentType: "image/png",
-            upsert: true,
+        const { data: allocation, error: allocationError } = await database.rpc(
+          "admin_avatar_upload_begin",
+          {
+            p_actor: auth.user.id,
+            p_profile: body.profile_id,
+            p_create: body.create,
+            p_operation: body.client_operation_id,
+            p_hash: hash,
+          },
+        );
+        if (allocationError) {
+          return reply(statuses[allocationError.message] ?? 503, {
+            code: Object.hasOwn(statuses, allocationError.message)
+              ? allocationError.message
+              : "server_unavailable",
           });
-        if (uploadError) return reply(503, { code: "server_unavailable" });
+        }
+        if (
+          !allocation || typeof allocation.path !== "string" ||
+          !new RegExp(`^${body.profile_id}/[a-f0-9]{64}[.]png$`).test(
+            allocation.path,
+          ) ||
+          typeof allocation.upload !== "boolean"
+        ) return reply(503, { code: "server_unavailable" });
+        draft.avatar_path = allocation.path;
+        if (allocation.upload) {
+          const { error: uploadError } = await database.storage.from("avatars")
+            .upload(String(draft.avatar_path), photo, {
+              contentType: "image/png",
+              upsert: true,
+            });
+          if (uploadError) return reply(503, { code: "server_unavailable" });
+        }
       }
       args.p_create = body.create;
       args.p_draft = draft;

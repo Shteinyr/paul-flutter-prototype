@@ -1,10 +1,10 @@
 import 'dart:typed_data';
 
-import 'package:crypto/crypto.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../profile/profile_store.dart';
 import '../profile/user_profile.dart';
+import 'avatar_upload.dart';
 import 'invitation_controller.dart';
 import 'member_capabilities.dart';
 
@@ -196,17 +196,11 @@ class LiveApi implements InvitationIssuer {
   ) async {
     String? avatarPath;
     if (draft.photo != null) {
-      avatarPath = '$userId/${sha256.convert(draft.photo!).toString()}.png';
-      await client.storage
-          .from('avatars')
-          .uploadBinary(
-            avatarPath,
-            draft.photo!,
-            fileOptions: const FileOptions(
-              contentType: 'image/png',
-              upsert: true,
-            ),
-          );
+      try {
+        avatarPath = await uploadAvatar(client, userId, draft.photo!);
+      } on AuthException {
+        throw const LiveApiException('sign_in_required');
+      }
     }
     return {
       'name': draft.name,

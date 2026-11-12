@@ -119,6 +119,7 @@ function fixture() {
             }
             return Response.json(2);
           }
+          if (name === "avatar_cleanup_claim") return Response.json([]);
           if (name === "account_cleanup_claim") {
             if (
               !state.job || state.complete || state.leased ||
