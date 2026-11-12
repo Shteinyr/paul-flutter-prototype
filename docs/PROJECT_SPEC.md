@@ -50,9 +50,9 @@ Community имеет общую ленту, свободное количест�
 
 | ID | Блок Figma | Текущий статус |
 | --- | --- | --- |
-| P01 | [Profile creation — Test](https://www.figma.com/design/8tCP0Pg2UghSOPP5bIg9Ra/UI?node-id=61869-1947) | Прототип готов |
-| P02 | [Profile creation — Next](https://www.figma.com/design/8tCP0Pg2UghSOPP5bIg9Ra/UI?node-id=61825-3487) | Прототип готов |
-| P03 | [Profile view → GitHub setup](https://www.figma.com/design/8tCP0Pg2UghSOPP5bIg9Ra/UI?node-id=61825-3849) | Прототип готов |
+| P01 | [Profile creation — Test](https://www.figma.com/design/8tCP0Pg2UghSOPP5bIg9Ra/UI?node-id=61869-1947) | Принято12.11.2026; исправления #98 отдельно |
+| P02 | [Profile creation — Next](https://www.figma.com/design/8tCP0Pg2UghSOPP5bIg9Ra/UI?node-id=61825-3487) | Принято12.11.2026; исправления #98 отдельно |
+| P03 | [Profile view → GitHub setup](https://www.figma.com/design/8tCP0Pg2UghSOPP5bIg9Ra/UI?node-id=61825-3849) | Принято12.11.2026; исправления #98 отдельно |
 | P04 | [QR code generation → Cloud setup](https://www.figma.com/design/8tCP0Pg2UghSOPP5bIg9Ra/UI?node-id=61825-3898) | Серверная приёмка |
 | P05 | [Contact access](https://www.figma.com/design/8tCP0Pg2UghSOPP5bIg9Ra/UI?node-id=61997-1790) | Браузерная интеграция на приёмке |
 | P06 | [Registration / Splash screen → Firebase](https://www.figma.com/design/8tCP0Pg2UghSOPP5bIg9Ra/UI?node-id=61825-4200) | Интеграция Auth |
