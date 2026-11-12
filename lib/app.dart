@@ -602,48 +602,57 @@ class _ProfileEditorState extends State<ProfileEditor> {
             SizedBox(
               width: 327,
               height: 144,
-              child: Stack(
-                alignment: Alignment.topCenter,
-                clipBehavior: Clip.none,
-                children: [
-                  Semantics(
-                    label: controller.profile.photo == null
-                        ? 'Add profile photo'
-                        : 'Replace profile photo',
-                    button: true,
-                    child: InkResponse(
-                      key: const Key('choose-photo'),
-                      onTap: _choosePhoto,
-                      radius: 72,
-                      child: ProfileAvatar(
-                        photo: controller.profile.photo,
-                        size: 144,
-                        loading: _picking,
-                      ),
-                    ),
-                  ),
-                  if (controller.profile.photo != null)
-                    Positioned(
-                      top: 115,
-                      right: 35,
-                      child: IconButton(
-                        key: const Key('remove-photo'),
-                        tooltip: 'Remove photo',
-                        onPressed: () {
-                          controller.removePhoto();
-                          unawaited(controller.flush());
-                        },
-                        icon: Transform.rotate(
-                          angle: -3 * math.pi / 4,
-                          child: const _AssetIcon(
-                            'remove-photo.svg',
-                            width: 12.5,
-                            height: 12.5,
-                          ),
+              child: LayoutBuilder(
+                builder: (_, constraints) => Stack(
+                  alignment: Alignment.topCenter,
+                  clipBehavior: Clip.none,
+                  children: [
+                    Semantics(
+                      label: controller.profile.photo == null
+                          ? 'Add profile photo'
+                          : 'Replace profile photo',
+                      button: true,
+                      child: InkResponse(
+                        key: const Key('choose-photo'),
+                        onTap: _choosePhoto,
+                        radius: 72,
+                        child: ProfileAvatar(
+                          photo: controller.profile.photo,
+                          size: 144,
+                          loading: _picking,
                         ),
                       ),
                     ),
-                ],
+                    if (controller.profile.photo != null)
+                      Positioned(
+                        top: 0,
+                        right: math.max(
+                          0,
+                          (constraints.maxWidth - 144) / 2 - 32,
+                        ),
+                        child: IconButton(
+                          key: const Key('remove-photo'),
+                          tooltip: 'Remove photo',
+                          constraints: const BoxConstraints.tightFor(
+                            width: 48,
+                            height: 48,
+                          ),
+                          onPressed: () {
+                            controller.removePhoto();
+                            unawaited(controller.flush());
+                          },
+                          icon: Transform.rotate(
+                            angle: -3 * math.pi / 4,
+                            child: const _AssetIcon(
+                              'remove-photo.svg',
+                              width: 12.5,
+                              height: 12.5,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               ),
             ),
             const SizedBox(height: 44),
@@ -1154,10 +1163,8 @@ class _SkillsEditorState extends State<_SkillsEditor> {
                       hintText: widget.label,
                       hintStyle: TextStyle(
                         fontSize: 15,
-                        fontWeight: FontWeight.w100,
-                        color: widget.active
-                            ? const Color(0x3314679E)
-                            : const Color(0x33000000),
+                        fontWeight: FontWeight.w300,
+                        color: widget.active ? _blue : const Color(0xFF666666),
                       ),
                       border: InputBorder.none,
                       counterText: '',
@@ -1183,18 +1190,11 @@ class _SkillsEditorState extends State<_SkillsEditor> {
                       height: 50,
                     ),
                     padding: EdgeInsets.zero,
-                    icon: widget.active
-                        ? Image.asset(
-                            'assets/icons/add-skill-active.png',
-                            width: 50,
-                            height: 50,
-                            excludeFromSemantics: true,
-                          )
-                        : const _AssetIcon(
-                            'add-skill.svg',
-                            width: 12.5,
-                            height: 12.5,
-                          ),
+                    icon: const _AssetIcon(
+                      'add-skill.svg',
+                      width: 12.5,
+                      height: 12.5,
+                    ),
                   ),
                 ),
               ],

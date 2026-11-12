@@ -2,19 +2,24 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../skills/skill_catalogue.dart';
 import 'skill_search_api.dart';
 
 class SkillSearchController extends ChangeNotifier {
   SkillSearchController(
     this.repository, {
     this.debounce = const Duration(milliseconds: 250),
-  }) {
+    Future<List<SkillSuggestion>> Function(String)? localSuggest,
+  }) : _localSuggest = localSuggest ?? SkillCatalogue.shared.suggest {
     _identity = repository.identityChanges.listen((userId) {
       if (userId != repository.userId) _invalidate();
     }, onError: (Object _) => _identityError());
   }
   final SkillSearchRepository repository;
   final Duration debounce;
+  final Future<List<SkillSuggestion>> Function(String) _localSuggest;
+  List<SkillSuggestion> _local = const [];
+  List<SkillSuggestion> _remote = const [];
   late final StreamSubscription<String?> _identity;
   Timer? _timer;
   int _revision = 0;
@@ -53,6 +58,8 @@ class SkillSearchController extends ChangeNotifier {
     _timer?.cancel();
     _revision++;
     suggestions = const [];
+    _local = const [];
+    _remote = const [];
     results = const [];
     _nextCursor = null;
     _canonicalQuery = null;
@@ -76,15 +83,35 @@ class SkillSearchController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setQuery(String value) {
+  void setQuery(String value, {bool refresh = false}) {
     if (!_authorized || _disposed) return;
+    if (!refresh && value == query && selected == null && error == null) return;
     _reset();
     query = value;
     loading = !idle;
     notifyListeners();
     if (idle) return;
     final revision = _revision;
+    unawaited(_suggestLocal(revision));
     _timer = Timer(debounce, () => unawaited(_suggest(revision)));
+  }
+
+  Future<void> _suggestLocal(int revision) async {
+    try {
+      final items = await _localSuggest(query);
+      if (!_current(revision)) return;
+      _local = items;
+      _mergeSuggestions();
+      notifyListeners();
+    } catch (_) {
+      // The remote source and free text remain available if the asset fails.
+    }
+  }
+
+  void _mergeSuggestions() {
+    suggestions = List.unmodifiable(
+      mergeSkillSuggestions([..._remote, ..._local], query),
+    );
   }
 
   Future<void> _suggest(int revision) async {
@@ -92,7 +119,8 @@ class SkillSearchController extends ChangeNotifier {
     try {
       final items = await repository.suggest(query, kind);
       if (!_current(revision)) return;
-      suggestions = List.unmodifiable(items);
+      _remote = items;
+      _mergeSuggestions();
     } catch (failure) {
       if (!_current(revision)) return;
       error = _message(failure);
@@ -135,7 +163,7 @@ class SkillSearchController extends ChangeNotifier {
     final skill = selected;
     kind = value;
     if (skill == null) {
-      setQuery(query);
+      setQuery(query, refresh: true);
     } else {
       unawaited(select(skill));
     }
@@ -150,6 +178,7 @@ class SkillSearchController extends ChangeNotifier {
       error = null;
       loading = true;
       final revision = ++_revision;
+      unawaited(_suggestLocal(revision));
       notifyListeners();
       await _suggest(revision);
     }

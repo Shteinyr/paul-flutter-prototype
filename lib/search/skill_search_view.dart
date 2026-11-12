@@ -337,7 +337,7 @@ class _SkillSearchViewState extends State<SkillSearchView> {
               shrinkWrap: true,
               padding: EdgeInsets.zero,
               children: [
-                if (search.loading)
+                if (search.loading && search.suggestions.isEmpty)
                   const Padding(
                     padding: EdgeInsets.all(12),
                     child: Center(
@@ -346,8 +346,8 @@ class _SkillSearchViewState extends State<SkillSearchView> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       ),
                     ),
-                  )
-                else if (search.error != null)
+                  ),
+                if (search.error != null)
                   ListTile(
                     dense: true,
                     title: Text(
@@ -358,8 +358,10 @@ class _SkillSearchViewState extends State<SkillSearchView> {
                       onPressed: search.retry,
                       child: const Text('Retry'),
                     ),
-                  )
-                else if (search.suggestions.isEmpty)
+                  ),
+                if (!search.loading &&
+                    search.error == null &&
+                    search.suggestions.isEmpty)
                   ListTile(
                     dense: true,
                     title: const Text(
@@ -367,29 +369,26 @@ class _SkillSearchViewState extends State<SkillSearchView> {
                       style: TextStyle(fontSize: 13),
                     ),
                     onTap: _submit,
-                  )
-                else
-                  for (final skill in search.suggestions)
-                    ListTile(
-                      key: ValueKey('suggest-${skill.key}'),
-                      dense: true,
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 20,
+                  ),
+                for (final skill in search.suggestions)
+                  ListTile(
+                    key: ValueKey('suggest-${skill.key}'),
+                    dense: true,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+                    title: Text(
+                      skill.label,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w400,
                       ),
-                      title: Text(
-                        skill.label,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w400,
-                        ),
-                      ),
-                      onTap: () {
-                        _focus.unfocus();
-                        unawaited(search.select(skill));
-                      },
                     ),
+                    onTap: () {
+                      _focus.unfocus();
+                      unawaited(search.select(skill));
+                    },
+                  ),
               ],
             ),
           ),

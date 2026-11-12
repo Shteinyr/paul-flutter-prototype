@@ -44,6 +44,7 @@ class CommunityController extends ChangeNotifier {
   int _capabilityGeneration = 0;
   bool _draftLoaded = false;
   Future<void>? _preparing;
+  Future<void>? _refreshingFeed;
   String? _operation;
   CommunityReceipt? _completed;
   final _closeOperations = <String, String>{};
@@ -170,7 +171,21 @@ class CommunityController extends ChangeNotifier {
     _notify();
   }
 
-  Future<void> refresh() async {
+  Future<void> refresh() {
+    if (!current) return Future.value();
+    final running = _refreshingFeed;
+    if (running != null) return running;
+    final operation = _refreshFeed();
+    _refreshingFeed = operation;
+    unawaited(
+      operation.whenComplete(() {
+        if (identical(_refreshingFeed, operation)) _refreshingFeed = null;
+      }),
+    );
+    return operation;
+  }
+
+  Future<void> _refreshFeed() async {
     if (!current) return;
     final generation = ++_feedGeneration;
     loading = true;
@@ -186,6 +201,16 @@ class CommunityController extends ChangeNotifier {
       _cursor = page.nextCursor;
     } catch (failure) {
       if (!current || generation != _feedGeneration) return;
+      if (failure is CommunityException &&
+          const {
+            'sign_in_required',
+            'session_revoked',
+            'membership_required',
+            'community_forbidden',
+          }.contains(failure.code)) {
+        requests = const [];
+        _cursor = null;
+      }
       error = failure is CommunityException
           ? failure.toString()
           : const CommunityException('server_unavailable').toString();
@@ -291,6 +316,12 @@ class CommunityController extends ChangeNotifier {
       if (!current) return false;
       await repository.close(_closeOperations[requestId]!, requestId);
       if (!current) return false;
+      // A feed/page started before the close acknowledgement cannot restore
+      // the request the server has just removed.
+      _feedGeneration++;
+      _refreshingFeed = null;
+      loading = false;
+      loadingMore = false;
       requests = List.unmodifiable(
         requests.where((item) => item.id != requestId),
       );
