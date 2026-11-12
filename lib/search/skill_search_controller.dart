@@ -28,6 +28,11 @@ class SkillSearchController extends ChangeNotifier {
   String query = '';
   SkillSearchKind kind = SkillSearchKind.all;
   SkillSuggestion? selected;
+  bool searchingNames = false;
+  bool get hasSelection => selected != null || searchingNames;
+  bool get canSearchNames =>
+      repository is ProfileNameSearchRepository &&
+      query.trim().runes.length >= 2;
   List<SkillSuggestion> suggestions = const [];
   List<SkillSearchHit> results = const [];
   Map<String, dynamic>? _nextCursor;
@@ -68,6 +73,7 @@ class SkillSearchController extends ChangeNotifier {
     error = null;
     pageError = null;
     selected = null;
+    searchingNames = false;
   }
 
   void _identityError() {
@@ -77,15 +83,17 @@ class SkillSearchController extends ChangeNotifier {
       return;
     }
     final skill = selected;
+    final names = searchingNames;
     _reset();
     selected = skill;
+    searchingNames = names;
     error = const SkillSearchException('server_unavailable').toString();
     notifyListeners();
   }
 
   void setQuery(String value, {bool refresh = false}) {
     if (!_authorized || _disposed) return;
-    if (!refresh && value == query && selected == null && error == null) return;
+    if (!refresh && value == query && !hasSelection && error == null) return;
     _reset();
     query = value;
     loading = !idle;
@@ -141,7 +149,41 @@ class SkillSearchController extends ChangeNotifier {
     try {
       final page = await repository.search(skill.key, kind);
       if (!_current(revision)) return;
-      if (page.kind != kind) {
+      if (page.kind != (searchingNames ? SkillSearchKind.all : kind)) {
+        throw const SkillSearchException('server_unavailable');
+      }
+      _canonicalQuery = page.query;
+      results = List.unmodifiable(page.results);
+      _nextCursor = page.nextCursor;
+    } catch (failure) {
+      if (!_current(revision)) return;
+      error = _message(failure);
+    }
+    if (!_current(revision)) return;
+    loading = false;
+    notifyListeners();
+  }
+
+  Future<void> selectName(String value) async {
+    final source = repository;
+    if (!_authorized ||
+        _disposed ||
+        source is! ProfileNameSearchRepository ||
+        value.trim().runes.length < 2) {
+      return;
+    }
+    _reset();
+    query = value.trim();
+    searchingNames = true;
+    loading = true;
+    final revision = _revision;
+    notifyListeners();
+    try {
+      final page = await (source as ProfileNameSearchRepository).searchNames(
+        query,
+      );
+      if (!_current(revision)) return;
+      if (page.kind != SkillSearchKind.all) {
         throw const SkillSearchException('server_unavailable');
       }
       _canonicalQuery = page.query;
@@ -159,7 +201,7 @@ class SkillSearchController extends ChangeNotifier {
   Future<void> submit() => select(SkillSuggestion(key: query, label: query));
 
   void setKind(SkillSearchKind value) {
-    if (value == kind || !_authorized || _disposed) return;
+    if (value == kind || searchingNames || !_authorized || _disposed) return;
     final skill = selected;
     kind = value;
     if (skill == null) {
@@ -171,7 +213,9 @@ class SkillSearchController extends ChangeNotifier {
 
   Future<void> retry() async {
     final skill = selected;
-    if (skill != null) {
+    if (searchingNames) {
+      await selectName(query);
+    } else if (skill != null) {
       await select(skill);
     } else if (!idle && _authorized && !_disposed) {
       _timer?.cancel();
@@ -199,13 +243,15 @@ class SkillSearchController extends ChangeNotifier {
     pageError = null;
     notifyListeners();
     try {
-      final page = await repository.search(
-        canonicalQuery,
-        kind,
-        cursor: cursor,
-      );
+      final page = searchingNames
+          ? await (repository as ProfileNameSearchRepository).searchNames(
+              canonicalQuery,
+              cursor: cursor,
+            )
+          : await repository.search(canonicalQuery, kind, cursor: cursor);
       if (!_current(revision)) return;
-      if (page.query != canonicalQuery || page.kind != kind) {
+      if (page.query != canonicalQuery ||
+          page.kind != (searchingNames ? SkillSearchKind.all : kind)) {
         throw const SkillSearchException('server_unavailable');
       }
       final ids = results.map((hit) => hit.id).toSet();

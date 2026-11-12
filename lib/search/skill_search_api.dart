@@ -20,8 +20,8 @@ class SkillSearchException implements Exception {
     'sign_in_required' => 'Please sign in again to search.',
     'membership_required' => 'Complete registration with an invitation first.',
     'rate_limited' => 'Too many searches. Wait a minute and try again.',
-    'invalid_request' => 'Check the skill and try again.',
-    _ => 'Could not search skills. Check your connection and try again.',
+    'invalid_request' => 'Check your search and try again.',
+    _ => 'Could not search. Check your connection and try again.',
   };
 }
 
@@ -63,7 +63,15 @@ abstract interface class SkillSearchRepository {
   });
 }
 
-class SupabaseSkillSearchApi implements SkillSearchRepository {
+abstract interface class ProfileNameSearchRepository {
+  Future<SkillSearchPage> searchNames(
+    String query, {
+    Map<String, dynamic>? cursor,
+  });
+}
+
+class SupabaseSkillSearchApi
+    implements SkillSearchRepository, ProfileNameSearchRepository {
   SupabaseSkillSearchApi(this.client, this.userId);
   final SupabaseClient client;
   @override
@@ -144,7 +152,18 @@ class SupabaseSkillSearchApi implements SkillSearchRepository {
     SkillSearchKind kind, {
     Map<String, dynamic>? cursor,
   }) async {
-    final data = await _call('search', query, kind, cursor: cursor);
+    return _page(await _call('search', query, kind, cursor: cursor));
+  }
+
+  @override
+  Future<SkillSearchPage> searchNames(
+    String query, {
+    Map<String, dynamic>? cursor,
+  }) async => _page(
+    await _call('search_names', query, SkillSearchKind.all, cursor: cursor),
+  );
+
+  SkillSearchPage _page(Map<String, dynamic> data) {
     return SkillSearchPage(
       query: data['query'] as String,
       kind: SkillSearchKind.values.byName(data['kind'] as String),

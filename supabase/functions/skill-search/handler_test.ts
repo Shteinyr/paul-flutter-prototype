@@ -11,7 +11,8 @@ function fixture(options: {
   rpcError?: { message: string; code?: string };
 } = {}) {
   const serviceCalls: string[] = [];
-  const reads: { token: string; body: Record<string, unknown> }[] = [];
+  const reads: { token: string; body: Record<string, unknown>; rpc: string }[] =
+    [];
   const json = (data: unknown, status = 200) =>
     new Response(JSON.stringify(data), {
       status,
@@ -52,7 +53,11 @@ function fixture(options: {
               `Bearer ${token}`,
             "Read RPC must carry this request's user JWT",
           );
-          reads.push({ token, body: JSON.parse(String(init?.body)) });
+          reads.push({
+            token,
+            body: JSON.parse(String(init?.body)),
+            rpc: String(_input).split("/").pop()!,
+          });
           return Promise.resolve(
             options.rpcError
               ? json(options.rpcError, 400)
@@ -183,4 +188,41 @@ Deno.test("rate budget stops reads and oversized streams are cancelled", async (
     f.userClient,
   );
   check(large.status === 413 && cancelled, "Streaming bytes bounded");
+});
+
+Deno.test("name search uses the captured user JWT and distinct RPC without skill kind", async () => {
+  const f = fixture();
+  const cursor = {
+    query: "julia",
+    mode: "names",
+    rank: 0,
+    name: "julia",
+    after: "75000000-0000-4000-8000-000000000002",
+  };
+  const response = await handleSkillSearch(
+    request({ action: "search_names", query: "Julia", cursor }),
+    f.service,
+    f.userClient,
+  );
+  check(response.status === 200, "Names succeed");
+  check(f.reads[0].rpc === "profile_name_search", "Name RPC");
+  check(!Object.hasOwn(f.reads[0].body, "p_kind"), "No skill kind");
+  check(f.reads[0].body.p_query === "Julia", "Raw literal query");
+  check(
+    JSON.stringify(f.reads[0].body.p_cursor) === JSON.stringify(cursor),
+    "Cursor passed",
+  );
+});
+Deno.test("name request rejects short queries, skill modes and spoofed viewer", async () => {
+  for (
+    const body of [{ action: "search_names", query: "x" }, {
+      action: "search_names",
+      query: "Julia",
+      kind: "hiring",
+    }, { action: "search_names", query: "Julia", viewer: "other" }]
+  ) {
+    const f = fixture();
+    const r = await handleSkillSearch(request(body), f.service, f.userClient);
+    check(r.status === 400 && f.reads.length === 0, "Rejected before reads");
+  }
 });
