@@ -160,7 +160,7 @@ class _Fixture {
     'searching_skills': <String>[],
     'contact_count': 1,
   };
-  Future<void> mount(WidgetTester tester) async {
+  Future<void> mount(WidgetTester tester, {bool settle = true}) async {
     await client.auth.signInWithPassword(
       email: 'local@example.invalid',
       password: 'test-only',
@@ -174,7 +174,7 @@ class _Fixture {
         communityRepositoryFor: community == null ? null : (_) => community!,
       ),
     );
-    await tester.pumpAndSettle();
+    if (settle) await tester.pumpAndSettle();
   }
 
   Future<void> close(WidgetTester tester) async {
@@ -220,6 +220,25 @@ void main() {
         }
         await f.close(tester);
         await repo.identities.close();
+      }
+    },
+  );
+
+  testWidgets(
+    'initial auth notification joins the already pending member load',
+    (tester) async {
+      final f = _Fixture()..networkGate = Completer<void>();
+      try {
+        await f.mount(tester, settle: false);
+        await tester.pump();
+        expect(f.networks, 1);
+        f.networkGate!.complete();
+        await tester.pumpAndSettle();
+        expect(find.text('Paul'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      } finally {
+        if (f.networkGate?.isCompleted == false) f.networkGate!.complete();
+        await f.close(tester);
       }
     },
   );

@@ -111,6 +111,8 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
   bool _openingPush = false;
   bool _signingOut = false;
   Future<bool>? _networkRefresh;
+  Future<void>? _loadingTask;
+  ({String? user, String? session})? _loadingScope;
   bool _openingChat = false;
   bool _resumed = true;
   final _peerPhotos = <String, ({String? path, Future<Uint8List?> photo})>{};
@@ -236,7 +238,27 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     _acceptedInvite = false;
   }
 
-  Future<void> _load() async {
+  Future<void> _load() {
+    final scope = (
+      user: widget.client.auth.currentUser?.id,
+      session: pushSessionId(widget.client),
+    );
+    final running = _loadingTask;
+    // Without a session marker, a new sign-in cannot safely share an older load.
+    final knownScope = scope.user == null || scope.session != null;
+    if (knownScope && running != null && _loadingScope == scope) return running;
+    final operation = _loadMember();
+    _loadingScope = scope;
+    _loadingTask = operation;
+    unawaited(
+      operation.whenComplete(() {
+        if (identical(_loadingTask, operation)) _loadingTask = null;
+      }),
+    );
+    return operation;
+  }
+
+  Future<void> _loadMember() async {
     if (!mounted) return;
     final generation = ++_loadGeneration;
     final identity = widget.client.auth.currentUser?.id;
