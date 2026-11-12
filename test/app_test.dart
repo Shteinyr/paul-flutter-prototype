@@ -7,6 +7,7 @@ import 'package:paul_demo/app.dart';
 import 'package:paul_demo/chat/demo_chat_controller.dart';
 import 'package:paul_demo/demo_contacts.dart';
 import 'package:paul_demo/profile/profile_controller.dart';
+import 'package:paul_demo/profile/user_profile.dart';
 
 import 'profile_controller_test.dart' show MemoryProfileStore;
 
@@ -17,6 +18,47 @@ void main() {
       ..addFont(rootBundle.load('assets/fonts/NotoSans.ttf'));
     await font.load();
   });
+  for (final width in [320.0, 390.0]) {
+    testWidgets(
+      'shared editor photo removal stays outside the photo with full tap area at $width',
+      (tester) async {
+        tester.view.physicalSize = Size(width, 844);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final photo = (await rootBundle.load(
+          'assets/people/paul-galda.png',
+        )).buffer.asUint8List();
+        final store = MemoryProfileStore()
+          ..saved = UserProfile(
+            name: 'Saved name',
+            occupation: 'Designer',
+            skills: const ['Marketing'],
+            photo: photo,
+          ).encode();
+        final controller = ProfileController(store);
+        await controller.load();
+        await tester.pumpWidget(PaulDemoApp(controller: controller));
+        await tester.tap(find.byKey(const Key('tab-3')));
+        await tester.pumpAndSettle();
+        final avatar = tester.getRect(find.byKey(const Key('choose-photo')));
+        final remove = tester.getRect(find.byKey(const Key('remove-photo')));
+        expect(remove.size, const Size(48, 48));
+        expect(remove.center.dx, greaterThan(avatar.right));
+        expect(remove.center.dy, lessThan(avatar.center.dy));
+        await tester.tap(find.byKey(const Key('remove-photo')));
+        await tester.pumpAndSettle();
+        expect(controller.profile.photo, isNull);
+        expect(controller.profile.name, 'Saved name');
+        expect(controller.profile.skills, ['Marketing']);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+        await controller.flush();
+        controller.dispose();
+      },
+    );
+  }
+
   testWidgets(
     'profile editing, photo changes, contacts and deletion work together',
     (tester) async {
