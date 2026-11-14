@@ -17,9 +17,11 @@ Future<String?> takePublicPreviewBootstrap(Uri url, String key) async {
               key.toJS,
             )
             .toDart
-            .timeout(const Duration(seconds: 2)))
+            .timeout(const Duration(seconds: 22)))
         .toDart;
   } catch (_) {
-    return null;
+    // A request already started in this bridge must not be duplicated while it
+    // is slow, nor followed by a second full timeout after a transport failure.
+    return '{"__paul_bootstrap_failed":true}';
   }
 }

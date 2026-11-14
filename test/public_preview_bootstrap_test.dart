@@ -105,4 +105,24 @@ void main() {
       }
     },
   );
+
+  test(
+    'an already failed early request exposes Retry instead of another full timeout',
+    () async {
+      var calls = 0;
+      final api = PublicPreviewApi(
+        url: Uri.parse('https://public.invalid'),
+        publishableKey: 'public-key',
+        bootstrap: (_, _) async => '{"__paul_bootstrap_failed":true}',
+        transport: MockClient((_) async {
+          calls++;
+          return http.Response(jsonEncode(page()), 200);
+        }),
+      );
+      await expectLater(api.profiles(), throwsFormatException);
+      expect(calls, 0);
+      expect((await api.profiles()).profiles, hasLength(1));
+      expect(calls, 1);
+    },
+  );
 }

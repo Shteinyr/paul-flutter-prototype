@@ -33,6 +33,8 @@ test('public profiles start before Flutter and are consumed exactly once without
   assert.equal(options.credentials, 'omit');
   assert.equal(options.referrerPolicy, 'no-referrer');
   assert.equal(Object.keys(options.headers).some(k => /authorization|cookie/i.test(k)), false);
+  assert.deepEqual(Object.keys(options.headers), ['Content-Type']);
+  assert.equal(options.headers['Content-Type'], 'text/plain;charset=UTF-8');
   state.advance(6000); // Engine initialization overlaps the pending HTTP call.
   answer({ok: true, text: async () => JSON.stringify(page)});
   assert.deepEqual(JSON.parse(await state.context.paulPublicPreviewBootstrap.take(endpoint, 'publishable')), page);
@@ -50,7 +52,7 @@ test('a response cannot cross endpoint/key boundaries and expires after a slow e
   assert.equal(await bridge.take(endpoint, 'publishable'), 'null');
 });
 
-test('errors and oversized/malformed responses fall back without unhandled rejection', async () => {
+test('errors and oversized/malformed responses expose one failed attempt without unhandled rejection', async () => {
   for (const reply of [
     async () => {throw new Error('offline');},
     async () => ({ok: false}),
@@ -59,7 +61,7 @@ test('errors and oversized/malformed responses fall back without unhandled rejec
     async () => ({ok: true, text: async () => JSON.stringify({profiles: [], query: 'wrong'})}),
   ]) {
     const state = boot({reply});
-    assert.equal(await state.context.paulPublicPreviewBootstrap.take(endpoint, 'publishable'), 'null');
+    assert.deepEqual(JSON.parse(await state.context.paulPublicPreviewBootstrap.take(endpoint, 'publishable')), {__paul_bootstrap_failed: true});
     assert.equal(state.timers.size, 0);
   }
 });
@@ -69,7 +71,7 @@ test('timeout aborts the public request and leaves the normal client free to ret
     options.signal.addEventListener('abort', () => reject(new Error('aborted')));
   })});
   [...state.timers.values()][0]();
-  assert.equal(await state.context.paulPublicPreviewBootstrap.take(endpoint, 'publishable'), 'null');
+  assert.deepEqual(JSON.parse(await state.context.paulPublicPreviewBootstrap.take(endpoint, 'publishable')), {__paul_bootstrap_failed: true});
   assert.equal(state.requests[0].options.signal.aborted, true);
 });
 

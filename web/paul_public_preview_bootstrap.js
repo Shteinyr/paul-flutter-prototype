@@ -16,7 +16,10 @@
   const timer = setTimeout(() => abort.abort(), 20000);
   const pending = fetch(endpoint, {
     method: 'POST',
-    headers: {apikey: settings.key, 'Content-Type': 'application/json'},
+    // This endpoint is intentionally public (verify_jwt=false) and accepts JSON
+    // bytes independently of MIME type. Safelisted headers avoid a serial CORS
+    // OPTIONS round trip; private functions keep their normal authentication.
+    headers: {'Content-Type': 'text/plain;charset=UTF-8'},
     credentials: 'omit',
     cache: 'no-store',
     redirect: 'error',
@@ -38,7 +41,8 @@
       const result = await pending;
       // Signed photos have a 60s TTL. Do not reuse a response after a long engine
       // download, and never retain this snapshot across reloads or in storage.
-      if (!result || Date.now() - result.receivedAt > 15000) return 'null';
+      if (!result) return JSON.stringify({__paul_bootstrap_failed: true});
+      if (Date.now() - result.receivedAt > 15000) return 'null';
       return JSON.stringify(result.data);
     },
   });

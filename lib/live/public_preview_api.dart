@@ -78,10 +78,10 @@ class PublicPreviewApi implements PublicPreviewRepository {
     final response = await _transport
         .post(
           url.resolve('/functions/v1/public-preview'),
-          headers: {
-            'apikey': publishableKey,
-            'Content-Type': 'application/json',
-          },
+          // This intentionally anonymous, read-only endpoint has verify_jwt=false.
+          // Safelisted text/plain carries the same bounded JSON body without a
+          // serial CORS preflight. Never copy this transport to private APIs.
+          headers: {'Content-Type': 'text/plain;charset=UTF-8'},
           body: jsonEncode({'action': action, ...fields}),
         )
         .timeout(const Duration(seconds: 20));
@@ -111,6 +111,7 @@ class PublicPreviewApi implements PublicPreviewRepository {
     bool namesOnly = false,
   }) async {
     Map<String, dynamic>? initial;
+    var initialRequestFailed = false;
     if (!_bootstrapChecked &&
         !namesOnly &&
         query.isEmpty &&
@@ -121,7 +122,9 @@ class PublicPreviewApi implements PublicPreviewRepository {
         final raw = await _bootstrap(url, publishableKey);
         if (raw != null && raw.length <= 1048576) {
           final value = Map<String, dynamic>.from(jsonDecode(raw) as Map);
-          if (value['query'] == '' &&
+          if (value['__paul_bootstrap_failed'] == true) {
+            initialRequestFailed = true;
+          } else if (value['query'] == '' &&
               value['profiles'] is List &&
               (value['next_cursor'] == null || value['next_cursor'] is Map)) {
             // Use exactly the normal wire parser before accepting early data.
@@ -135,6 +138,9 @@ class PublicPreviewApi implements PublicPreviewRepository {
         // An unavailable, malformed or expired early result falls back to the
         // ordinary public endpoint, without changing auth or error handling.
       }
+    }
+    if (initialRequestFailed) {
+      throw const FormatException('Public content unavailable');
     }
     final data =
         initial ??
