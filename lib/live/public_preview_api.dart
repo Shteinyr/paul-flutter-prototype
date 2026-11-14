@@ -9,6 +9,7 @@ import '../skills/skill_catalogue.dart';
 import '../profile/user_profile.dart';
 import 'chat_api.dart';
 import 'member_capabilities.dart';
+import 'public_preview_bootstrap.dart';
 
 class PublicProfile {
   const PublicProfile({
@@ -61,10 +62,14 @@ class PublicPreviewApi implements PublicPreviewRepository {
     required this.url,
     required this.publishableKey,
     http.Client? transport,
-  }) : _transport = transport ?? http.Client();
+    Future<String?> Function(Uri url, String key)? bootstrap,
+  }) : _transport = transport ?? http.Client(),
+       _bootstrap = bootstrap ?? takePublicPreviewBootstrap;
   final Uri url;
   final String publishableKey;
   final http.Client _transport;
+  final Future<String?> Function(Uri url, String key) _bootstrap;
+  bool _bootstrapChecked = false;
   final _profiles = <String, PublicProfile>{};
   Future<Map<String, dynamic>> _call(
     String action, [
@@ -105,11 +110,39 @@ class PublicPreviewApi implements PublicPreviewRepository {
     Map<String, dynamic>? cursor,
     bool namesOnly = false,
   }) async {
-    final data = await _call(namesOnly ? 'names' : 'profiles', {
-      'query': query,
-      if (!namesOnly) 'kind': kind.name,
-      'cursor': ?cursor,
-    });
+    Map<String, dynamic>? initial;
+    if (!_bootstrapChecked &&
+        !namesOnly &&
+        query.isEmpty &&
+        kind == SkillSearchKind.all &&
+        cursor == null) {
+      _bootstrapChecked = true;
+      try {
+        final raw = await _bootstrap(url, publishableKey);
+        if (raw != null && raw.length <= 1048576) {
+          final value = Map<String, dynamic>.from(jsonDecode(raw) as Map);
+          if (value['query'] == '' &&
+              value['profiles'] is List &&
+              (value['next_cursor'] == null || value['next_cursor'] is Map)) {
+            // Use exactly the normal wire parser before accepting early data.
+            for (final item in value['profiles'] as List) {
+              PublicProfile.fromJson(Map<String, dynamic>.from(item as Map));
+            }
+            initial = value;
+          }
+        }
+      } catch (_) {
+        // An unavailable, malformed or expired early result falls back to the
+        // ordinary public endpoint, without changing auth or error handling.
+      }
+    }
+    final data =
+        initial ??
+        await _call(namesOnly ? 'names' : 'profiles', {
+          'query': query,
+          if (!namesOnly) 'kind': kind.name,
+          'cursor': ?cursor,
+        });
     return PublicProfilePage(
       (data['profiles'] as List)
           .map((v) => _remember(Map<String, dynamic>.from(v as Map)))

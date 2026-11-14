@@ -1,5 +1,6 @@
 {{flutter_js}}
 {{flutter_build_config}}
+// PAUL_PUBLIC_PREVIEW_BOOTSTRAP
 // Release builds bundle this exact default font. Start it alongside the runtime
 // instead of discovering it only after main.dart.js and FontManifest have loaded.
 if (_flutter.buildConfig.useLocalCanvasKit) {
