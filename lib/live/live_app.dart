@@ -22,6 +22,7 @@ import '../push/push_settings.dart';
 import '../onboarding/onboarding_draft_store.dart';
 import '../onboarding/onboarding_flow.dart';
 import '../profile/profile_controller.dart';
+import '../profile/profile_conflict_dialog.dart';
 import '../profile/public_profile_view.dart';
 import '../profile/user_profile.dart';
 import '../search/skill_search_api.dart';
@@ -272,6 +273,8 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     final generation = ++_loadGeneration;
     final identity = widget.client.auth.currentUser?.id;
     final session = pushSessionId(widget.client);
+    final profileSession =
+        session ?? widget.client.auth.currentSession?.accessToken;
     setState(() {
       _loading = true;
       _error = null;
@@ -370,7 +373,12 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
       _network = network;
       if (network.own != null && (_profile == null || !_profile!.loaded)) {
         final controller = ProfileController(
-          SupabaseProfileStore(_api, identity!),
+          SupabaseProfileStore(
+            _api,
+            identity!,
+            initialProfile: network.own,
+            initialSession: profileSession,
+          ),
           offeringLimit: 5,
         );
         await controller.load();
@@ -380,6 +388,9 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
         }
         _profile?.dispose();
         _profile = controller;
+      } else if (network.own != null && _profile?.loaded == true) {
+        await _profile!.refresh();
+        if (!mounted || generation != _loadGeneration) return;
       }
       if (network.own != null && _profile?.loaded == true) {
         await _refreshCapabilities();
@@ -673,6 +684,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
       unawaited(_push?.refresh());
       _chat?.resume();
       unawaited(_refreshCapabilities());
+      unawaited(_profile?.refresh());
     } else {
       _chat?.pause();
       unawaited(_chat?.flushDrafts());
@@ -1110,7 +1122,8 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     _entering = false;
     _editingGuestDraft = false;
     try {
-      await _profile?.flush();
+      final profile = _profile;
+      if (profile != null && !await profile.saveBeforeLeaving()) return;
       await _push?.disable();
       await widget.client.auth.signOut(scope: SignOutScope.local);
       await _clearPending();
@@ -1787,8 +1800,14 @@ class _LiveContacts extends StatelessWidget {
                             ),
                           ),
                           TextButton(
-                            onPressed: profile.flush,
-                            child: const Text('Retry'),
+                            onPressed: profile.hasConflict
+                                ? () => reviewProfileConflict(context, profile)
+                                : profile.refreshFailed
+                                ? profile.refresh
+                                : profile.flush,
+                            child: Text(
+                              profile.hasConflict ? 'Review changes' : 'Retry',
+                            ),
                           ),
                         ],
                       ),

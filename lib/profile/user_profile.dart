@@ -91,3 +91,62 @@ class UserProfile {
     return List<String>.unmodifiable(value.cast<String>());
   }
 }
+
+/// A three-way merge keeps edits made while a remote read/save was in flight.
+extension ProfileReconciliation on UserProfile {
+  Map<String, Object?> get editableFields => {
+    'name': name,
+    'occupation': occupation,
+    'summary': summary,
+    'skills': skills,
+    'searching_skills': searchingSkills,
+    'photo': photo,
+  };
+  Set<String> changesFrom(UserProfile base) => {
+    for (final entry in editableFields.entries)
+      if (!profileValueEqual(entry.value, base.editableFields[entry.key]))
+        entry.key,
+  };
+  Set<String> conflictsWith(UserProfile base, UserProfile remote) =>
+      changesFrom(base)
+          .intersection(remote.changesFrom(base))
+          .where(
+            (key) => !profileValueEqual(
+              editableFields[key],
+              remote.editableFields[key],
+            ),
+          )
+          .toSet();
+  UserProfile rebase(
+    UserProfile base,
+    UserProfile remote, {
+    Set<String> useRemote = const {},
+  }) {
+    final local = editableFields,
+        previous = base.editableFields,
+        saved = remote.editableFields;
+    Object? choose(String key) =>
+        useRemote.contains(key) || profileValueEqual(local[key], previous[key])
+        ? saved[key]
+        : local[key];
+    return UserProfile(
+      name: choose('name') as String,
+      occupation: choose('occupation') as String,
+      summary: choose('summary') as String,
+      skills: choose('skills') as List<String>,
+      searchingSkills: choose('searching_skills') as List<String>,
+      photo: choose('photo') as Uint8List?,
+    );
+  }
+}
+
+bool profileValueEqual(Object? a, Object? b) {
+  if (identical(a, b)) return true;
+  if (a is List && b is List) {
+    return a.length == b.length &&
+        Iterable<int>.generate(
+          a.length,
+        ).every((i) => profileValueEqual(a[i], b[i]));
+  }
+  return a == b;
+}

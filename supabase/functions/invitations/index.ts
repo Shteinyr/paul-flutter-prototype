@@ -133,7 +133,15 @@ Deno.serve(async (request) => {
     }
     const action = body.action;
     if (
-      !["check", "issue", "redeem", "revoke", "save_profile", "network"]
+      ![
+        "check",
+        "issue",
+        "redeem",
+        "revoke",
+        "save_profile",
+        "merge_profile",
+        "network",
+      ]
         .includes(
           String(action),
         )
@@ -218,12 +226,41 @@ Deno.serve(async (request) => {
     } else if (action === "network") {
       rpc = "member_network";
       args = { p_user: userId };
-    } else if (action === "save_profile") {
-      if (!profileValid(body.profile)) {
+    } else if (action === "merge_profile") {
+      const fields = [
+        "name",
+        "occupation",
+        "summary",
+        "skills",
+        "searching_skills",
+        "avatar_path",
+      ];
+      const base = body.base, changes = body.changes;
+      if (
+        !sessionUuid(body.operation_id) || !base || typeof base !== "object" ||
+        Array.isArray(base) ||
+        !changes || typeof changes !== "object" || Array.isArray(changes) ||
+        Object.keys(base).some((key) => !fields.includes(key)) ||
+        Object.keys(changes).some((key) => !fields.includes(key)) ||
+        !fields.every((key) => Object.hasOwn(base, key)) ||
+        !profileValid({ ...base, ...changes })
+      ) {
         return reply(400, { code: "invalid_profile" });
       }
-      rpc = "save_member_profile";
-      args = { p_user: userId, p_profile: body.profile };
+      rpc = "merge_member_profile";
+      args = {
+        p_user: userId,
+        p_operation: body.operation_id,
+        p_base: base,
+        p_changes: changes,
+      };
+    } else if (action === "save_profile") {
+      // An already-open legacy client has no baseline and cannot save safely.
+      // Registration/redeem still uses private.save_profile through its original RPC.
+      return reply(409, {
+        code: "profile_upgrade_required",
+        message: "Refresh this page to save your changes",
+      });
     } else {
       const credential = body.credential;
       if (
@@ -262,6 +299,8 @@ Deno.serve(async (request) => {
         "own_invitation",
         "membership_required",
         "invalid_profile",
+        "profile_conflict",
+        "avatar_retired",
         "invitation_account_mismatch",
         "offering_limit_reached",
         "account_deleted",
@@ -270,7 +309,9 @@ Deno.serve(async (request) => {
       const problem = known.find((value) => error.message === value);
       if (problem) {
         return reply(
-          problem === "rate_limited"
+          problem === "profile_conflict"
+            ? 409
+            : problem === "rate_limited"
             ? 429
             : problem === "account_deleted"
             ? 410
