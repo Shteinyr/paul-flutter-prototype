@@ -18,8 +18,12 @@ class _Json extends Fake implements YAJsonIsolate {
   Future<dynamic> decode(String value) async => jsonDecode(value);
 }
 
+// The issued token and its later header assertion must refer to the same
+// credential, even when a request crosses a wall-clock second boundary.
+final _tokenExpiry =
+    DateTime.now().add(const Duration(hours: 1)).millisecondsSinceEpoch ~/ 1000;
 String token(String id) =>
-    'e30.${base64Url.encode(utf8.encode(jsonEncode({'sub': id, 'aud': 'authenticated', 'role': 'authenticated', 'exp': DateTime.now().add(const Duration(hours: 1)).millisecondsSinceEpoch ~/ 1000}))).replaceAll('=', '')}.signature';
+    'e30.${base64Url.encode(utf8.encode(jsonEncode({'sub': id, 'aud': 'authenticated', 'role': 'authenticated', 'exp': _tokenExpiry}))).replaceAll('=', '')}.signature';
 
 void main() {
   for (final knownPath in [true, false]) {

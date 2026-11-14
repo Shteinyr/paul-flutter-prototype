@@ -6,8 +6,9 @@ live_source="$project_root/build/live-source"
 
 # Build the live configuration from the same sources with its own asset list.
 # The guest preview uses Paul and Julia. Other portraits belong to the demo build.
-python3 - "$project_root" "$live_source" <<'PY'
+python3 - "$project_root" "$live_source" "$@" <<'PY'
 from pathlib import Path
+import json
 import shutil
 import sys
 
@@ -33,6 +34,31 @@ portrait_manifest = ''.join(
     manifest.replace('    - assets/people/\n', portrait_manifest)
 )
 shutil.copy2(root / 'pubspec.lock', stage / 'pubspec.lock')
+# Start the same anonymous first-page request during engine download. Only
+# explicitly public build settings enter this bootstrap; never copy the file.
+defines = {}
+args = iter(sys.argv[3:])
+for arg in args:
+    if arg == '--dart-define-from-file':
+        defines.update(json.loads(Path(next(args)).read_text()))
+    elif arg.startswith('--dart-define-from-file='):
+        defines.update(json.loads(Path(arg.split('=', 1)[1]).read_text()))
+    elif arg == '--dart-define':
+        key, value = next(args).split('=', 1)
+        defines[key] = value
+    elif arg.startswith('--dart-define='):
+        key, value = arg.split('=', 1)[1].split('=', 1)
+        defines[key] = value
+settings = {
+    'url': defines.get('SUPABASE_URL', ''),
+    'key': defines.get('SUPABASE_PUBLISHABLE_KEY', ''),
+}
+config = json.dumps(settings, ensure_ascii=True).replace('<', '\\u003c')
+early = (root / 'web/paul_public_preview_bootstrap.js').read_text().replace(
+    '/* PAUL_PUBLIC_PREVIEW_SETTINGS */ null', config,
+)
+loader = stage / 'web/flutter_bootstrap.js'
+loader.write_text(loader.read_text().replace('// PAUL_PUBLIC_PREVIEW_BOOTSTRAP', early))
 PY
 
 (

@@ -123,13 +123,14 @@ void main() {
     await font.load();
   });
   test(
-    'public transport uses only public API key and never a user token or private function',
+    'public transport avoids preflight headers and never sends a user token or private function',
     () async {
       final actions = <String>[];
       final client = MockClient((r) async {
         expect(r.url.path, '/functions/v1/public-preview');
         expect(r.headers['authorization'], isNull);
-        expect(r.headers['apikey'], 'public-key');
+        expect(r.headers['apikey'], isNull);
+        expect(r.headers['content-type'], startsWith('text/plain'));
         final b = jsonDecode(r.body) as Map;
         actions.add(b['action'] as String);
         return http.Response(
