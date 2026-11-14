@@ -1,5 +1,8 @@
 import 'dart:typed_data';
 
+import '../push/push_api.dart' show pushSessionId;
+import 'chat_api.dart' show newChatOperationId;
+
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../profile/profile_store.dart';
@@ -25,6 +28,7 @@ class LiveApiException implements Exception {
     'invalid_profile' =>
       'Check your name, photo, summary and offered skills, then try again.',
     'rate_limited' => 'Too many attempts. Wait a minute and try again.',
+    'profile_upgrade_required' => 'Refresh this page to save your changes',
     'offering_limit_reached' => 'Invite 10 people to add more offered skills.',
     _ => 'Could not reach Paul. Check your connection and try again.',
   };
@@ -100,10 +104,23 @@ class LiveApi implements InvitationIssuer {
     String action, [
     Map<String, dynamic> fields = const {},
   ]) async {
+    final identity = client.auth.currentUser?.id;
+    final session =
+        pushSessionId(client) ?? client.auth.currentSession?.accessToken;
+    final token = client.auth.currentSession?.accessToken;
     try {
       final response = await client.functions
-          .invoke('invitations', body: {'action': action, ...fields})
+          .invoke(
+            'invitations',
+            headers: token == null ? null : {'Authorization': 'Bearer $token'},
+            body: {'action': action, ...fields},
+          )
           .timeout(const Duration(seconds: 25));
+      if (client.auth.currentUser?.id != identity ||
+          (pushSessionId(client) ?? client.auth.currentSession?.accessToken) !=
+              session) {
+        throw const LiveApiException('sign_in_required');
+      }
       return Map<String, dynamic>.from(response.data as Map);
     } on FunctionException catch (error) {
       final details = error.details;
@@ -228,35 +245,171 @@ class LiveApi implements InvitationIssuer {
   }
 }
 
-class SupabaseProfileStore implements ProfileStore {
-  SupabaseProfileStore(this.api, this.userId);
+class SupabaseProfileStore implements ReconciledProfileStore {
+  SupabaseProfileStore(this.api, this.userId)
+    : _session =
+          pushSessionId(api.client) ??
+          api.client.auth.currentSession?.accessToken;
   final LiveApi api;
   final String userId;
+  final String? _session;
+  Map<String, dynamic>? _base;
+  UserProfile? _localBase;
+  _ProfileWrite? _pending;
+  Uint8List? _uploadedPhoto;
+  String? _uploadedPath;
 
   void _checkSession() {
-    if (api.client.auth.currentUser?.id != userId) {
+    if (api.client.auth.currentUser?.id != userId ||
+        _session == null ||
+        (pushSessionId(api.client) ??
+                api.client.auth.currentSession?.accessToken) !=
+            _session) {
       throw const LiveApiException('sign_in_required');
     }
+  }
+
+  Map<String, dynamic> _payload(MemberProfile own) => {
+    'name': own.profile.name,
+    'occupation': own.profile.occupation,
+    'summary': own.profile.summary,
+    'skills': own.profile.skills,
+    'searching_skills': own.profile.searchingSkills,
+    'avatar_path': own.avatarPath,
+  };
+  Future<UserProfile> _accept(
+    MemberProfile own, {
+    UserProfile? submitted,
+    String? submittedPath,
+  }) async {
+    final photo = own.avatarPath == null
+        ? null
+        : own.avatarPath == submittedPath && submitted != null
+        ? submitted.photo
+        : own.avatarPath == _base?['avatar_path'] && _localBase != null
+        ? _localBase!.photo
+        : await api.photo(own);
+    _checkSession();
+    _base = _payload(own);
+    return _localBase = own.profile.copyWith(
+      photo: photo,
+      clearPhoto: photo == null,
+    );
   }
 
   @override
   Future<UserProfile> read() async {
     _checkSession();
+    // Resolve an uncertain write before replacing the baseline used by its retry.
+    if (_pending != null) await _sendPending();
     final own = (await api.network()).own;
-    if (own == null) return UserProfile.empty;
-    return own.profile.copyWith(photo: await api.photo(own));
+    _checkSession();
+    if (own == null) throw const LiveApiException('membership_required');
+    return _accept(own);
+  }
+
+  Future<UserProfile> _sendPending() async {
+    final pending = _pending!;
+    _checkSession();
+    try {
+      final result = await api.call('merge_profile', {
+        'operation_id': pending.operation,
+        'base': pending.base,
+        'changes': pending.changes,
+      });
+      _checkSession();
+      // Keep the receipt until the response/photo is accepted; a retry only reads the receipt.
+      final own = MemberProfile.fromJson(
+        Map<String, dynamic>.from(result['profile'] as Map),
+      );
+      final saved = await _accept(
+        own,
+        submitted: pending.profile,
+        submittedPath: pending.path,
+      );
+      _pending = null;
+      return saved;
+    } on LiveApiException catch (error) {
+      if (error.code == 'profile_conflict') {
+        _pending = null;
+        final own = (await api.network()).own;
+        _checkSession();
+        if (own == null) throw const LiveApiException('membership_required');
+        throw ProfileConflictException(await _accept(own));
+      }
+      if (error.code == 'offering_limit_reached') _pending = null;
+      if (error.code == 'invalid_profile' || error.code == 'avatar_retired') {
+        _pending = null;
+        _uploadedPath = null;
+        _uploadedPhoto = null;
+      }
+      rethrow;
+    }
+  }
+
+  @override
+  Future<UserProfile> save(UserProfile profile) async {
+    _checkSession();
+    if (_base == null || _localBase == null) {
+      throw StateError('Read the profile before saving.');
+    }
+    if (_pending case final pending?) {
+      final saved = await _sendPending();
+      if (profile.changesFrom(pending.profile).isEmpty) return saved;
+      profile = profile.rebase(pending.profile, saved);
+    }
+    final dirty = profile.changesFrom(_localBase!);
+    if (dirty.isEmpty) return _localBase!;
+    var path = _base!['avatar_path'] as String?;
+    if (dirty.contains('photo')) {
+      if (profile.photo == null) {
+        path = null;
+      } else if (profileValueEqual(profile.photo, _uploadedPhoto) &&
+          _uploadedPath != null) {
+        path = _uploadedPath;
+      } else {
+        path = await uploadAvatar(api.client, userId, profile.photo!);
+        _checkSession();
+        _uploadedPhoto = Uint8List.fromList(profile.photo!);
+        _uploadedPath = path;
+      }
+    }
+    final values = {...profile.editableFields}..remove('photo');
+    final changes = <String, dynamic>{
+      for (final key in dirty.where((k) => k != 'photo')) key: values[key],
+      if (dirty.contains('photo')) 'avatar_path': path,
+    };
+    _pending = _ProfileWrite(
+      newChatOperationId(),
+      Map.of(_base!),
+      changes,
+      profile,
+      path,
+    );
+    return _sendPending();
   }
 
   @override
   Future<void> write(UserProfile profile) async {
-    _checkSession();
-    final payload = await api.profilePayload(profile, userId);
-    _checkSession();
-    await api.call('save_profile', {'profile': payload});
+    await save(profile);
   }
 
   @override
   Future<void> clear() async => throw UnsupportedError(
     'Account deletion requires the server account workflow.',
   );
+}
+
+class _ProfileWrite {
+  _ProfileWrite(
+    this.operation,
+    this.base,
+    this.changes,
+    this.profile,
+    this.path,
+  );
+  final String operation;
+  final Map<String, dynamic> base, changes;
+  final UserProfile profile;
+  final String? path;
 }

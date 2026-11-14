@@ -8,6 +8,16 @@ abstract interface class ProfileStore {
   Future<void> clear();
 }
 
+/// Remote stores return the exact merged server state after saving.
+abstract interface class ReconciledProfileStore implements ProfileStore {
+  Future<UserProfile> save(UserProfile profile);
+}
+
+class ProfileConflictException implements Exception {
+  const ProfileConflictException(this.saved);
+  final UserProfile saved;
+}
+
 class PreferencesProfileStore implements ProfileStore {
   PreferencesProfileStore({
     SharedPreferencesAsync? preferences,
