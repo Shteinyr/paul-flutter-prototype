@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 
 import '../live/chat_api.dart';
 import '../profile/public_profile_view.dart';
@@ -35,12 +36,17 @@ class CommunityFeedView extends StatefulWidget {
 class _CommunityFeedViewState extends State<CommunityFeedView>
     with WidgetsBindingObserver {
   Timer? _refreshTimer;
+  final _scroll = ScrollController();
+  final _rowKeys = <String, GlobalKey>{};
+  List<CommunityRequest>? _shownRequests;
+  int _anchorGeneration = 0;
   bool _resumed = true;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    widget.controller.addListener(_preservePosition);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) unawaited(widget.controller.refresh());
     });
@@ -52,9 +58,115 @@ class _CommunityFeedViewState extends State<CommunityFeedView>
   }
 
   @override
+  void didUpdateWidget(CommunityFeedView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(_preservePosition);
+      widget.controller.addListener(_preservePosition);
+      _shownRequests = null;
+      _anchorGeneration++;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(widget.controller.refresh());
+      });
+    }
+  }
+
+  @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _resumed = state == AppLifecycleState.resumed;
-    if (_resumed) unawaited(widget.controller.refresh());
+    if (_resumed) {
+      widget.controller.expireRequests();
+      unawaited(widget.controller.refresh());
+    }
+  }
+
+  void _preservePosition() {
+    final requests = widget.controller.requests;
+    if (identical(requests, _shownRequests)) return;
+    _shownRequests = requests;
+    final generation = ++_anchorGeneration;
+    final ids = requests.map((item) => item.id).toSet();
+    String? anchorId;
+    double? top;
+    final offset = _scroll.hasClients ? _scroll.offset : null;
+    if (offset != null && offset > 0) {
+      for (final entry in _rowKeys.entries) {
+        if (!ids.contains(entry.key)) continue;
+        final box = entry.value.currentContext?.findRenderObject();
+        if (box is! RenderBox || !box.attached || !box.hasSize) continue;
+        final viewport = RenderAbstractViewport.of(box);
+        final y = box.localToGlobal(Offset.zero, ancestor: viewport).dy;
+        if (y + box.size.height > 0 && (top == null || y < top)) {
+          anchorId = entry.key;
+          top = y;
+        }
+      }
+    }
+    if (anchorId != null && top != null && offset != null) {
+      _restorePosition(anchorId, top, offset, generation, 0);
+    }
+    _rowKeys.removeWhere((id, _) => !ids.contains(id));
+  }
+
+  void _restorePosition(
+    String id,
+    double top,
+    double expectedOffset,
+    int generation,
+    int attempt,
+  ) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted ||
+          generation != _anchorGeneration ||
+          !_scroll.hasClients ||
+          (_scroll.offset - expectedOffset).abs() > .5) {
+        return;
+      }
+      final anchor = _rowKeys[id]?.currentContext?.findRenderObject();
+      double? target;
+      if (anchor is RenderBox && anchor.attached && anchor.hasSize) {
+        final y = anchor
+            .localToGlobal(
+              Offset.zero,
+              ancestor: RenderAbstractViewport.of(anchor),
+            )
+            .dy;
+        target = _scroll.offset + y - top;
+      } else if (attempt < 6) {
+        // A burst of arrivals can move the anchor outside the lazy viewport.
+        // Seek using a laid-out neighbour, then correct to its exact position
+        // on the next frame. Do not eagerly lay out/download every avatar.
+        final requests = widget.controller.requests;
+        final index = requests.indexWhere((item) => item.id == id);
+        var nearest = requests.length;
+        for (var row = 0; row < requests.length; row++) {
+          final distance = (index - row).abs();
+          if (distance >= nearest) continue;
+          final box = _rowKeys[requests[row].id]?.currentContext
+              ?.findRenderObject();
+          if (box is! RenderBox || !box.attached || !box.hasSize) continue;
+          nearest = distance;
+          final y = box
+              .localToGlobal(
+                Offset.zero,
+                ancestor: RenderAbstractViewport.of(box),
+              )
+              .dy;
+          target =
+              _scroll.offset + y - top + (index - row) * (box.size.height + 16);
+        }
+      }
+      if (target == null) return;
+      final next = target.clamp(
+        _scroll.position.minScrollExtent,
+        _scroll.position.maxScrollExtent,
+      );
+      if ((next - _scroll.offset).abs() <= .5) return;
+      _scroll.jumpTo(next);
+      if (anchor == null && attempt < 6) {
+        _restorePosition(id, top, next, generation, attempt + 1);
+      }
+    });
   }
 
   Future<void> _open(CommunityRequest request) async {
@@ -89,6 +201,8 @@ class _CommunityFeedViewState extends State<CommunityFeedView>
               child: RefreshIndicator(
                 onRefresh: controller.refresh,
                 child: ListView(
+                  key: const Key('community-feed'),
+                  controller: _scroll,
                   physics: const AlwaysScrollableScrollPhysics(),
                   padding: const EdgeInsets.fromLTRB(37.5, 47, 37.5, 40),
                   children: [
@@ -121,6 +235,10 @@ class _CommunityFeedViewState extends State<CommunityFeedView>
                         key: ValueKey('community-${requests[index].id}'),
                         onTap: () => _open(requests[index]),
                         child: Padding(
+                          key: _rowKeys.putIfAbsent(
+                            requests[index].id,
+                            GlobalKey.new,
+                          ),
                           padding: const EdgeInsets.symmetric(vertical: 12),
                           child: HiringRequestRow(
                             name: requests[index].author.name,
@@ -168,6 +286,8 @@ class _CommunityFeedViewState extends State<CommunityFeedView>
   @override
   void dispose() {
     _refreshTimer?.cancel();
+    widget.controller.removeListener(_preservePosition);
+    _scroll.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -419,12 +539,14 @@ class _CommunityDetailViewState extends State<CommunityDetailView>
   bool _resumed = true;
   Future<void>? _refreshing;
   Timer? _timer;
+  Timer? _expiryTimer;
   int _generation = 0;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    widget.controller.addListener(_scheduleExpiry);
     unawaited(_refresh());
     _timer = Timer.periodic(const Duration(seconds: 30), (_) {
       if (_resumed && !_closing && ModalRoute.of(context)?.isCurrent == true) {
@@ -434,9 +556,46 @@ class _CommunityDetailViewState extends State<CommunityDetailView>
   }
 
   @override
+  void didUpdateWidget(CommunityDetailView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller ||
+        oldWidget.requestId != widget.requestId) {
+      oldWidget.controller.removeListener(_scheduleExpiry);
+      widget.controller.addListener(_scheduleExpiry);
+      _expiryTimer?.cancel();
+      _generation++;
+      _refreshing = null;
+      _request = null;
+      unawaited(_refresh());
+    }
+  }
+
+  @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _resumed = state == AppLifecycleState.resumed;
+    _scheduleExpiry();
     if (_resumed && !_closing) unawaited(_refresh());
+  }
+
+  void _scheduleExpiry() {
+    _expiryTimer?.cancel();
+    final request = _request;
+    if (!mounted ||
+        !_resumed ||
+        !widget.controller.current ||
+        request == null) {
+      return;
+    }
+    _expiryTimer = Timer(widget.controller.expiryDelay(request.expiresAt), () {
+      if (!mounted || !widget.controller.current) return;
+      if (!request.expiresAt.isAfter(widget.controller.serverNow)) {
+        setState(() {
+          _request = null;
+          _loading = false;
+        });
+      }
+      _scheduleExpiry();
+    });
   }
 
   Future<void> _refresh() {
@@ -477,6 +636,7 @@ class _CommunityDetailViewState extends State<CommunityDetailView>
         _loading = false;
         _error = null;
       });
+      _scheduleExpiry();
     } catch (failure) {
       if (!mounted || !widget.controller.current || generation != _generation) {
         return;
@@ -529,6 +689,7 @@ class _CommunityDetailViewState extends State<CommunityDetailView>
       _error = closed ? null : widget.controller.error;
       if (closed) _request = null;
     });
+    _scheduleExpiry();
   }
 
   Future<void> _messageAuthor() async {
@@ -606,6 +767,8 @@ class _CommunityDetailViewState extends State<CommunityDetailView>
   @override
   void dispose() {
     _timer?.cancel();
+    _expiryTimer?.cancel();
+    widget.controller.removeListener(_scheduleExpiry);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }

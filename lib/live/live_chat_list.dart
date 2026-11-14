@@ -46,9 +46,14 @@ class LiveChatList extends StatelessWidget {
                 ],
               ),
             ),
-          if (!controller.loaded && !controller.stateLoadFailed)
-            const Expanded(
-              child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+          if (controller.conversations.isEmpty &&
+              !controller.conversationsLoaded)
+            Expanded(
+              child: controller.error == null && !controller.stateLoadFailed
+                  ? const Center(
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const SizedBox.shrink(),
             )
           else if (controller.conversations.isEmpty)
             Expanded(

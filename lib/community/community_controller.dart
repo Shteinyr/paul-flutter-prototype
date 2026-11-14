@@ -11,13 +11,18 @@ import '../push/push_browser_types.dart';
 import 'community_api.dart';
 
 class CommunityController extends ChangeNotifier {
-  CommunityController(this.repository, {required ChatStateStore drafts})
-    : _drafts = drafts {
+  CommunityController(
+    this.repository, {
+    required ChatStateStore drafts,
+    DateTime Function()? now,
+  }) : _drafts = drafts,
+       _now = now ?? DateTime.now {
     _identity = repository.identityChanges.listen(
       (userId) {
         if (userId != repository.userId) {
           if (_draftLoaded) unawaited(_persist());
           _draftTimer?.cancel();
+          _expiryTimer?.cancel();
           _authorized = false;
           requests = const [];
           skill = '';
@@ -35,9 +40,11 @@ class CommunityController extends ChangeNotifier {
   }
   final CommunityRepository repository;
   final ChatStateStore _drafts;
+  final DateTime Function() _now;
   late final StreamSubscription<String?> _identity;
   Future<bool> _writes = Future.value(true);
   Timer? _draftTimer;
+  Timer? _expiryTimer;
   bool _disposed = false;
   bool _authorized = true;
   int _feedGeneration = 0;
@@ -70,7 +77,7 @@ class CommunityController extends ChangeNotifier {
       !_disposed &&
       _authorized &&
       repository.currentUserId == repository.userId;
-  DateTime get serverNow => DateTime.now().toUtc().add(_serverOffset);
+  DateTime get serverNow => _now().toUtc().add(_serverOffset);
   bool closing(String id) => _closing.contains(id);
 
   void _notify() {
@@ -187,6 +194,9 @@ class CommunityController extends ChangeNotifier {
 
   Future<void> _refreshFeed() async {
     if (!current) return;
+    // Re-read the complete displayed range. Merging only the first page would
+    // preserve requests that another client closed; replacing it loses pages.
+    final boundary = requests.isEmpty ? null : requests.last;
     final generation = ++_feedGeneration;
     loading = true;
     loadingMore = false;
@@ -194,11 +204,30 @@ class CommunityController extends ChangeNotifier {
     pageError = null;
     _notify();
     try {
-      final page = await repository.feed();
-      if (!current || generation != _feedGeneration) return;
-      _serverOffset = page.serverNow.toUtc().difference(DateTime.now().toUtc());
-      requests = List.unmodifiable(page.requests);
-      _cursor = page.nextCursor;
+      final fresh = <String, CommunityRequest>{};
+      final visited = <String>{};
+      Map<String, dynamic>? cursor;
+      do {
+        final page = await repository.feed(cursor: cursor);
+        if (!current || generation != _feedGeneration) return;
+        _serverOffset = page.serverNow.toUtc().difference(_now().toUtc());
+        expireRequests();
+        if (!current || generation != _feedGeneration) return;
+        for (final item in page.requests) {
+          fresh[item.id] = item;
+        }
+        cursor = page.nextCursor;
+        if (cursor == null ||
+            boundary == null ||
+            page.requests.any((item) => _order(item, boundary) >= 0)) {
+          break;
+        }
+        if (!visited.add(jsonEncode(cursor))) {
+          throw const FormatException('Repeated community cursor');
+        }
+      } while (true);
+      _cursor = cursor;
+      _replaceRequests(fresh.values);
     } catch (failure) {
       if (!current || generation != _feedGeneration) return;
       if (failure is CommunityException &&
@@ -210,6 +239,7 @@ class CommunityController extends ChangeNotifier {
           }.contains(failure.code)) {
         requests = const [];
         _cursor = null;
+        _expiryTimer?.cancel();
       }
       error = failure is CommunityException
           ? failure.toString()
@@ -230,12 +260,13 @@ class CommunityController extends ChangeNotifier {
     try {
       final page = await repository.feed(cursor: cursor);
       if (!current || generation != _feedGeneration) return;
+      _serverOffset = page.serverNow.toUtc().difference(_now().toUtc());
       final unique = {for (final item in requests) item.id: item};
       for (final item in page.requests) {
         unique[item.id] = item;
       }
-      requests = List.unmodifiable(unique.values);
       _cursor = page.nextCursor;
+      _replaceRequests(unique.values);
     } catch (failure) {
       if (!current || generation != _feedGeneration) return;
       pageError = failure is CommunityException
@@ -245,6 +276,50 @@ class CommunityController extends ChangeNotifier {
     if (!current || generation != _feedGeneration) return;
     loadingMore = false;
     _notify();
+  }
+
+  static int _order(CommunityRequest a, CommunityRequest b) {
+    final time = b.createdAt.compareTo(a.createdAt);
+    return time == 0 ? b.id.compareTo(a.id) : time;
+  }
+
+  void _replaceRequests(Iterable<CommunityRequest> values) {
+    final now = serverNow;
+    requests = List.unmodifiable(
+      values.where((item) => item.expiresAt.isAfter(now)).toList()
+        ..sort(_order),
+    );
+    _scheduleExpiry();
+  }
+
+  void _scheduleExpiry() {
+    _expiryTimer?.cancel();
+    if (!current || requests.isEmpty) return;
+    final next = requests
+        .map((item) => item.expiresAt)
+        .reduce((a, b) => a.isBefore(b) ? a : b);
+    _expiryTimer = Timer(expiryDelay(next), expireRequests);
+  }
+
+  Duration expiryDelay(DateTime expiresAt) {
+    final delay = expiresAt.difference(serverNow);
+    if (delay <= Duration.zero) return Duration.zero;
+    // Browser setTimeout uses a signed 32-bit millisecond delay; a direct
+    // 30-day timer overflows. Recheck daily, then schedule the exact boundary.
+    if (delay > const Duration(days: 1)) return const Duration(days: 1);
+    if (delay < const Duration(milliseconds: 1)) {
+      return const Duration(milliseconds: 1);
+    }
+    return delay;
+  }
+
+  // Also called on resume, because browser timers can be suspended in a hidden
+  // tab. Expiry uses the same server clock as feed and detail visibility.
+  void expireRequests() {
+    if (!current) return;
+    final previous = requests.length;
+    _replaceRequests(requests);
+    if (previous != requests.length) _notify();
   }
 
   Future<CommunityReceipt?> publish() async {
@@ -322,9 +397,7 @@ class CommunityController extends ChangeNotifier {
       _refreshingFeed = null;
       loading = false;
       loadingMore = false;
-      requests = List.unmodifiable(
-        requests.where((item) => item.id != requestId),
-      );
+      _replaceRequests(requests.where((item) => item.id != requestId));
       return true;
     } catch (failure) {
       if (current) {
@@ -346,6 +419,7 @@ class CommunityController extends ChangeNotifier {
   @override
   void dispose() {
     _draftTimer?.cancel();
+    _expiryTimer?.cancel();
     if (_draftLoaded && current && !publishing) unawaited(_persist());
     _disposed = true;
     unawaited(_identity.cancel());

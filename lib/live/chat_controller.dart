@@ -89,6 +89,7 @@ class LiveChatController extends ChangeNotifier {
   int _generation = 0;
   int _openGeneration = 0;
   bool loaded = false;
+  bool conversationsLoaded = false;
   bool stateLoadFailed = false;
   bool loadingHistory = false;
   bool loadingOlder = false;
@@ -227,6 +228,7 @@ class LiveChatController extends ChangeNotifier {
         final list = await repository.list();
         if (!_current(generation)) return;
         conversations = List.unmodifiable(list);
+        conversationsLoaded = true;
         final id = activeConversationId;
         if (id != null && !loadingHistory) await _catchUp(id, generation);
         if (!_current(generation)) return;
@@ -555,6 +557,7 @@ class LiveChatController extends ChangeNotifier {
     _readThrough.clear();
     _reading.clear();
     loaded = false;
+    conversationsLoaded = false;
     conversations = const [];
     activeConversationId = null;
     _notify();
