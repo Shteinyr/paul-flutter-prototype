@@ -48,39 +48,42 @@ class _LiveDisconnectDialogState extends State<LiveDisconnectDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: const Text('Delete connection?'),
-    content: Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          '${widget.peer.name} will be removed from Contacts. Your conversation will remain.',
-        ),
-        if (_error != null)
-          Padding(
-            padding: const EdgeInsets.only(top: 12),
-            child: Text(_error!, style: const TextStyle(fontSize: 12)),
+  Widget build(BuildContext context) => PopScope<bool>(
+    canPop: !_working,
+    child: AlertDialog(
+      title: const Text('Delete connection?'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '${widget.peer.name} will be removed from Contacts. Your conversation will remain.',
           ),
+          if (_error != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Text(_error!, style: const TextStyle(fontSize: 12)),
+            ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: _working ? null : () => Navigator.of(context).pop(false),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          key: const Key('confirm-live-disconnect'),
+          onPressed: _working ? null : _remove,
+          style: TextButton.styleFrom(foregroundColor: const Color(0xFFFF645C)),
+          child: Text(
+            _working
+                ? 'Removing…'
+                : _error == null
+                ? 'Delete'
+                : 'Retry removal',
+          ),
+        ),
       ],
     ),
-    actions: [
-      TextButton(
-        onPressed: () => Navigator.of(context).pop(false),
-        child: const Text('Cancel'),
-      ),
-      TextButton(
-        key: const Key('confirm-live-disconnect'),
-        onPressed: _working ? null : _remove,
-        style: TextButton.styleFrom(foregroundColor: const Color(0xFFFF645C)),
-        child: Text(
-          _working
-              ? 'Removing…'
-              : _error == null
-              ? 'Delete'
-              : 'Retry removal',
-        ),
-      ),
-    ],
   );
 }
