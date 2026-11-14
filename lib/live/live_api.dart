@@ -246,13 +246,24 @@ class LiveApi implements InvitationIssuer {
 }
 
 class SupabaseProfileStore implements ReconciledProfileStore {
-  SupabaseProfileStore(this.api, this.userId)
-    : _session =
-          pushSessionId(api.client) ??
-          api.client.auth.currentSession?.accessToken;
+  SupabaseProfileStore(
+    this.api,
+    this.userId, {
+    MemberProfile? initialProfile,
+    String? initialSession,
+  }) : _session =
+           pushSessionId(api.client) ??
+           api.client.auth.currentSession?.accessToken {
+    if (initialProfile?.id == userId &&
+        initialSession != null &&
+        initialSession == _session) {
+      _initialProfile = initialProfile;
+    }
+  }
   final LiveApi api;
   final String userId;
   final String? _session;
+  MemberProfile? _initialProfile;
   Map<String, dynamic>? _base;
   UserProfile? _localBase;
   _ProfileWrite? _pending;
@@ -302,7 +313,10 @@ class SupabaseProfileStore implements ReconciledProfileStore {
     _checkSession();
     // Resolve an uncertain write before replacing the baseline used by its retry.
     if (_pending != null) await _sendPending();
-    final own = (await api.network()).own;
+    // Consume before any await, including a failed private photo download.
+    final initial = _initialProfile;
+    _initialProfile = null;
+    final own = initial ?? (await api.network()).own;
     _checkSession();
     if (own == null) throw const LiveApiException('membership_required');
     return _accept(own);

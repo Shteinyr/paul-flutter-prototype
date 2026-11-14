@@ -10,6 +10,7 @@ import 'package:paul_demo/live/live_api.dart';
 import 'package:paul_demo/live/live_app.dart';
 import 'package:paul_demo/profile/profile_controller.dart';
 import 'package:paul_demo/profile/profile_conflict_dialog.dart';
+import 'package:paul_demo/push/push_api.dart' show pushSessionId;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:yet_another_json_isolate/yet_another_json_isolate.dart';
 
@@ -37,7 +38,7 @@ class ProfileServer {
     'avatar_path': '$actor/original.png',
   };
   late SupabaseClient client;
-  int uploads = 0, logouts = 0, sessions = 0;
+  int uploads = 0, logouts = 0, sessions = 0, networkReads = 0, downloads = 0;
   Completer<void>? networkGate, saveGate;
   Completer<void>? networkReached, saveReached;
   bool failSave = false, loseAck = false, failRead = false, failPhoto = false;
@@ -111,6 +112,7 @@ class ProfileServer {
         uploads++;
         return json({'Key': 'ok'});
       }
+      downloads++;
       if (failPhoto) return json({'message': 'photo unavailable'}, 503);
       return http.Response.bytes(photo, 200);
     }
@@ -129,6 +131,7 @@ class ProfileServer {
     }
     final body = Map<String, dynamic>.from(jsonDecode(request.body) as Map);
     if (body['action'] == 'network') {
+      networkReads++;
       if (failRead) return json({'code': 'server_unavailable'}, 503);
       final snapshot = Map<String, dynamic>.from(profile);
       networkReached?.complete();
@@ -178,6 +181,93 @@ void main() {
     await (FontLoader(
       'NotoSans',
     )..addFont(rootBundle.load('assets/fonts/NotoSans.ttf'))).load();
+  });
+  test(
+    'initial own profile is consumed once; subsequent reads fetch fresh data',
+    () async {
+      final server = ProfileServer();
+      await server.start();
+      addTearDown(server.client.dispose);
+      final api = LiveApi(server.client);
+      final own = (await api.network()).own!;
+      final store = SupabaseProfileStore(
+        api,
+        actor,
+        initialProfile: own,
+        initialSession: pushSessionId(server.client),
+      );
+      expect(server.networkReads, 1);
+      expect((await store.read()).photo, server.photo);
+      expect(server.networkReads, 1);
+      expect(server.downloads, 1);
+      server.profile['name'] = 'Fresh after bootstrap';
+      expect((await store.read()).name, 'Fresh after bootstrap');
+      expect(server.networkReads, 2);
+      expect((await store.read()).name, 'Fresh after bootstrap');
+      expect(server.networkReads, 3);
+      expect(server.downloads, 1);
+    },
+  );
+  for (final mismatch in ['actor', 'session']) {
+    test('initial profile with mismatched $mismatch is discarded', () async {
+      final server = ProfileServer();
+      await server.start(withPhoto: false);
+      addTearDown(server.client.dispose);
+      final seed = MemberProfile.fromJson({
+        ...server.profile,
+        'name': 'Untrusted seed',
+        if (mismatch == 'actor') 'id': '13200000-0000-4000-8000-000000000099',
+      });
+      final store = SupabaseProfileStore(
+        LiveApi(server.client),
+        actor,
+        initialProfile: seed,
+        initialSession: mismatch == 'session'
+            ? 'different-session'
+            : pushSessionId(server.client),
+      );
+      expect((await store.read()).name, 'Original name');
+      expect(server.networkReads, 1);
+    });
+  }
+  test(
+    'failed seed photo download consumes seed and retry reads the server',
+    () async {
+      final server = ProfileServer();
+      await server.start();
+      addTearDown(server.client.dispose);
+      final seed = MemberProfile.fromJson(Map.of(server.profile));
+      final store = SupabaseProfileStore(
+        LiveApi(server.client),
+        actor,
+        initialProfile: seed,
+        initialSession: pushSessionId(server.client),
+      );
+      server.failPhoto = true;
+      await expectLater(store.read(), throwsA(anything));
+      expect(server.networkReads, 0);
+      server.failPhoto = false;
+      server.profile['name'] = 'Fresh retry';
+      expect((await store.read()).name, 'Fresh retry');
+      expect(server.networkReads, 1);
+    },
+  );
+  test('seed cannot be used after a same-account session change', () async {
+    final server = ProfileServer();
+    await server.start(withPhoto: false);
+    addTearDown(server.client.dispose);
+    final store = SupabaseProfileStore(
+      LiveApi(server.client),
+      actor,
+      initialProfile: MemberProfile.fromJson(Map.of(server.profile)),
+      initialSession: pushSessionId(server.client),
+    );
+    await server.client.auth.signInWithPassword(
+      email: 'a@example.invalid',
+      password: 'test',
+    );
+    await expectLater(store.read(), throwsA(isA<LiveApiException>()));
+    expect(server.networkReads, 0);
   });
   test(
     'text edits keep the existing immutable avatar without uploads',
@@ -504,6 +594,8 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    // Bootstrap plus at most one independent initial chat refresh.
+    expect(server.networkReads, lessThanOrEqualTo(2));
     expect(find.text('Original name'), findsOneWidget);
     server.profile['name'] = 'Changed on another device';
     await tester

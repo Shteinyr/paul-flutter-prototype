@@ -273,6 +273,8 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     final generation = ++_loadGeneration;
     final identity = widget.client.auth.currentUser?.id;
     final session = pushSessionId(widget.client);
+    final profileSession =
+        session ?? widget.client.auth.currentSession?.accessToken;
     setState(() {
       _loading = true;
       _error = null;
@@ -371,7 +373,12 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
       _network = network;
       if (network.own != null && (_profile == null || !_profile!.loaded)) {
         final controller = ProfileController(
-          SupabaseProfileStore(_api, identity!),
+          SupabaseProfileStore(
+            _api,
+            identity!,
+            initialProfile: network.own,
+            initialSession: profileSession,
+          ),
           offeringLimit: 5,
         );
         await controller.load();
