@@ -92,7 +92,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Hiring'), findsOneWidget);
       expect(find.text('Today'), findsOneWidget);
-      expect(find.text('Last Week'), findsOneWidget);
+      expect(find.text('Last week'), findsOneWidget);
       expect(find.textContaining('Urgent Hiring:  '), findsAtLeastNWidgets(3));
       await tester.drag(
         find.byKey(const Key('guest-hiring')),
@@ -137,16 +137,16 @@ void main() {
         chat.controller.ensureConversation(chat.contact.id).messages.length,
         1,
       );
-      expect(find.text('Join'), findsNWidgets(2));
+      expect(find.text('Join'), findsOneWidget);
       expect(find.text('Already a member? Sign in'), findsOneWidget);
       expect(requests, isEmpty);
-      await tester.tap(find.text('Already a member? Sign in'));
-      await tester.pumpAndSettle();
-      expect(settingsLoads, 1);
-      expect(
-        find.text('Could not open sign-in. Please try again.'),
-        findsOneWidget,
+      await tester.ensureVisible(
+        find.byKey(const Key('invitation-existing-member')),
       );
+      await tester.tap(find.byKey(const Key('invitation-existing-member')));
+      await tester.pumpAndSettle();
+      expect(settingsLoads, 0);
+      expect(find.text('Invalid code'), findsOneWidget);
       await tester.tap(find.byKey(const Key('join-back')));
       await _previewReady(tester);
       expect(find.text('Paul Galda'), findsOneWidget);
@@ -163,10 +163,7 @@ void main() {
       final preferences = DraftPreferences();
       final draft = OnboardingDraftStore(preferences: preferences);
       await draft.write(const UserProfile(skills: ['Flutter']));
-      writeSessionValue(
-        'paul.live.pending.invitation.v1',
-        'synthetic-pending-token',
-      );
+      writeSessionValue('paul.live.pending.invitation.v1', 'a' * 64);
       final client = SupabaseClient(
         'https://test.supabase.co',
         'test-key',
@@ -192,10 +189,17 @@ void main() {
       expect(actions, isEmpty);
       await tester.tap(find.byTooltip('My QR code'));
       await tester.pumpAndSettle();
-      expect(find.text('Continue with this invitation.'), findsOneWidget);
-      expect(find.byKey(const Key('invite-code-input')), findsNothing);
+      expect(find.byKey(const Key('invite-code-input')), findsOneWidget);
+      expect(
+        tester
+            .widget<TextField>(find.byKey(const Key('invite-code-input')))
+            .controller!
+            .text,
+        isEmpty,
+      );
       expect(actions, isEmpty);
-      await tester.tap(find.text('Join').last);
+      await tester.ensureVisible(find.byKey(const Key('invitation-join')));
+      await tester.tap(find.byKey(const Key('invitation-join')));
       await tester.pumpAndSettle();
       expect(actions, ['check']);
       expect(find.byType(OnboardingFlow), findsOneWidget);
@@ -209,10 +213,7 @@ void main() {
       await _previewReady(tester);
       expect(find.byType(GuestPreview), findsOneWidget);
       expect(actions, ['check']);
-      expect(
-        readSessionValue('paul.live.pending.invitation.v1'),
-        'synthetic-pending-token',
-      );
+      expect(readSessionValue('paul.live.pending.invitation.v1'), 'a' * 64);
       expect((await draft.read()).skills, ['Flutter']);
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.runAsync(client.dispose);
@@ -237,7 +238,7 @@ void main() {
         await OnboardingDraftStore(
           preferences: preferences,
         ).write(UserProfile(photo: photo));
-        writeSessionValue('paul.live.pending.invitation.v1', 'pending-invite');
+        writeSessionValue('paul.live.pending.invitation.v1', 'b' * 64);
         final client = SupabaseClient(
           'https://test.supabase.co',
           'test-key',
@@ -331,7 +332,7 @@ void main() {
         expect(saved.photo, photo);
         expect(saved.searchingSkills, isEmpty);
         await press('onboarding-complete');
-        expect(find.text('Continue with this invitation.'), findsOneWidget);
+        expect(find.byKey(const Key('invite-code-input')), findsOneWidget);
         expect(find.text('Registration complete.'), findsNothing);
         expect(requests, isEmpty);
         expect(providerLoads, 0);
@@ -343,7 +344,7 @@ void main() {
         await tester.pumpWidget(const SizedBox.shrink());
         await tester.pumpWidget(app());
         await tester.pumpAndSettle();
-        expect(find.text('Continue with this invitation.'), findsOneWidget);
+        expect(find.byKey(const Key('invite-code-input')), findsOneWidget);
         await tester.tap(find.byKey(const Key('join-back')));
         await tester.pumpAndSettle();
         expect(find.text('About You'), findsOneWidget);
@@ -354,27 +355,23 @@ void main() {
         );
         expect(requests, isEmpty);
         await press('onboarding-complete');
-        await tester.tap(find.text('Join').last);
+        await tester.ensureVisible(find.byKey(const Key('invitation-join')));
+        await tester.tap(find.byKey(const Key('invitation-join')));
         await tester.pumpAndSettle();
         expect(requests, ['/functions/v1/invitations:check']);
         expect(find.text('About You'), findsOneWidget);
         expect(find.text('My guest name'), findsOneWidget);
-        await tester.ensureVisible(
-          find.byKey(const Key('onboarding-complete')),
-        );
-        await tester.tap(find.byKey(const Key('onboarding-complete')));
-        for (var attempt = 0; attempt < 10; attempt++) {
-          await tester.pump(const Duration(milliseconds: 100));
-          if (find.text('Sign in').evaluate().isNotEmpty) break;
-        }
         expect(providerLoads, 1);
-        expect(find.text('Sign in'), findsOneWidget);
-        await tester.tap(find.text('Back').last);
-        await tester.pumpAndSettle();
+        expect(find.text('Continue with Google'), findsOneWidget);
         expect(
-          find.text('Sign-in was cancelled. Your profile draft is saved.'),
-          findsOneWidget,
+          tester
+              .widget<TextButton>(
+                find.byKey(const Key('source-continue-google')),
+              )
+              .onPressed,
+          isNull,
         );
+        expect(find.text('Sign in'), findsNothing);
         expect(readSessionValue('paul.live.pending.finalize.v1'), isNull);
         expect(requests, everyElement(endsWith(':check')));
         expect(client.auth.currentSession, isNull);
@@ -454,7 +451,7 @@ void main() {
     expect(find.text('Not sent'), findsOneWidget);
     await tester.tap(find.byKey(const Key('send-chat-message')));
     await tester.pumpAndSettle();
-    expect(find.text('Join'), findsNWidgets(2));
+    expect(find.text('Join'), findsOneWidget);
     expect(chat.controller.ensureConversation('maya-chen').messages, isEmpty);
     await tester.pump(const Duration(seconds: 3));
     expect(chat.controller.ensureConversation('maya-chen').messages, isEmpty);
@@ -493,7 +490,8 @@ void main() {
         find.byKey(const Key('invite-code-input')),
         '12345678',
       );
-      await tester.tap(find.text('Join').last);
+      await tester.ensureVisible(find.byKey(const Key('invitation-join')));
+      await tester.tap(find.byKey(const Key('invitation-join')));
       await tester.pump();
       await tester.tap(find.byKey(const Key('join-back')));
       await _previewReady(tester);
@@ -506,7 +504,14 @@ void main() {
       expect(readSessionValue('paul.live.pending.invitation.v1'), isNull);
       await tester.tap(find.byTooltip('My QR code'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Already a member? Sign in'));
+      await tester.ensureVisible(
+        find.byKey(const Key('invitation-existing-member')),
+      );
+      await tester.enterText(
+        find.byKey(const Key('invite-code-input')),
+        '12345678',
+      );
+      await tester.tap(find.byKey(const Key('invitation-existing-member')));
       await tester.pump();
       await tester.tap(find.byKey(const Key('join-back')));
       await _previewReady(tester);

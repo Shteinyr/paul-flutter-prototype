@@ -6,24 +6,82 @@ import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'browser_storage.dart';
+import '../config/app_configuration.dart';
+import '../platform/storage/platform_storage.dart';
+import '../platform/photos/platform_photos.dart';
+import '../onboarding/onboarding_draft_store.dart';
+import 'keep_signed_in_storage.dart';
 import 'auth_callback.dart';
 import 'guest_preview.dart';
 import 'live_app.dart';
+import 'limited_preview_app.dart';
 import 'public_preview_api.dart';
+import 'invitation_entry_view.dart';
 
 Future<Widget> buildLiveApp({
   required String url,
   required String key,
   required String appUrl,
+  AppPurpose purpose = AppPurpose.review,
 }) async {
   final previewUrl = Uri.tryParse(url);
   final publicPreview = previewUrl?.hasAuthority == true && key.isNotEmpty
       ? PublicPreviewApi(url: previewUrl!, publishableKey: key)
       : null;
-  Future<void> retry() async =>
-      runApp(await buildLiveApp(url: url, key: key, appUrl: appUrl));
+  if (purpose == AppPurpose.preview && publicPreview != null) {
+    return LimitedPreviewApp(
+      repository: publicPreview,
+      client: SupabaseClient(url, key),
+    );
+  }
+  Future<void> retry() async => runApp(
+    await buildLiveApp(url: url, key: key, appUrl: appUrl, purpose: purpose),
+  );
+  Widget unavailable(String message) {
+    if (purpose == AppPurpose.app || purpose == AppPurpose.preview) {
+      return MaterialApp(
+        debugShowCheckedModeBanner: false,
+        title: 'Paul',
+        theme: ThemeData(
+          fontFamily: 'NotoSans',
+          colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF14679E)),
+        ),
+        home: InvitationEntryView(
+          errorText: message,
+          onRetry: retry,
+          onJoin: (_) => retry(),
+          onSignIn: (_) => retry(),
+        ),
+      );
+    }
+    return GuestUnavailableApp(
+      onRetry: retry,
+      publicPreviewRepository: publicPreview,
+      message: message,
+    );
+  }
+
   const probe = 'paul.live.storage.check.v1';
   try {
+    await initializePlatformStorage();
+    await recoverPlatformPhotos();
+    final photoOwner = onboardingPhotoOwner();
+    final recoveredPhoto = pendingPlatformPhoto(
+      ownerId: photoOwner,
+      destination: PhotoDestination.onboarding,
+      targetId: photoOwner,
+    );
+    if (recoveredPhoto != null) {
+      final store = OnboardingDraftStore();
+      final draft = await store.read();
+      await store.write(draft.copyWith(photo: recoveredPhoto));
+      completePlatformPhoto(
+        ownerId: photoOwner,
+        destination: PhotoDestination.onboarding,
+        targetId: photoOwner,
+        photo: recoveredPhoto,
+      );
+    }
     // The chat journal keeps using the strict adapter. This preflight only
     // chooses a read-only bootstrap when tab storage cannot retain operations.
     writeSessionValue(probe, '1');
@@ -32,12 +90,7 @@ Future<Widget> buildLiveApp({
     }
     removeSessionValue(probe);
   } catch (_) {
-    return GuestUnavailableApp(
-      onRetry: retry,
-      publicPreviewRepository: publicPreview,
-      message:
-          'Browser storage is unavailable. Allow storage for this site, then retry to sign in. You can keep exploring the preview.',
-    );
+    return unavailable('Could not load Paul. Check your connection and retry.');
   }
   final callbackUri = Uri.base;
   final authCallback = kIsWeb
@@ -51,7 +104,19 @@ Future<Widget> buildLiveApp({
       url: url,
       publishableKey: key,
       debug: false,
-      authOptions: const FlutterAuthClientOptions(
+      authOptions: FlutterAuthClientOptions(
+        localStorage: KeepSignedInStorage(
+          SharedPreferencesLocalStorage(
+            persistSessionKey:
+                'sb-${Uri.parse(url).host.split('.').first}-auth-token',
+          ),
+        ),
+        detectSessionInUriPredicate: (uri) => kIsWeb
+            ? isAuthCallback(uri)
+            : uri.scheme == 'app.paul' &&
+                  uri.host == 'login-callback' &&
+                  uri.path.isEmpty,
+
         authFlowType: AuthFlowType.pkce,
         // The web bootstrap awaits the same SDK exchange below and retains
         // its outcome; the automatic observer would otherwise consume it twice.
@@ -71,7 +136,8 @@ Future<Widget> buildLiveApp({
     }
     return PaulLiveApp(
       client: Supabase.instance.client,
-      publicPreviewRepository: publicPreview,
+      purpose: purpose,
+      publicPreviewRepository: purpose == AppPurpose.app ? null : publicPreview,
       appUrl: Uri.parse(appUrl),
       authCallback: authCallback,
       authCallbackFailed: callbackResult == AuthCallbackResult.failed,
@@ -92,9 +158,6 @@ Future<Widget> buildLiveApp({
       },
     );
   } catch (_) {
-    return GuestUnavailableApp(
-      onRetry: retry,
-      publicPreviewRepository: publicPreview,
-    );
+    return unavailable('Could not load Paul. Check your connection and retry.');
   }
 }

@@ -36,6 +36,7 @@ class _Actions implements InvitationActions {
     InvitationActionResult.cancelled,
   );
   final smsNumbers = <String>[];
+  final smsMessages = <String?>[];
   Completer<InvitationContactSelection>? pendingSelection;
 
   @override
@@ -43,9 +44,13 @@ class _Actions implements InvitationActions {
       pendingSelection?.future ?? Future.value(selection);
 
   @override
-  Future<InvitationActionResult> openSms(String number) async {
+  Future<InvitationActionResult> openSms(
+    String number, {
+    String? message,
+  }) async {
     smsNumbers.add(number);
-    return result;
+    smsMessages.add(message);
+    return pending == null ? result : await pending!.future;
   }
 
   final copies = <String>[];
@@ -81,8 +86,6 @@ Future<void> _open(
     ),
   );
   await tester.pumpAndSettle();
-  await tester.tap(find.text('Share'));
-  await tester.pumpAndSettle();
 }
 
 void main() {
@@ -93,6 +96,8 @@ void main() {
       await controller.refresh();
       final actions = _Actions();
       await _open(tester, controller, actions);
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.text('Open the invitation in your browser.'), findsNothing);
       await tester.tap(find.byKey(const Key('copy-live-invitation')));
       await tester.pumpAndSettle();
       expect(find.text('Invitation copied.'), findsOneWidget);
@@ -121,7 +126,7 @@ void main() {
     await _open(tester, controller, actions);
     await tester.tap(find.byKey(const Key('copy-live-invitation')));
     await tester.pumpAndSettle();
-    expect(find.textContaining('browser blocked'), findsOneWidget);
+    expect(find.textContaining('action was blocked'), findsOneWidget);
     expect(find.byType(SelectableText), findsOneWidget);
     actions.result = InvitationActionResult.completed;
     await tester.tap(find.byKey(const Key('copy-live-invitation')));
@@ -138,17 +143,19 @@ void main() {
     await controller.refresh();
     final actions = _Actions()..canShare = false;
     await _open(tester, controller, actions);
-    expect(find.byKey(const Key('share-live-invitation')), findsNothing);
+    expect(
+      tester
+          .widget<TextButton>(find.byKey(const Key('share-live-invitation')))
+          .onPressed,
+      isNull,
+    );
     expect(
       find.textContaining('System sharing is unavailable'),
       findsOneWidget,
     );
-    await tester.tap(find.text('Close'));
-    await tester.pumpAndSettle();
     actions.canShare = true;
     actions.result = InvitationActionResult.cancelled;
-    await tester.tap(find.text('Share'));
-    await tester.pumpAndSettle();
+    await _open(tester, controller, actions);
     await tester.tap(find.byKey(const Key('share-live-invitation')));
     await tester.pumpAndSettle();
     expect(find.textContaining('Sharing cancelled.'), findsOneWidget);
@@ -157,7 +164,7 @@ void main() {
   });
 
   testWidgets(
-    'pending action blocks repeats and ignores completion after close',
+    'direct system action blocks repeats and ignores completion after leaving',
     (tester) async {
       final controller = InvitationController(_Issuer());
       await controller.refresh();
@@ -167,42 +174,41 @@ void main() {
       await tester.pump();
       await tester.tap(find.byKey(const Key('share-live-invitation')));
       expect(actions.shares, hasLength(1));
-      await tester.tap(find.text('Close'));
+      await tester.pumpWidget(const MaterialApp(home: Text('Other screen')));
       await tester.pumpAndSettle();
       actions.pending!.complete(InvitationActionResult.completed);
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
-      expect(find.text('Connect'), findsOneWidget);
+      expect(find.text('Other screen'), findsOneWidget);
       controller.dispose();
     },
   );
 
-  testWidgets(
-    'open preview follows renewal and stale share requires fresh tap',
-    (tester) async {
-      var elapsed = Duration.zero;
-      final issuer = _Issuer();
-      final controller = InvitationController(issuer, elapsed: () => elapsed);
-      await controller.refresh();
-      final actions = _Actions()..pending = Completer();
-      await _open(tester, controller, actions);
-      await tester.tap(find.byKey(const Key('share-live-invitation')));
-      await tester.pump();
-      elapsed = const Duration(minutes: 15);
-      actions.pending!.complete(InvitationActionResult.completed);
-      await tester.pumpAndSettle();
-      expect(issuer.issued, 2);
-      expect(find.textContaining('Use invite code: code-2'), findsWidgets);
-      expect(find.textContaining('invitation changed'), findsOneWidget);
-      expect(actions.shares, hasLength(1));
-      expect(find.textContaining('Share request completed'), findsNothing);
-      actions.pending = null;
-      await tester.tap(find.byKey(const Key('share-live-invitation')));
-      await tester.pumpAndSettle();
-      expect(actions.shares.last, contains('code-2'));
-      controller.dispose();
-    },
-  );
+  testWidgets('Connect follows renewal and stale share requires a fresh tap', (
+    tester,
+  ) async {
+    var elapsed = Duration.zero;
+    final issuer = _Issuer();
+    final controller = InvitationController(issuer, elapsed: () => elapsed);
+    await controller.refresh();
+    final actions = _Actions()..pending = Completer();
+    await _open(tester, controller, actions);
+    await tester.tap(find.byKey(const Key('share-live-invitation')));
+    await tester.pump();
+    elapsed = const Duration(minutes: 15);
+    actions.pending!.complete(InvitationActionResult.completed);
+    await tester.pumpAndSettle();
+    expect(issuer.issued, 2);
+    expect(find.textContaining('Use invite code: code-2'), findsWidgets);
+    expect(find.textContaining('invitation changed'), findsOneWidget);
+    expect(actions.shares, hasLength(1));
+    expect(find.textContaining('Share request completed'), findsNothing);
+    actions.pending = null;
+    await tester.tap(find.byKey(const Key('share-live-invitation')));
+    await tester.pumpAndSettle();
+    expect(actions.shares.last, contains('code-2'));
+    controller.dispose();
+  });
 
   testWidgets(
     'renewal failure hides old credentials and allows explicit retry',
@@ -248,7 +254,7 @@ void main() {
   });
 
   testWidgets(
-    'contact numbers remain local and composer requires current successful copy',
+    'selected contact Invite opens the real SMS composer with current text directly',
     (tester) async {
       final controller = InvitationController(_Issuer());
       await controller.refresh();
@@ -264,31 +270,20 @@ void main() {
           ],
         );
       await _open(tester, controller, actions);
-      await tester.tap(find.text('Close'));
-      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('pick-invitation-contacts')));
       await tester.pumpAndSettle();
       expect(find.text('Synthetic contact'), findsOneWidget);
       await tester.tap(find.text('Invite').last);
       await tester.pumpAndSettle();
-      final sms = find.byKey(const Key('open-invitation-sms'));
-      expect(tester.widget<TextButton>(sms).onPressed, isNull);
-      actions.result = InvitationActionResult.denied;
-      await tester.tap(find.byKey(const Key('copy-live-invitation')));
-      await tester.pumpAndSettle();
-      expect(tester.widget<TextButton>(sms).onPressed, isNull);
-      actions.result = InvitationActionResult.completed;
-      await tester.tap(find.byKey(const Key('copy-live-invitation')));
-      await tester.pumpAndSettle();
-      expect(tester.widget<TextButton>(sms).onPressed, isNotNull);
-      await tester.tap(sms);
-      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNothing);
       expect(actions.smsNumbers, ['+12025550101']);
+      expect(actions.smsMessages.single, contains('code-1'));
+      expect(
+        actions.smsMessages.single,
+        contains('#invite=${controller.invitation!.token}'),
+      );
+      expect(actions.copies, isEmpty);
       expect(find.textContaining('Requested SMS app'), findsOneWidget);
-      await controller.refresh();
-      await tester.pumpAndSettle();
-      expect(tester.widget<TextButton>(sms).onPressed, isNull);
-      expect(find.textContaining('invitation changed'), findsOneWidget);
       controller.dispose();
     },
   );
@@ -300,8 +295,6 @@ void main() {
       await controller.refresh();
       final actions = _Actions()..canPickContacts = true;
       await _open(tester, controller, actions);
-      await tester.tap(find.text('Close'));
-      await tester.pumpAndSettle();
       for (final result in [
         InvitationActionResult.cancelled,
         InvitationActionResult.denied,
@@ -348,8 +341,6 @@ void main() {
         ..canPickContacts = true
         ..pendingSelection = Completer();
       await _open(tester, controller, actions);
-      await tester.tap(find.text('Close'));
-      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('pick-invitation-contacts')));
       await tester.pump();
       expect(
@@ -376,6 +367,7 @@ void main() {
       await tester.tap(find.text('Invite'));
       await tester.pumpAndSettle();
       expect(find.textContaining('Use invite code: code-2'), findsWidgets);
+      expect(actions.smsMessages.single, contains('code-2'));
       controller.dispose();
     },
   );
@@ -389,8 +381,6 @@ void main() {
         ..canPickContacts = true
         ..pendingSelection = Completer();
       await _open(tester, controller, actions);
-      await tester.tap(find.text('Close'));
-      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('pick-invitation-contacts')));
       await tester.pump();
       await tester.pumpWidget(const MaterialApp(home: Text('Other screen')));
@@ -405,6 +395,73 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Synthetic delayed'), findsNothing);
       expect(tester.takeException(), isNull);
+      controller.dispose();
+    },
+  );
+  testWidgets(
+    'expired invitation renews without opening system share until a fresh tap',
+    (tester) async {
+      var elapsed = Duration.zero;
+      final issuer = _Issuer();
+      final controller = InvitationController(issuer, elapsed: () => elapsed);
+      await controller.refresh();
+      final actions = _Actions();
+      await _open(tester, controller, actions);
+      elapsed = const Duration(minutes: 15);
+      await tester.tap(find.byKey(const Key('share-live-invitation')));
+      await tester.pumpAndSettle();
+      expect(issuer.issued, 2);
+      expect(actions.shares, isEmpty);
+      expect(find.byType(AlertDialog), findsNothing);
+      await tester.tap(find.byKey(const Key('share-live-invitation')));
+      await tester.pumpAndSettle();
+      expect(actions.shares.single, contains('code-2'));
+      controller.dispose();
+    },
+  );
+  testWidgets(
+    'source Connect controls fit a narrow mobile screen without an intermediate dialog',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(320, 720);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      final controller = InvitationController(_Issuer());
+      await controller.refresh();
+      final actions = _Actions();
+      await _open(tester, controller, actions);
+      expect(find.text('Connect'), findsOneWidget);
+      expect(find.text('Hey, let’s connect in Paul.'), findsOneWidget);
+      expect(find.text('Share'), findsOneWidget);
+      expect(find.text('Copy invitation'), findsOneWidget);
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(tester.takeException(), isNull);
+      await tester.tap(find.text('Share'));
+      expect(actions.shares, hasLength(1));
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(tester.takeException(), isNull);
+      controller.dispose();
+    },
+  );
+  testWidgets(
+    'later rotation retires a completed copy status on the open Connect screen',
+    (tester) async {
+      final controller = InvitationController(_Issuer());
+      await controller.refresh();
+      final actions = _Actions();
+      await _open(tester, controller, actions);
+      await tester.tap(find.byKey(const Key('copy-live-invitation')));
+      await tester.pumpAndSettle();
+      expect(find.text('Invitation copied.'), findsOneWidget);
+      await controller.refresh();
+      await tester.pumpAndSettle();
+      expect(find.text('Invitation copied.'), findsNothing);
+      expect(find.textContaining('invitation changed'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('copy-live-invitation')));
+      await tester.pumpAndSettle();
+      expect(actions.copies.last, contains('code-2'));
+      expect(find.text('Invitation copied.'), findsOneWidget);
       controller.dispose();
     },
   );

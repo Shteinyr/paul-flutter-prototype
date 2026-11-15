@@ -40,50 +40,8 @@ class MemberLevelStatus extends StatelessWidget {
   final VoidCallback onRefresh;
   final VoidCallback onInvite;
 
+  // Compatibility while the coordinator removes the old host footer wiring.
+  // The source P15 card is opened only by a blocked-action callback.
   @override
-  Widget build(BuildContext context) {
-    final level = capabilities;
-    return Column(
-      children: [
-        if (level != null) ...[
-          Text(
-            '${level.invitedRegistrations} joined with your invitation',
-            style: const TextStyle(fontSize: 12),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            level.canMessageAnyone
-                ? 'Message anyone, anytime'
-                : 'Invite 2 people to message anyone, anytime',
-            textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 12),
-          ),
-          if (!level.canPublishCommunity)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Text(
-                'Invite 10 people to offer more skills and ask our community.',
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 12),
-              ),
-            ),
-        ],
-        if (error != null)
-          Text(
-            error!,
-            textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 12),
-          ),
-        TextButton(
-          onPressed: onRefresh,
-          child: Text(
-            error == null
-                ? 'Refresh invitation level'
-                : 'Retry invitation level',
-          ),
-        ),
-        TextButton(onPressed: onInvite, child: const Text('Invite friends')),
-      ],
-    );
-  }
+  Widget build(BuildContext context) => const SizedBox.shrink();
 }

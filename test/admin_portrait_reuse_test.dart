@@ -44,6 +44,8 @@ class _Fixture {
   List<ManagedProfile> profiles = [_profile];
   final waits = <Completer<http.Response>>[];
   final contextWaits = <Completer<http.Response>>[];
+  Completer<http.Response>? commandWait;
+  Completer<void>? commandReached;
   late final SupabaseClient client = SupabaseClient(
     'https://portraits.invalid',
     'test-key',
@@ -87,7 +89,10 @@ class _Fixture {
     expect(request.url.path, '/functions/v1/admin');
     if (denied) return json({'code': 'managed_profile_forbidden'}, 403);
     final body = jsonDecode(request.body) as Map;
-    if (body['action'] != 'context') return json({});
+    if (body['action'] != 'context') {
+      commandReached?.complete();
+      return commandWait?.future ?? json({});
+    }
     if (contextWaits.isNotEmpty) return contextWaits.removeAt(0).future;
     return contextResponse(profiles);
   }
@@ -135,6 +140,34 @@ void main() {
   tearDown(() async {
     await f.client.dispose();
   });
+
+  for (final newSession in [false, true]) {
+    test(
+      'admin command ACK is pinned to Auth session; new session=$newSession',
+      () async {
+        f.commandWait = Completer<http.Response>();
+        f.commandReached = Completer<void>();
+        final pending = f.api.command({'action': 'save'});
+        await f.commandReached!.future;
+        if (newSession) f.sessionId = _session2;
+        await f.login();
+        final expectation = expectLater(
+          pending,
+          newSession
+              ? throwsA(
+                  isA<AdminException>().having(
+                    (e) => e.code,
+                    'code',
+                    'sign_in_required',
+                  ),
+                )
+              : completes,
+        );
+        f.commandWait!.complete(f.json({}));
+        await expectation;
+      },
+    );
+  }
 
   test(
     'same portrait shares pending and completed read across fresh unchanged context',

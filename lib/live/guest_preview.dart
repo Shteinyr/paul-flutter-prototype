@@ -184,7 +184,7 @@ class _GuestPreviewState extends State<GuestPreview> {
         ),
       ),
       const SizedBox(height: 56),
-      const Text('Last Week', style: TextStyle(fontSize: 20)),
+      const Text('Last week', style: TextStyle(fontSize: 20)),
       const SizedBox(height: 30),
       InkWell(
         onTap: () => _open(_paulId),

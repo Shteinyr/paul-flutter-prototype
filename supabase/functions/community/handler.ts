@@ -16,6 +16,7 @@ const statuses: Record<string, number> = {
   request_too_large: 413,
   membership_required: 403,
   session_revoked: 401,
+  invitation_required: 403,
   community_locked: 403,
   community_forbidden: 403,
   operation_id_conflict: 409,

@@ -48,7 +48,6 @@ class _LiveQrViewState extends State<LiveQrView> with WidgetsBindingObserver {
     builder: (context, _) {
       final profile = widget.profile.profile;
       final invite = _invitation.invitation;
-      final remaining = _invitation.remaining.inSeconds;
       return ProfilePage(
         title: '',
         action: IconButton(
@@ -123,24 +122,6 @@ class _LiveQrViewState extends State<LiveQrView> with WidgetsBindingObserver {
                     fontWeight: FontWeight.w300,
                     letterSpacing: .5,
                   ),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  'New QR in ${remaining ~/ 60}:${(remaining % 60).toString().padLeft(2, '0')}',
-                  key: const Key('invite-countdown'),
-                  style: const TextStyle(fontSize: 11, color: Colors.black54),
-                ),
-                TextButton(
-                  onPressed: _invitation.loading ? null : _invitation.revoke,
-                  child: const Text(
-                    'Revoke and generate new',
-                    style: TextStyle(fontSize: 11),
-                  ),
-                ),
-              ] else if (_invitation.error == null) ...[
-                const Text(
-                  'Generating a new invitation…',
-                  style: TextStyle(fontSize: 11, color: Colors.black54),
                 ),
               ],
               if (_invitation.error != null) ...[

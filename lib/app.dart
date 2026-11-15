@@ -483,6 +483,8 @@ class ProfileEditor extends StatefulWidget {
     this.occupationRequired = true,
     this.footer,
     this.onInvite,
+    this.onOfferingLimit,
+    this.onPhotoPersisted,
   });
   final ProfileController controller;
   final PickProfilePhoto? pickPhoto;
@@ -491,6 +493,8 @@ class ProfileEditor extends StatefulWidget {
   final bool occupationRequired;
   final Widget? footer;
   final VoidCallback? onInvite;
+  final VoidCallback? onOfferingLimit;
+  final ValueChanged<Uint8List>? onPhotoPersisted;
   @override
   State<ProfileEditor> createState() => _ProfileEditorState();
 }
@@ -531,6 +535,15 @@ class _ProfileEditorState extends State<ProfileEditor> {
 
   void _profileChanged() {
     if (!mounted) return;
+    if (!controller.hasUnsavedChanges &&
+        controller.error == null &&
+        controller.profile.photo != null) {
+      try {
+        widget.onPhotoPersisted?.call(controller.profile.photo!);
+      } catch (_) {
+        /* Keep the journal until a later confirmed save. */
+      }
+    }
     _sync(_name, controller.profile.name);
     _sync(_occupation, controller.profile.occupation);
     _sync(_summary, controller.profile.summary);
@@ -721,7 +734,7 @@ class _ProfileEditorState extends State<ProfileEditor> {
               onAdd: (value) => controller.addSkill(value),
               onRemove: (value) => controller.removeSkill(value),
               maxSkills: controller.offeringLimit,
-              onInvite: widget.onInvite,
+              onLimit: widget.onOfferingLimit,
             ),
             SizedBox(height: controller.profile.skills.isEmpty ? 51 : 34),
             _SkillsEditor(
@@ -763,13 +776,6 @@ class _ProfileEditorState extends State<ProfileEditor> {
               ),
             ],
             ?widget.footer,
-            TextButton(
-              onPressed: () => showSkillCatalogueAttribution(context),
-              child: const Text(
-                'Skill catalogue source',
-                style: TextStyle(fontSize: 11),
-              ),
-            ),
           ],
         ),
       ),
@@ -1059,7 +1065,7 @@ class _SkillsEditor extends StatefulWidget {
     required this.validate,
     this.isRequired = true,
     this.maxSkills,
-    this.onInvite,
+    this.onLimit,
   });
   final String label;
   final Key fieldKey;
@@ -1071,7 +1077,7 @@ class _SkillsEditor extends StatefulWidget {
   final bool validate;
   final bool isRequired;
   final int? maxSkills;
-  final VoidCallback? onInvite;
+  final VoidCallback? onLimit;
 
   @override
   State<_SkillsEditor> createState() => _SkillsEditorState();
@@ -1111,7 +1117,12 @@ class _SkillsEditorState extends State<_SkillsEditor> {
       return;
     }
     if (widget.maxSkills != null && widget.values.length >= widget.maxSkills!) {
-      setState(() => _error = 'Skill limit reached');
+      if (widget.onLimit != null) {
+        _focus.unfocus();
+        widget.onLimit!();
+      } else {
+        setState(() => _error = 'Skill limit reached');
+      }
       return;
     }
     if (widget.onAdd(text)) {
@@ -1220,11 +1231,6 @@ class _SkillsEditorState extends State<_SkillsEditor> {
       ),
       if (_fieldError != null && _fieldError != 'Required')
         _ValidationMessage(_fieldError!),
-      if (_fieldError == 'Skill limit reached' && widget.onInvite != null)
-        TextButton(
-          onPressed: widget.onInvite,
-          child: const Text('Invite friends'),
-        ),
       if (widget.values.isNotEmpty) ...[
         const SizedBox(height: 21),
         Transform.translate(
@@ -1341,84 +1347,87 @@ class ContactRow extends StatelessWidget {
   final int unread;
 
   @override
-  Widget build(BuildContext context) => InkWell(
-    onTap: onOpen,
-    child: Padding(
-      padding: const EdgeInsets.only(bottom: 17),
-      child: SizedBox(
-        height: 83,
-        child: Stack(
-          children: [
-            const Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: _AssetIcon('separator.svg', width: 327, height: 1),
-            ),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                avatar,
-                const SizedBox(width: 21),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          height: 1.25,
-                          fontWeight: FontWeight.w500,
-                          letterSpacing: _tracking,
-                          color: Colors.black,
-                        ),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        occupation,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          height: 20 / 12,
-                          fontWeight: FontWeight.w300,
-                          letterSpacing: _tracking,
-                          color: Colors.black,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                if (unread > 0)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 20, left: 8),
-                    child: Semantics(
-                      label: '$unread unread messages',
-                      child: Container(
-                        key: Key('unread-$unread'),
-                        width: 18,
-                        height: 18,
-                        alignment: Alignment.center,
-                        decoration: const BoxDecoration(
-                          color: _blue,
-                          shape: BoxShape.circle,
-                        ),
-                        child: Text(
-                          unread > 99 ? '99+' : '$unread',
+  Widget build(BuildContext context) => Semantics(
+    button: onOpen != null,
+    child: InkWell(
+      onTap: onOpen,
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 17),
+        child: SizedBox(
+          height: 83,
+          child: Stack(
+            children: [
+              const Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: _AssetIcon('separator.svg', width: 327, height: 1),
+              ),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  avatar,
+                  const SizedBox(width: 21),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
-                            fontSize: 9,
-                            color: Colors.white,
+                            fontSize: 16,
+                            height: 1.25,
+                            fontWeight: FontWeight.w500,
+                            letterSpacing: _tracking,
+                            color: Colors.black,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          occupation,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            height: 20 / 12,
+                            fontWeight: FontWeight.w300,
+                            letterSpacing: _tracking,
+                            color: Colors.black,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (unread > 0)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 20, left: 8),
+                      child: Semantics(
+                        label: '$unread unread messages',
+                        child: Container(
+                          key: Key('unread-$unread'),
+                          width: 18,
+                          height: 18,
+                          alignment: Alignment.center,
+                          decoration: const BoxDecoration(
+                            color: _blue,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Text(
+                            unread > 99 ? '99+' : '$unread',
+                            style: const TextStyle(
+                              fontSize: 9,
+                              color: Colors.white,
+                            ),
                           ),
                         ),
                       ),
                     ),
-                  ),
-              ],
-            ),
-          ],
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     ),

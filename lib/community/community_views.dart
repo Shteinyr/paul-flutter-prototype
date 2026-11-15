@@ -5,7 +5,6 @@ import 'package:flutter/rendering.dart';
 
 import '../live/chat_api.dart';
 import '../profile/public_profile_view.dart';
-import '../live/member_capabilities.dart';
 import '../skills/skill_suggestions.dart';
 import 'community_api.dart';
 import 'community_controller.dart';
@@ -192,6 +191,7 @@ class _CommunityFeedViewState extends State<CommunityFeedView>
         final requests = controller.requests
             .where((item) => item.expiresAt.isAfter(controller.serverNow))
             .toList();
+        final groups = requests.map(_group).toList(growable: false);
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -217,33 +217,36 @@ class _CommunityFeedViewState extends State<CommunityFeedView>
                         ),
                       ),
                     for (var index = 0; index < requests.length; index++) ...[
-                      if (index == 0 ||
-                          _group(requests[index]) !=
-                              _group(requests[index - 1]))
+                      if (index == 0 || groups[index] != groups[index - 1])
                         Padding(
                           padding: const EdgeInsets.only(bottom: 16, top: 8),
-                          child: Text(
-                            _group(requests[index]),
-                            style: const TextStyle(
-                              color: Colors.black,
-                              fontSize: 20,
-                              fontWeight: FontWeight.w400,
-                            ),
-                          ),
+                          child: groups[index] == null
+                              ? const SizedBox.shrink()
+                              : Text(
+                                  groups[index]!,
+                                  style: const TextStyle(
+                                    color: Colors.black,
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.w400,
+                                  ),
+                                ),
                         ),
-                      InkWell(
-                        key: ValueKey('community-${requests[index].id}'),
-                        onTap: () => _open(requests[index]),
-                        child: Padding(
-                          key: _rowKeys.putIfAbsent(
-                            requests[index].id,
-                            GlobalKey.new,
-                          ),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          child: HiringRequestRow(
-                            name: requests[index].author.name,
-                            skill: requests[index].skill,
-                            avatar: widget.avatarFor(requests[index].author),
+                      Semantics(
+                        button: true,
+                        child: InkWell(
+                          key: ValueKey('community-${requests[index].id}'),
+                          onTap: () => _open(requests[index]),
+                          child: Padding(
+                            key: _rowKeys.putIfAbsent(
+                              requests[index].id,
+                              GlobalKey.new,
+                            ),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            child: HiringRequestRow(
+                              name: requests[index].author.name,
+                              skill: requests[index].skill,
+                              avatar: widget.avatarFor(requests[index].author),
+                            ),
                           ),
                         ),
                       ),
@@ -276,11 +279,13 @@ class _CommunityFeedViewState extends State<CommunityFeedView>
         : _CommunityFrame(title: 'Hiring', child: content);
   }
 
-  String _group(CommunityRequest request) {
+  String? _group(CommunityRequest request) {
     final age = widget.controller.serverNow.difference(request.createdAt);
     if (age < const Duration(days: 1)) return 'Today';
-    if (age < const Duration(days: 7)) return 'Last Week';
-    return 'Earlier';
+    if (age < const Duration(days: 7)) return 'Last week';
+    // Figma defines Today/Last week only. Keep older active cards separate
+    // without inventing another heading or changing their 30-day lifetime.
+    return null;
   }
 
   @override
@@ -298,10 +303,12 @@ class CommunityComposeView extends StatefulWidget {
     super.key,
     required this.controller,
     required this.onInvite,
+    this.onPublishLimit,
     this.initialSkill = '',
   });
   final CommunityController controller;
   final VoidCallback onInvite;
+  final VoidCallback? onPublishLimit;
   final String initialSkill;
 
   @override
@@ -349,6 +356,11 @@ class _CommunityComposeViewState extends State<CommunityComposeView>
 
   Future<void> _publish() async {
     FocusScope.of(context).unfocus();
+    if (!widget.controller.pendingPublish &&
+        widget.controller.capabilities?.canPublishCommunity != true) {
+      widget.onPublishLimit?.call();
+      return;
+    }
     final receipt = await widget.controller.publish();
     if (!mounted || receipt == null) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -376,7 +388,6 @@ class _CommunityComposeViewState extends State<CommunityComposeView>
         final editing =
             controller.current &&
             controller.draftReady &&
-            allowed &&
             !pending &&
             !controller.publishing;
         return ListView(
@@ -397,13 +408,6 @@ class _CommunityComposeViewState extends State<CommunityComposeView>
               ),
             ),
             const SizedBox(height: 50),
-            if (level == null || !level.canPublishCommunity)
-              MemberLevelStatus(
-                capabilities: level,
-                error: controller.capabilityError,
-                onRefresh: controller.refreshCapabilities,
-                onInvite: widget.onInvite,
-              ),
             if (!controller.draftReady && controller.draftError == null)
               const Center(child: CircularProgressIndicator()),
             TextField(
@@ -481,7 +485,8 @@ class _CommunityComposeViewState extends State<CommunityComposeView>
                 onPressed:
                     controller.current &&
                         controller.draftReady &&
-                        allowed &&
+                        (allowed ||
+                            (level != null && widget.onPublishLimit != null)) &&
                         !controller.publishing
                     ? _publish
                     : null,

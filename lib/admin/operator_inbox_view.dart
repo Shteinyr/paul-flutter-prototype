@@ -9,6 +9,8 @@ import '../live/chat_controller.dart';
 import '../live/live_chat_list.dart';
 import '../live/live_chat_view.dart';
 import '../profile/public_profile_view.dart';
+import '../platform/storage/account_value_store.dart';
+import '../live/browser_storage.dart';
 import 'admin_api.dart';
 import 'operator_chat_api.dart';
 
@@ -183,16 +185,27 @@ class _OperatorInboxViewState extends State<OperatorInboxView>
   }
 }
 
-/// Namespace the existing tab-scoped journal by the real actor and managed
-/// sender. Normal chat drafts and other managed profiles stay independent.
+/// Native journals belong to the actor's account scope, including cached messages.
 class OperatorChatStateStore implements ChatStateStore {
   OperatorChatStateStore(this.profileId);
   final String profileId;
-  final _store = SessionChatStateStore();
+  String get _key => 'operator.chat.$profileId';
+  String _legacyKey(String actor) =>
+      'paul.live.chat.state.v1.admin.$actor.$profileId';
   @override
-  Future<String?> read(String userId) =>
-      _store.read('admin.$userId.$profileId');
+  Future<String?> read(String userId) async {
+    final store = AccountValueStore(userId);
+    final saved = store.read(_key);
+    final legacy = readSessionValue(_legacyKey(userId));
+    if (saved == null && legacy != null) store.write(_key, legacy);
+    // Remove only after the durable destination commit succeeded.
+    removeSessionValue(_legacyKey(userId));
+    return saved ?? legacy;
+  }
+
   @override
-  Future<void> write(String userId, String state) =>
-      _store.write('admin.$userId.$profileId', state);
+  Future<void> write(String userId, String state) async {
+    AccountValueStore(userId).write(_key, state);
+    removeSessionValue(_legacyKey(userId));
+  }
 }

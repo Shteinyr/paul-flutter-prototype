@@ -4,6 +4,7 @@ import 'package:paul_demo/live/chat_api.dart';
 import 'package:paul_demo/live/chat_controller.dart';
 import 'package:paul_demo/live/live_chat_view.dart';
 import 'package:paul_demo/live/member_capabilities.dart';
+import 'package:paul_demo/live/continue_setup_dialog.dart';
 import 'package:paul_demo/onboarding/onboarding_flow.dart';
 import 'package:paul_demo/profile/profile_controller.dart';
 import 'package:paul_demo/profile/user_profile.dart';
@@ -106,43 +107,6 @@ void main() {
   );
 
   testWidgets(
-    'fresh invitation level updates the existing invitation controls',
-    (tester) async {
-      final level = ValueNotifier(_level(9));
-      var invited = false;
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: ValueListenableBuilder<MemberCapabilities>(
-              valueListenable: level,
-              builder: (_, value, _) => MemberLevelStatus(
-                capabilities: value,
-                error: null,
-                onRefresh: () => level.value = _level(10),
-                onInvite: () => invited = true,
-              ),
-            ),
-          ),
-        ),
-      );
-      expect(find.text('9 joined with your invitation'), findsOneWidget);
-      await tester.tap(find.text('Refresh invitation level'));
-      await tester.pumpAndSettle();
-      expect(find.text('10 joined with your invitation'), findsOneWidget);
-      expect(
-        find.text(
-          'Invite 10 people to offer more skills and ask our community.',
-        ),
-        findsNothing,
-      );
-      await tester.tap(find.text('Invite friends'));
-      expect(invited, isTrue);
-      await tester.pumpWidget(const SizedBox.shrink());
-      level.dispose();
-    },
-  );
-
-  testWidgets(
     'daily quota rejection preserves the operation and offers an invitation',
     (tester) async {
       final repository = Repository()
@@ -168,7 +132,15 @@ void main() {
             ),
             ownAvatar: const Icon(Icons.person),
             peerAvatar: const Icon(Icons.person),
-            onInvite: () => invited = true,
+            onNewRecipientLimit: () async {
+              if (await showContinueSetupDialog(
+                    tester.element(find.byType(LiveChatView)),
+                    invitedRegistrations: 0,
+                  ) ==
+                  true) {
+                invited = true;
+              }
+            },
           ),
         ),
       );
@@ -180,13 +152,11 @@ void main() {
       await tester.pump();
       await tester.tap(find.byKey(const Key('send-live-chat-message')));
       await tester.pumpAndSettle();
-      expect(
-        find.text(const ChatException('new_contact_limit_reached').toString()),
-        findsOneWidget,
-      );
+      expect(find.text('Continue setup'), findsOneWidget);
       expect(controller.pending('chat').single.text, 'A preserved message');
       final operation = controller.pending('chat').single.clientMessageId;
-      await tester.tap(find.text('Invite friends'));
+      await tester.tap(find.text('Invite'));
+      await tester.pumpAndSettle();
       expect(invited, isTrue);
       expect(quotaEvents, 1);
       repository.sending = null;

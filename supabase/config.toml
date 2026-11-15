@@ -1,2 +1,10 @@
 [functions.public-preview]
 verify_jwt = false
+
+# The API verifies the caller with Auth getUser plus session admission.
+[functions.native-push]
+verify_jwt = false
+
+# The worker requires its private constant-time checked Bearer secret.
+[functions.native-push-worker]
+verify_jwt = false

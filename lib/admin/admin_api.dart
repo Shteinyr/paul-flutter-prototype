@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import '../profile/user_profile.dart';
 import '../live/chat_api.dart';
 import 'operator_chat_api.dart';
+
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class AdminException implements Exception {
@@ -166,6 +167,16 @@ class SupabaseAdminApi implements AdminRepository {
     _checkIdentity();
     final token = client.auth.currentSession?.accessToken;
     if (token == null) throw const AdminException('sign_in_required');
+    final session = sessionIdForPortraitReuse ?? token;
+    void checkSession() {
+      _checkIdentity();
+      if ((sessionIdForPortraitReuse ??
+              client.auth.currentSession?.accessToken) !=
+          session) {
+        throw const AdminException('sign_in_required');
+      }
+    }
+
     try {
       final response = await client.functions
           .invoke(
@@ -174,10 +185,10 @@ class SupabaseAdminApi implements AdminRepository {
             body: fields,
           )
           .timeout(const Duration(seconds: 25));
-      _checkIdentity();
+      checkSession();
       return Map<String, dynamic>.from(response.data as Map);
     } on FunctionException catch (error) {
-      _checkIdentity();
+      checkSession();
       final details = error.details;
       final code = details is Map
           ? details['code'] as String? ?? 'server_unavailable'

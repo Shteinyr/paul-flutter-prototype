@@ -46,9 +46,12 @@ Map<String, dynamic> _profile(String id, String name, {String? avatar}) => {
   'avatar_path': avatar,
 };
 
+int _sessionSequence = 0;
 String _jwt(String id) {
   final claims = {
     'sub': id,
+    'session_id':
+        '915f0000-0000-4000-8000-${(++_sessionSequence).toString().padLeft(12, '0')}',
     'aud': 'authenticated',
     'role': 'authenticated',
     'exp':
@@ -79,6 +82,9 @@ void main() {
     removeSessionValue('paul.live.pending.profile.v1');
     removeSessionValue('paul.live.pending.finalize.v1');
     removeSessionValue('paul.live.entry.return.v1');
+    removeSessionValue('paul.live.pending.owner.v1');
+    removeSessionValue('paul.live.pending.session.v1');
+    removeSessionValue('paul.live.sign-in-existing.v1');
   });
 
   testWidgets('Hiring loads self and global author photos outside Contacts', (
@@ -334,7 +340,10 @@ void main() {
           );
         }
         if (request.url.path.startsWith('/storage/')) return upload.future;
-        redemptions++;
+        if (request.url.path.endsWith('/invitations') &&
+            (jsonDecode(request.body) as Map)['action'] == 'redeem') {
+          redemptions++;
+        }
         return http.Response(
           '{}',
           200,
@@ -389,7 +398,7 @@ void main() {
     testWidgets(
       changeAccount
           ? 'delayed avatar cannot open the previous account profile after account switch'
-          : 'delayed avatar cannot open a protected profile after UI logout',
+          : 'delayed avatar cannot open a protected profile after Auth logout',
       (tester) async {
         tester.view.physicalSize = const Size(402, 874);
         tester.view.devicePixelRatio = 1;
@@ -485,10 +494,9 @@ void main() {
             password: 'test-only',
           );
         } else {
-          await tester.tap(find.byKey(const Key('tab-3')));
-          await tester.pumpAndSettle();
-          await tester.ensureVisible(find.text('Sign out'));
-          await tester.tap(find.text('Sign out'));
+          await tester.runAsync(
+            () => client.auth.signOut(scope: SignOutScope.local),
+          );
         }
         await tester.pump();
         if (!changeAccount) {

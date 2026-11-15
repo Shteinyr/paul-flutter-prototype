@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'app.dart';
+import 'config/app_configuration.dart';
 import 'chat/demo_chat_controller.dart';
 import 'profile/profile_controller.dart';
 import 'profile/demo_profile.dart';
@@ -9,11 +10,16 @@ import 'live/live_bootstrap.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  if (const bool.fromEnvironment('PAUL_LIVE')) {
-    const url = String.fromEnvironment('SUPABASE_URL');
-    const key = String.fromEnvironment('SUPABASE_PUBLISHABLE_KEY');
-    const appUrl = String.fromEnvironment('PAUL_APP_URL');
-    runApp(await buildLiveApp(url: url, key: key, appUrl: appUrl));
+  final configuration = AppConfiguration.environment();
+  if (configuration.purpose != AppPurpose.demo) {
+    runApp(
+      await buildLiveApp(
+        url: configuration.url,
+        key: configuration.key,
+        appUrl: configuration.appUrl,
+        purpose: configuration.purpose,
+      ),
+    );
     return;
   }
   final controller = ProfileController(

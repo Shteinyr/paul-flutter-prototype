@@ -33,6 +33,8 @@ const statuses: Record<string, number> = {
   invalid_message: 400,
   message_id_conflict: 409,
   session_revoked: 401,
+  invitation_required: 403,
+  membership_required: 403,
 };
 const graphemes = new Intl.Segmenter("en", { granularity: "grapheme" });
 export async function handleAdmin(request: Request, database: SupabaseClient) {
@@ -164,20 +166,26 @@ export async function handleAdmin(request: Request, database: SupabaseClient) {
       args.p_client_operation = body.client_operation_id;
       args.p_expected_updated_at = body.expected_updated_at ?? null;
     }
-    if (action === "delete") {
-      let session: unknown;
-      try {
-        session = JSON.parse(
-          new TextDecoder().decode(decodeBase64(bearer.split(".")[1])),
-        ).session_id;
-      } catch {
-        return reply(401, { code: "sign_in_required" });
-      }
-      if (!sessionUuid(session)) {
-        return reply(401, { code: "sign_in_required" });
-      }
-      args.p_session = session;
+    let session: unknown;
+    try {
+      session =
+        JSON.parse(new TextDecoder().decode(decodeBase64(bearer.split(".")[1])))
+          .session_id;
+    } catch {
+      return reply(401, { code: "sign_in_required" });
     }
+    if (!sessionUuid(session)) return reply(401, { code: "sign_in_required" });
+    const admission = await database.rpc("member_require_session", {
+      p_user: auth.user.id,
+      p_session: session,
+    });
+    if (admission.error) {
+      const code = Object.hasOwn(statuses, admission.error.message)
+        ? admission.error.message
+        : "server_unavailable";
+      return reply(statuses[code] ?? 503, { code });
+    }
+    if (action === "delete") args.p_session = session;
     let rpc = "admin_context";
     if (action === "delete") rpc = "admin_delete_profile";
     if (action === "save") {

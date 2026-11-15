@@ -18,6 +18,9 @@ void main() {
     'switch before upload',
     'switch during upload',
     'upload failure',
+    'same user new session',
+    'same session refresh',
+    'same user switch during upload',
   ]) {
     test(
       'avatar lifecycle $mode protects operation identity and fresh retry paths',
@@ -26,15 +29,36 @@ void main() {
         final begin = Completer<http.Response>(),
             upload = Completer<http.Response>(),
             reached = Completer<void>();
+        var signIns = 0;
         final transport = MockClient((r) async {
           if (r.url.path.endsWith('/token')) {
             final id =
                 (jsonDecode(r.body) as Map)['email'] == 'a@example.invalid'
                 ? a
                 : b;
+            signIns++;
+            var credential = token(id);
+            if (mode.startsWith('same')) {
+              final claims =
+                  jsonDecode(
+                        utf8.decode(
+                          base64Url.decode(
+                            base64Url.normalize(credential.split('.')[1]),
+                          ),
+                        ),
+                      )
+                      as Map;
+              claims['session_id'] =
+                  mode == 'same session refresh' || signIns == 1
+                  ? '73000000-0000-4000-8000-000000000003'
+                  : '73000000-0000-4000-8000-000000000004';
+              claims['iat'] = signIns;
+              credential =
+                  'e30.${base64Url.encode(utf8.encode(jsonEncode(claims))).replaceAll('=', '')}.signature';
+            }
             return http.Response(
               jsonEncode({
-                'access_token': token(id),
+                'access_token': credential,
                 'refresh_token': 'test-only',
                 'token_type': 'bearer',
                 'expires_in': 3600,
@@ -58,7 +82,9 @@ void main() {
                 headers: {'content-type': 'application/json'},
               );
             }
-            if (mode == 'switch before upload') {
+            if (mode == 'switch before upload' ||
+                mode == 'same user new session' ||
+                mode == 'same session refresh') {
               reached.complete();
               return begin.future;
             }
@@ -69,7 +95,8 @@ void main() {
               headers: {'content-type': 'application/json'},
             );
           }
-          if (mode == 'switch during upload') {
+          if (mode == 'switch during upload' ||
+              mode == 'same user switch during upload') {
             reached.complete();
             return upload.future;
           }
@@ -101,18 +128,24 @@ void main() {
             );
             expect((jsonDecode(requests.first.body) as Map)['p_path'], first);
             expect(requests[1].headers['x-upsert'], 'false');
-          } else if (mode.startsWith('switch')) {
+          } else if (mode.startsWith('switch') || mode.startsWith('same')) {
             final pending = uploadAvatar(client, a, photo);
             await reached.future;
             await client.auth.signInWithPassword(
-              email: 'b@example.invalid',
+              email: mode.startsWith('same')
+                  ? 'a@example.invalid'
+                  : 'b@example.invalid',
               password: 'test-only',
             );
             final rejected = expectLater(
               pending,
-              throwsA(isA<AuthException>()),
+              mode == 'same session refresh'
+                  ? completes
+                  : throwsA(isA<AuthException>()),
             );
-            if (mode == 'switch before upload') {
+            if (mode == 'switch before upload' ||
+                mode == 'same user new session' ||
+                mode == 'same session refresh') {
               begin.complete(
                 http.Response(
                   'null',
@@ -125,7 +158,11 @@ void main() {
               upload.complete(http.Response('{"Key":"ok"}', 200));
             }
             await rejected;
-            if (mode == 'switch before upload') expect(requests.length, 1);
+            if (mode == 'switch before upload' ||
+                mode == 'same user new session') {
+              expect(requests.length, 1);
+            }
+            if (mode == 'same session refresh') expect(requests.length, 2);
           } else {
             await expectLater(
               uploadAvatar(client, a, photo),

@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:paul_demo/community/community_api.dart';
 import 'package:paul_demo/community/community_controller.dart';
 import 'package:paul_demo/community/community_views.dart';
+import 'package:paul_demo/live/continue_setup_dialog.dart';
 
 import 'community_controller_test.dart';
 import 'live_chat_controller_test.dart' show Drafts;
@@ -26,7 +27,7 @@ void main() {
       'NotoSans',
     )..addFont(rootBundle.load('assets/fonts/NotoSans.ttf'))).load();
   });
-  testWidgets('level nine shows invitations and blocks publishing', (
+  testWidgets('level nine opens P15 only on a blocked publish action', (
     tester,
   ) async {
     final repo = CommunityRepo()..invitations = 9;
@@ -36,23 +37,42 @@ void main() {
       MaterialApp(
         home: CommunityComposeView(
           controller: controller,
-          onInvite: () => invites++,
+          onInvite: () {},
+          onPublishLimit: () async {
+            if (await showContinueSetupDialog(
+                  tester.element(find.byType(CommunityComposeView)),
+                  invitedRegistrations: 9,
+                ) ==
+                true) {
+              invites++;
+            }
+          },
           initialSkill: 'Marketing',
         ),
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('9 joined with your invitation'), findsOneWidget);
+    expect(find.text('Continue setup'), findsNothing);
     expect(
       tester
           .widget<TextField>(find.byKey(const Key('community-skill')))
           .enabled,
-      isFalse,
+      isTrue,
     );
-    await tester.tap(find.text('Invite friends'));
+    await tester.enterText(
+      find.byKey(const Key('community-message')),
+      'My request',
+    );
+    await tester.ensureVisible(find.byKey(const Key('community-publish')));
+    await tester.tap(find.byKey(const Key('community-publish')));
+    await tester.pumpAndSettle();
+    expect(find.text('Continue setup'), findsOneWidget);
+    expect(find.text('2 of 3'), findsOneWidget);
+    await tester.tap(find.text('Invite'));
+    await tester.pumpAndSettle();
     expect(invites, 1);
     repo.invitations = 10;
-    await tester.tap(find.text('Refresh invitation level'));
+    await controller.refreshCapabilities();
     await tester.pumpAndSettle();
     expect(
       tester
@@ -125,7 +145,7 @@ void main() {
     },
   );
 
-  testWidgets('feed keeps older active requests outside Last Week', (
+  testWidgets('feed keeps older active requests without an invented heading', (
     tester,
   ) async {
     final now = DateTime.now().toUtc();
@@ -160,8 +180,8 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('Today'), findsOneWidget);
-    expect(find.text('Last Week'), findsOneWidget);
-    expect(find.text('Earlier'), findsOneWidget);
+    expect(find.text('Last week'), findsOneWidget);
+    expect(find.text('Earlier'), findsNothing);
     await tester.scrollUntilVisible(
       find.byKey(const ValueKey('community-age-20')),
       200,

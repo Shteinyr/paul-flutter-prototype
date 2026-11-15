@@ -21,6 +21,7 @@ class LiveChatView extends StatefulWidget {
     this.replyingAs,
     this.replyingAsAvatar,
     this.onInvite,
+    this.onNewRecipientLimit,
   });
   final LiveChatController controller;
   final String conversationId;
@@ -31,6 +32,7 @@ class LiveChatView extends StatefulWidget {
   final String? replyingAs;
   final Widget? replyingAsAvatar;
   final VoidCallback? onInvite;
+  final VoidCallback? onNewRecipientLimit;
 
   @override
   State<LiveChatView> createState() => _LiveChatViewState();
@@ -41,6 +43,7 @@ class _LiveChatViewState extends State<LiveChatView> {
   final _scroll = ScrollController();
   final _focus = FocusNode();
   String? _validation;
+  bool _quotaPresented = false;
 
   bool get _identityValid =>
       widget.controller.repository.currentUserId == widget.controller.userId;
@@ -79,12 +82,29 @@ class _LiveChatViewState extends State<LiveChatView> {
       }
       _draft.text = widget.controller.draft(widget.conversationId);
       _validation = null;
+      _quotaPresented = false;
       widget.controller.addListener(_changed);
     }
   }
 
   void _changed() {
     if (!mounted) return;
+    if (widget.controller.lastSendErrorCode != 'new_contact_limit_reached') {
+      _quotaPresented = false;
+    } else if (!_quotaPresented && widget.onNewRecipientLimit != null) {
+      _quotaPresented = true;
+      final controller = widget.controller;
+      final conversationId = widget.conversationId;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted &&
+            identical(controller, widget.controller) &&
+            conversationId == widget.conversationId &&
+            _identityValid &&
+            controller.lastSendErrorCode == 'new_contact_limit_reached') {
+          widget.onNewRecipientLimit?.call();
+        }
+      });
+    }
     final text = widget.controller.draft(widget.conversationId);
     if (_draft.text != text) {
       _draft.value = TextEditingValue(
@@ -168,7 +188,11 @@ class _LiveChatViewState extends State<LiveChatView> {
                 style: const TextStyle(fontSize: 12),
               ),
             ),
-          if (controller.error != null || _validation != null)
+          if (_validation != null ||
+              (controller.error != null &&
+                  !(controller.lastSendErrorCode ==
+                          'new_contact_limit_reached' &&
+                      widget.onNewRecipientLimit != null)))
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
               child: Row(
@@ -179,14 +203,9 @@ class _LiveChatViewState extends State<LiveChatView> {
                       style: const TextStyle(fontSize: 11),
                     ),
                   ),
-                  if (controller.lastSendErrorCode ==
-                          'new_contact_limit_reached' &&
-                      widget.onInvite != null)
-                    TextButton(
-                      onPressed: widget.onInvite,
-                      child: const Text('Invite friends'),
-                    )
-                  else if (controller.error != null)
+                  if (controller.error != null &&
+                      controller.lastSendErrorCode !=
+                          'new_contact_limit_reached')
                     TextButton(
                       onPressed: controller.stateLoadFailed
                           ? controller.load

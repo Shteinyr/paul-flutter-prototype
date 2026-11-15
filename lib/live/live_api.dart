@@ -1,4 +1,6 @@
 import 'dart:typed_data';
+import 'dart:convert';
+import 'package:crypto/crypto.dart';
 
 import '../push/push_api.dart' show pushSessionId;
 import 'chat_api.dart' show newChatOperationId;
@@ -8,8 +10,11 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../profile/profile_store.dart';
 import '../profile/user_profile.dart';
 import 'avatar_upload.dart';
+import 'browser_storage.dart';
 import 'invitation_controller.dart';
 import 'member_capabilities.dart';
+import '../platform/storage/profile_write_journal.dart';
+import '../platform/storage/profile_write_journal_factory.dart';
 
 class LiveApiException implements Exception {
   const LiveApiException(this.code);
@@ -20,6 +25,7 @@ class LiveApiException implements Exception {
       'This invitation has expired or is no longer valid. Ask for a new QR or code.',
     'own_invitation' =>
       'This is your own invitation. Open another person’s QR or code to connect.',
+    'invitation_required' => 'Enter a valid invitation code to sign in.',
     'membership_required' => 'Complete registration with an invitation first.',
     'invitation_account_mismatch' =>
       'Sign in with the Google account this invitation was sent to.',
@@ -134,17 +140,26 @@ class LiveApi implements InvitationIssuer {
 
   @override
   Future<LiveInvitation> issue(String token) async {
+    final owner = client.auth.currentUser?.id;
+    final session = pushSessionId(client);
+    if (owner == null || session == null) {
+      throw const LiveApiException('sign_in_required');
+    }
+    final pendingKey = 'paul.invitation.issue.$owner.$session';
+    final operationToken = readSessionValue(pendingKey) ?? token;
+    writeSessionValue(pendingKey, operationToken);
     final elapsed = Stopwatch()..start();
     try {
-      final data = await call('issue', {'token': token});
+      final data = await call('issue', {'token': operationToken});
       final expires = DateTime.parse(data['expires_at'] as String);
       final remaining =
           expires.difference(DateTime.parse(data['server_now'] as String)) -
           elapsed.elapsed;
       if (remaining <= Duration.zero) throw InvitationRenewalRequired();
+      removeSessionValue(pendingKey);
       return LiveInvitation(
         id: data['id'] as String,
-        token: token,
+        token: operationToken,
         code: data['code'] as String,
         expiresAt: expires,
         lifetime: remaining,
@@ -152,6 +167,7 @@ class LiveApi implements InvitationIssuer {
     } on LiveApiException catch (error) {
       if (error.code == 'invalid_invitation' ||
           error.code == 'invitation_collision') {
+        removeSessionValue(pendingKey);
         throw InvitationRenewalRequired();
       }
       rethrow;
@@ -161,8 +177,12 @@ class LiveApi implements InvitationIssuer {
   @override
   Future<void> revoke(String id) async => call('revoke', {'id': id});
 
-  Future<void> check(String credential) async =>
-      call('check', {'credential': credential});
+  Future<void> check(String credential) async {
+    if (!RegExp(r'^(?:[a-f0-9]{64}|[0-9]{8})$').hasMatch(credential)) {
+      throw const LiveApiException('invalid_invitation');
+    }
+    await call('check', {'credential': credential});
+  }
 
   Future<MemberNetwork> network() async {
     final data = await call('network');
@@ -231,12 +251,61 @@ class LiveApi implements InvitationIssuer {
 
   Future<void> redeem(String credential, {UserProfile? draft}) async {
     final user = client.auth.currentUser;
+    final session = pushSessionId(client);
     if (user == null) throw const LiveApiException('sign_in_required');
-    final payload = draft == null ? null : await profilePayload(draft, user.id);
-    if (client.auth.currentUser?.id != user.id) {
+    final key =
+        'paul.registration.${user.id}.$session.${sha256.convert(utf8.encode(credential))}';
+    Map<String, dynamic>? pending;
+    if (draft != null) {
+      final saved = readSessionValue(key);
+      pending = saved == null
+          ? {
+              'owner': user.id,
+              'session': session,
+              'draft': draft.encode(),
+              'avatar_path': draft.photo == null
+                  ? null
+                  : newAvatarUploadPath(user.id),
+            }
+          : Map<String, dynamic>.from(jsonDecode(saved) as Map);
+      if (pending['owner'] != user.id || pending['session'] != session) {
+        throw const LiveApiException('sign_in_required');
+      }
+      // Synchronous SQLite commit on mobile, before any remote mutation.
+      writeSessionValue(key, jsonEncode(pending));
+    }
+    final preparation = await call('prepare', {'credential': credential});
+    Map<String, dynamic>? payload;
+    if (pending != null && preparation['admitted'] != true) {
+      final submitted = UserProfile.decode(pending['draft'] as String);
+      final path = pending['avatar_path'] as String?;
+      if (submitted.photo != null && path != null) {
+        try {
+          await uploadAvatar(
+            client,
+            user.id,
+            submitted.photo!,
+            reservedPath: path,
+          );
+        } on AuthException {
+          throw const LiveApiException('sign_in_required');
+        }
+      }
+      payload = {
+        'name': submitted.name,
+        'occupation': submitted.occupation,
+        'summary': submitted.summary,
+        'skills': submitted.skills,
+        'searching_skills': submitted.searchingSkills,
+        'avatar_path': path,
+      };
+    }
+    if (client.auth.currentUser?.id != user.id ||
+        pushSessionId(client) != session) {
       throw const LiveApiException('sign_in_required');
     }
     await call('redeem', {'credential': credential, 'profile': ?payload});
+    removeSessionValue(key);
   }
 
   Future<Uint8List?> photo(MemberProfile member) async {
@@ -251,7 +320,9 @@ class SupabaseProfileStore implements ReconciledProfileStore {
     this.userId, {
     MemberProfile? initialProfile,
     String? initialSession,
-  }) : _session =
+    ProfileWriteJournal? journal,
+  }) : _journal = journal ?? createProfileWriteJournal(),
+       _session =
            pushSessionId(api.client) ??
            api.client.auth.currentSession?.accessToken {
     if (initialProfile?.id == userId &&
@@ -266,7 +337,9 @@ class SupabaseProfileStore implements ReconciledProfileStore {
   MemberProfile? _initialProfile;
   Map<String, dynamic>? _base;
   UserProfile? _localBase;
-  _ProfileWrite? _pending;
+  final ProfileWriteJournal _journal;
+  PendingProfileWrite? _pending;
+  bool _journalLoaded = false;
   Uint8List? _uploadedPhoto;
   String? _uploadedPath;
 
@@ -308,9 +381,23 @@ class SupabaseProfileStore implements ReconciledProfileStore {
     );
   }
 
+  Future<void> _restorePending() async {
+    if (_journalLoaded) return;
+    final saved = await _journal.read(userId, userId);
+    _checkSession();
+    if (saved != null &&
+        (saved.actorId != userId || saved.profileId != userId)) {
+      throw const LiveApiException('sign_in_required');
+    }
+    _pending = saved;
+    if (saved != null) _initialProfile = null;
+    _journalLoaded = true;
+  }
+
   @override
   Future<UserProfile> read() async {
     _checkSession();
+    await _restorePending();
     // Resolve an uncertain write before replacing the baseline used by its retry.
     if (_pending != null) await _sendPending();
     // Consume before any await, including a failed private photo download.
@@ -326,8 +413,27 @@ class SupabaseProfileStore implements ReconciledProfileStore {
     final pending = _pending!;
     _checkSession();
     try {
+      if (pending.uploadRequired && !pending.uploaded) {
+        await uploadAvatar(
+          api.client,
+          userId,
+          pending.profile.photo!,
+          reservedPath: pending.avatarPath,
+        );
+        _checkSession();
+        _uploadedPhoto = Uint8List.fromList(pending.profile.photo!);
+        _uploadedPath = pending.avatarPath;
+        await _journal.markUploaded(pending);
+        _checkSession();
+        _pending = PendingProfileWrite.restore(
+          operationId: pending.operationId,
+          originSessionId: pending.originSessionId,
+          uploaded: true,
+          payload: pending.payload,
+        );
+      }
       final result = await api.call('merge_profile', {
-        'operation_id': pending.operation,
+        'operation_id': pending.operationId,
         'base': pending.base,
         'changes': pending.changes,
       });
@@ -339,20 +445,30 @@ class SupabaseProfileStore implements ReconciledProfileStore {
       final saved = await _accept(
         own,
         submitted: pending.profile,
-        submittedPath: pending.path,
+        submittedPath: pending.avatarPath,
       );
+      await _journal.complete(pending);
+      _checkSession();
       _pending = null;
       return saved;
     } on LiveApiException catch (error) {
       if (error.code == 'profile_conflict') {
+        await _journal.complete(pending);
+        _checkSession();
         _pending = null;
         final own = (await api.network()).own;
         _checkSession();
         if (own == null) throw const LiveApiException('membership_required');
         throw ProfileConflictException(await _accept(own));
       }
-      if (error.code == 'offering_limit_reached') _pending = null;
+      if (error.code == 'offering_limit_reached') {
+        await _journal.complete(pending);
+        _checkSession();
+        _pending = null;
+      }
       if (error.code == 'invalid_profile' || error.code == 'avatar_retired') {
+        await _journal.complete(pending);
+        _checkSession();
         _pending = null;
         _uploadedPath = null;
         _uploadedPhoto = null;
@@ -364,6 +480,7 @@ class SupabaseProfileStore implements ReconciledProfileStore {
   @override
   Future<UserProfile> save(UserProfile profile) async {
     _checkSession();
+    await _restorePending();
     if (_base == null || _localBase == null) {
       throw StateError('Read the profile before saving.');
     }
@@ -375,6 +492,7 @@ class SupabaseProfileStore implements ReconciledProfileStore {
     final dirty = profile.changesFrom(_localBase!);
     if (dirty.isEmpty) return _localBase!;
     var path = _base!['avatar_path'] as String?;
+    var uploadRequired = false;
     if (dirty.contains('photo')) {
       if (profile.photo == null) {
         path = null;
@@ -382,10 +500,8 @@ class SupabaseProfileStore implements ReconciledProfileStore {
           _uploadedPath != null) {
         path = _uploadedPath;
       } else {
-        path = await uploadAvatar(api.client, userId, profile.photo!);
-        _checkSession();
-        _uploadedPhoto = Uint8List.fromList(profile.photo!);
-        _uploadedPath = path;
+        path = newAvatarUploadPath(userId);
+        uploadRequired = true;
       }
     }
     final values = {...profile.editableFields}..remove('photo');
@@ -393,13 +509,20 @@ class SupabaseProfileStore implements ReconciledProfileStore {
       for (final key in dirty.where((k) => k != 'photo')) key: values[key],
       if (dirty.contains('photo')) 'avatar_path': path,
     };
-    _pending = _ProfileWrite(
-      newChatOperationId(),
-      Map.of(_base!),
-      changes,
-      profile,
-      path,
+    _pending = await _journal.prepare(
+      PendingProfileWrite(
+        actorId: userId,
+        profileId: userId,
+        operationId: newChatOperationId(),
+        originSessionId: _session,
+        base: Map.of(_base!),
+        changes: changes,
+        profile: profile,
+        avatarPath: path,
+        uploadRequired: uploadRequired,
+      ),
     );
+    _checkSession();
     return _sendPending();
   }
 
@@ -412,18 +535,4 @@ class SupabaseProfileStore implements ReconciledProfileStore {
   Future<void> clear() async => throw UnsupportedError(
     'Account deletion requires the server account workflow.',
   );
-}
-
-class _ProfileWrite {
-  _ProfileWrite(
-    this.operation,
-    this.base,
-    this.changes,
-    this.profile,
-    this.path,
-  );
-  final String operation;
-  final Map<String, dynamic> base, changes;
-  final UserProfile profile;
-  final String? path;
 }

@@ -650,50 +650,51 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     },
   );
-  testWidgets('failed save prevents sign out and preserves editable input', (
-    tester,
-  ) async {
-    tester.view.physicalSize = const Size(1100, 1800);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-    final server = ProfileServer();
-    await server.start(withPhoto: false);
-    addTearDown(server.client.dispose);
-    await tester.pumpWidget(
-      PaulLiveApp(
-        client: server.client,
-        appUrl: Uri.parse('https://paul.example'),
-        draftPreferences: DraftPreferences(),
-        chatRepositoryFor: (_) => QuietChatRepository(server.client),
-      ),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Profile'));
-    await tester.pumpAndSettle();
-    server.failSave = true;
-    await tester.enterText(find.byKey(const Key('name-field')), 'Unsaved name');
-    await tester.ensureVisible(find.text('Sign out'));
-    await tester.tap(find.text('Sign out'));
-    await tester.pump(const Duration(seconds: 1));
-    await tester.pump();
-    expect(server.logouts, 0);
-    expect(server.client.auth.currentUser?.id, actor);
-    expect(find.text('Unsaved name'), findsOneWidget);
-    expect(find.textContaining('could not be saved'), findsWidgets);
-    server.failSave = false;
-    await tester.ensureVisible(find.text('Retry').first);
-    await tester.tap(find.text('Retry').first);
-    await tester.pumpAndSettle();
-    expect(server.profile['name'], 'Unsaved name');
-    expect(server.logouts, 0);
-    await tester.ensureVisible(find.text('Sign out'));
-    await tester.tap(find.text('Sign out'));
-    for (var i = 0; i < 10; i++) {
-      await tester.pump(const Duration(milliseconds: 20));
-    }
-    expect(server.logouts, 1);
-    expect(server.client.auth.currentSession, null);
-    await tester.pumpWidget(const SizedBox.shrink());
-  });
+  testWidgets(
+    'failed save preserves editable input across profile tab navigation',
+    (tester) async {
+      tester.view.physicalSize = const Size(1100, 1800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final server = ProfileServer();
+      await server.start(withPhoto: false);
+      addTearDown(server.client.dispose);
+      await tester.pumpWidget(
+        PaulLiveApp(
+          client: server.client,
+          appUrl: Uri.parse('https://paul.example'),
+          draftPreferences: DraftPreferences(),
+          chatRepositoryFor: (_) => QuietChatRepository(server.client),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Profile'));
+      await tester.pumpAndSettle();
+      server.failSave = true;
+      await tester.enterText(
+        find.byKey(const Key('name-field')),
+        'Unsaved name',
+      );
+      expect(find.text('Sign out'), findsNothing);
+      await tester.tap(find.byKey(const Key('tab-0')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('tab-3')));
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump();
+      expect(server.logouts, 0);
+      expect(server.client.auth.currentUser?.id, actor);
+      expect(find.text('Unsaved name'), findsOneWidget);
+      expect(find.textContaining('could not be saved'), findsWidgets);
+      server.failSave = false;
+      await tester.ensureVisible(find.text('Retry').first);
+      await tester.tap(find.text('Retry').first);
+      await tester.pumpAndSettle();
+      expect(server.profile['name'], 'Unsaved name');
+      expect(server.logouts, 0);
+      expect(find.text('Sign out'), findsNothing);
+      expect(server.client.auth.currentUser?.id, actor);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
 }

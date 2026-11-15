@@ -2,10 +2,16 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../app.dart';
+import '../config/app_configuration.dart';
+import '../platform/storage/platform_storage.dart';
+import '../platform/links/platform_links.dart';
+import '../platform/photos/platform_photos.dart';
+import '../platform/notifications/platform_push.dart';
 import '../admin/admin_api.dart';
 import '../admin/admin_view.dart';
 import '../admin/managed_profile_header.dart';
@@ -18,9 +24,10 @@ import '../account/deletion_view.dart';
 import '../push/push_browser.dart';
 import '../push/push_api.dart';
 import '../push/push_controller.dart';
-import '../push/push_settings.dart';
 import '../onboarding/onboarding_draft_store.dart';
 import '../onboarding/onboarding_flow.dart';
+import '../onboarding/mobile_auth_actions.dart';
+import 'invitation_entry_view.dart';
 import '../profile/profile_controller.dart';
 import '../profile/profile_conflict_dialog.dart';
 import '../profile/public_profile_view.dart';
@@ -32,6 +39,7 @@ import 'browser_storage.dart';
 import 'auth_callback.dart';
 import 'live_api.dart';
 import 'member_capabilities.dart';
+import 'continue_setup_dialog.dart';
 import 'live_qr_view.dart';
 import 'guest_preview.dart';
 import 'public_preview_api.dart';
@@ -47,6 +55,8 @@ const _inviteKey = 'paul.live.pending.invitation.v1';
 const _draftKey = 'paul.live.pending.profile.v1';
 const _finalizeKey = 'paul.live.pending.finalize.v1';
 const _entryReturnKey = 'paul.live.entry.return.v1';
+const _pendingOwnerKey = 'paul.live.pending.owner.v1';
+const _pendingSessionKey = 'paul.live.pending.session.v1';
 // A dismissed failed redirect must not consume a saved invite after reload.
 const _failedCallbackKey = 'paul.live.pending.auth-failure.v1';
 
@@ -55,6 +65,7 @@ class PaulLiveApp extends StatefulWidget {
     super.key,
     required this.client,
     required this.appUrl,
+    this.purpose = AppPurpose.review,
     this.googleEnabled = false,
     this.appleEnabled = false,
     this.loadAuthProviders,
@@ -69,10 +80,12 @@ class PaulLiveApp extends StatefulWidget {
     this.recoverSignIn,
     this.pushBrowser,
     this.pushRepositoryFor,
+    this.platformPushFactory,
     this.publicPreviewRepository,
   });
   final SupabaseClient client;
   final Uri appUrl;
+  final AppPurpose purpose;
   final bool googleEnabled;
   final bool appleEnabled;
   final Future<({bool google, bool apple})> Function()? loadAuthProviders;
@@ -86,6 +99,8 @@ class PaulLiveApp extends StatefulWidget {
   final DeletionRepository? deletionRepository;
   final Future<void> Function()? recoverSignIn;
   final PushBrowser? pushBrowser;
+  final Future<PlatformPushRuntime?> Function(SupabaseClient client)?
+  platformPushFactory;
   final PublicPreviewRepository? publicPreviewRepository;
   final PushRepository Function(String userId, String sessionId)?
   pushRepositoryFor;
@@ -101,7 +116,6 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
   final _publicBrowsing = PublicGuestBrowsingState();
   ProfileController? _profile;
   MemberCapabilities? _capabilities;
-  String? _capabilityError;
   int _capabilityGeneration = 0;
   final _networkUpdates = ValueNotifier(const MemberNetwork());
   MemberNetwork get _network => _networkUpdates.value;
@@ -117,6 +131,9 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
   late final StreamSubscription<PushClick> _pushClicks;
   PushController? _push;
   PushClick? _pendingPushClick;
+  late final Future<PlatformPushRuntime?> _nativePushFuture;
+  StreamSubscription<PlatformPushNavigation>? _nativePushRoutes;
+  PlatformPushNavigation? _pendingNativePush;
   BuildContext? _homeContext;
   bool _openingPush = false;
   bool _signingOut = false;
@@ -131,6 +148,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
   String? _identity;
   String? _authSession;
   String? _error;
+  bool _invalidCredential = false;
   bool _loading = true;
   bool _acceptedInvite = false;
   bool _entering = false;
@@ -145,6 +163,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
   int _loadGeneration = 0;
   int _tab = 0;
 
+  Future<void> Function()? _stopPlatformLinks;
   @override
   void initState() {
     super.initState();
@@ -154,6 +173,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
       widget.deletionRepository ?? SupabaseDeletionApi(widget.client),
       widget.deletionStore ?? PreferenceDeletionStore(),
     );
+    _deletions.addListener(_purgeDeletedLocalData);
     unawaited(_deletions.load());
     final fragment = Uri.base.fragment;
     _credential = fragment.startsWith('invite=')
@@ -174,8 +194,10 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
         removeSessionValue(_draftKey);
       }
     }
+    if (widget.purpose == AppPurpose.app) _entering = true;
     _identity = widget.client.auth.currentUser?.id;
     _authSession = pushSessionId(widget.client);
+    _nativePushFuture = _initializeNativePush();
     _pushBrowser = widget.pushBrowser ?? createPushBrowser();
     final click = _pushBrowser.takeClick();
     if (click?.recipientId == _identity) _pendingPushClick = click;
@@ -216,6 +238,38 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
       },
     );
     unawaited(_load());
+    _stopPlatformLinks = observePlatformInvitations(widget.appUrl, (
+      credential,
+    ) {
+      if (!mounted) return;
+      _entryGeneration++;
+      writeSessionValue(_inviteKey, credential);
+      _resumeInvitation();
+      setState(() {
+        _credential = credential;
+        _acceptedInvite = false;
+        _entering = true;
+        _error = null;
+      });
+      if (_network.own != null) unawaited(_load());
+    });
+  }
+
+  final _purgedAccounts = <String>{};
+  void _purgeDeletedLocalData() {
+    for (final record in _deletions.records) {
+      if (!record.self ||
+          !_deletions.confirmed(record) ||
+          _purgedAccounts.contains(record.actorId)) {
+        continue;
+      }
+      try {
+        deleteAccountStorage(record.actorId);
+        _purgedAccounts.add(record.actorId);
+      } catch (_) {
+        // Retry on the next recovery update; keep the deletion receipt itself.
+      }
+    }
   }
 
   void _resumeInvitation() {
@@ -241,11 +295,16 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     removeSessionValue(_draftKey);
     removeSessionValue(_finalizeKey);
     removeSessionValue(_entryReturnKey);
+    removeSessionValue(_pendingOwnerKey);
+    removeSessionValue(_pendingSessionKey);
+    removeSessionValue('paul.live.sign-in-existing.v1');
     _resumeInvitation();
     _callbackFailure = false;
     _credential = null;
+    clearOnboardingPhotoOwner();
     _draft = null;
     _acceptedInvite = false;
+    _invalidCredential = false;
   }
 
   Future<void> _load() {
@@ -293,11 +352,10 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
       _profile?.dispose();
       _profile = null;
       _capabilities = null;
-      _capabilityError = null;
       _capabilityGeneration++;
       _network = const MemberNetwork();
       _tab = 0;
-      if (_identity != null) {
+      if (_identity != null && _identity != identity) {
         await _clearPending();
         await OnboardingDraftStore(
           preferences: widget.draftPreferences,
@@ -317,44 +375,66 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
       return;
     }
     try {
-      var network = identity == null
-          ? const MemberNetwork()
-          : await _api.network();
+      if (identity != null && readSessionValue(_finalizeKey) == '1') {
+        final owner = readSessionValue(_pendingOwnerKey);
+        final previousSession = readSessionValue(_pendingSessionKey);
+        if ((owner != null && owner != identity) ||
+            (previousSession != null && previousSession != session)) {
+          await _clearPending();
+          await OnboardingDraftStore(
+            preferences: widget.draftPreferences,
+          ).clear();
+        } else {
+          writeSessionValue(_pendingOwnerKey, identity);
+          if (session != null) writeSessionValue(_pendingSessionKey, session);
+        }
+      }
+      var network = const MemberNetwork();
+      if (identity != null) {
+        try {
+          network = await _api.network();
+        } on LiveApiException catch (error) {
+          if (error.code != 'invitation_required' &&
+              error.code != 'membership_required') {
+            rethrow;
+          }
+          _entering = true;
+        }
+      }
       if (!mounted ||
           generation != _loadGeneration ||
           session != pushSessionId(widget.client)) {
         return;
       }
       try {
-        if (_credential != null && !_deferInvitation) {
-          if (network.own != null) {
-            await _api.redeem(_credential!);
-            await _clearPending();
-            network = await _api.network();
-          } else if (widget.authCallback &&
-              identity != null &&
-              _draft != null &&
-              readSessionValue(_finalizeKey) == '1') {
-            try {
-              final latest = await OnboardingDraftStore(
-                preferences: widget.draftPreferences,
-              ).read();
-              if (latest.hasData) _draft = latest;
-            } on FormatException {
-              // A corrupt local draft can fall back to the submitted snapshot.
-            }
-            if (!mounted || generation != _loadGeneration) return;
-            await _api.redeem(_credential!, draft: _draft);
-            await _clearPending();
-            await OnboardingDraftStore(
+        if (identity != null &&
+            _credential != null &&
+            !_deferInvitation &&
+            (network.own != null || readSessionValue(_finalizeKey) == '1')) {
+          final existingOnly =
+              readSessionValue('paul.live.sign-in-existing.v1') == '1';
+          if (network.own == null && !existingOnly && _draft != null) {
+            final latest = await OnboardingDraftStore(
               preferences: widget.draftPreferences,
-            ).clear();
-            network = await _api.network();
+            ).read();
+            if (latest.hasData) _draft = latest;
           }
+          if (!mounted || generation != _loadGeneration) return;
+          await _api.redeem(
+            _credential!,
+            draft: existingOnly || network.own != null ? null : _draft,
+          );
+          await _clearPending();
+          await OnboardingDraftStore(
+            preferences: widget.draftPreferences,
+          ).clear();
+          network = await _api.network();
         }
       } on LiveApiException catch (error) {
         _error = error.toString();
+        _invalidCredential = error.code == 'invalid_invitation';
         _acceptedInvite = false;
+        _entering = true;
       }
       if (!mounted || generation != _loadGeneration) return;
       if (network.own == null && _network.own != null) {
@@ -371,6 +451,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
         unawaited(_setPushIdentity(null));
       }
       _network = network;
+      if (network.own == null) unawaited(_syncNativePush(admitted: false));
       if (network.own != null && (_profile == null || !_profile!.loaded)) {
         final controller = ProfileController(
           SupabaseProfileStore(
@@ -388,6 +469,24 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
         }
         _profile?.dispose();
         _profile = controller;
+        final photo = pendingPlatformPhoto(
+          ownerId: identity,
+          destination: PhotoDestination.profile,
+          targetId: identity,
+        );
+        if (photo != null) {
+          controller.updatePhoto(photo);
+          await controller.flush();
+          if (!controller.hasUnsavedChanges) {
+            completePlatformPhoto(
+              ownerId: identity,
+              destination: PhotoDestination.profile,
+              targetId: identity,
+              photo: photo,
+            );
+          }
+          if (!mounted || generation != _loadGeneration) return;
+        }
       } else if (network.own != null && _profile?.loaded == true) {
         await _profile!.refresh();
         if (!mounted || generation != _loadGeneration) return;
@@ -405,6 +504,25 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
       }
     } catch (error) {
       if (!mounted || generation != _loadGeneration) return;
+      if (error is LiveApiException &&
+          (error.code == 'session_revoked' ||
+              error.code == 'sign_in_required')) {
+        _navigator.currentState?.popUntil((route) => route.isFirst);
+        _disposeChat();
+        _disposeSearch();
+        _profile?.dispose();
+        _profile = null;
+        _network = const MemberNetwork();
+        _pendingPushClick = null;
+        unawaited(_syncNativePush(admitted: false));
+        _peerPhotos.clear();
+        _entering = widget.purpose == AppPurpose.app;
+        try {
+          await widget.client.auth.signOut(scope: SignOutScope.local);
+        } catch (_) {
+          /* Local SDK state is already cleared. */
+        }
+      }
       _error = error is LiveApiException
           ? error.toString()
           : 'Could not load Paul. Check your connection and retry.';
@@ -415,11 +533,14 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
       if (mounted && generation == _loadGeneration) {
         setState(() => _loading = false);
         unawaited(_drainPushClick());
+        unawaited(_drainNativePush());
       }
     }
   }
 
   Future<void> _setPushIdentity(String? userId) async {
+    _pendingNativePush = null;
+    unawaited(_syncNativePush(admitted: false));
     try {
       await _pushBrowser.identity(userId, pushSessionId(widget.client));
     } catch (_) {
@@ -445,18 +566,10 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
       profile.setOfferingLimit(level.offeringLimit);
       setState(() {
         _capabilities = level;
-        _capabilityError = null;
       });
     } catch (_) {
-      if (mounted &&
-          generation == _capabilityGeneration &&
-          loadGeneration == _loadGeneration &&
-          widget.client.auth.currentUser?.id == identity &&
-          identity == _identity) {
-        setState(
-          () => _capabilityError = 'Could not refresh your invitation level.',
-        );
-      }
+      // Keep the last server-confirmed capabilities; failed refresh never grants
+      // an unlock and cannot fabricate a P15 milestone.
     }
   }
 
@@ -477,10 +590,84 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     );
   }
 
+  Future<PlatformPushRuntime?> _initializeNativePush() async {
+    final runtime =
+        await (widget.platformPushFactory ?? createPlatformPushRuntime)(
+          widget.client,
+        );
+    if (!mounted) {
+      await runtime?.dispose();
+      return null;
+    }
+    _nativePushRoutes = runtime?.routes.listen((navigation) {
+      _pendingNativePush = navigation;
+      unawaited(_drainNativePush());
+    });
+    return runtime;
+  }
+
+  Future<void> _syncNativePush({required bool admitted}) async {
+    final identity = _identity, session = pushSessionId(widget.client);
+    try {
+      final runtime = await _nativePushFuture;
+      if (!mounted ||
+          identity != _identity ||
+          session != pushSessionId(widget.client)) {
+        return;
+      }
+      await runtime?.bind(
+        userId: identity,
+        sessionId: session,
+        admitted: admitted && identity != null && session != null,
+      );
+    } catch (_) {
+      // Failure of notification transport must not block the admitted app.
+    }
+  }
+
+  Future<void> _drainNativePush() async {
+    final navigation = _pendingNativePush;
+    if (navigation == null || _loading || _openingPush) return;
+    _pendingNativePush = null;
+    final generation = _loadGeneration;
+    bool current() =>
+        mounted &&
+        generation == _loadGeneration &&
+        _network.own != null &&
+        _identity == navigation.userId &&
+        pushSessionId(widget.client) == navigation.sessionId;
+    if (!current()) return;
+    _openingPush = true;
+    try {
+      await _openPushRoute(navigation.route, navigation.userId, current);
+    } catch (_) {
+      if (current()) {
+        _showMessage(
+          'This notification is no longer available. Open your current chats.',
+        );
+      }
+    } finally {
+      _openingPush = false;
+      if (_pendingNativePush != null) unawaited(_drainNativePush());
+    }
+  }
+
+  Future<void> _refreshNativePush() async {
+    try {
+      await (await _nativePushFuture)?.refresh();
+    } catch (_) {
+      // Network/provider failures remain retryable notification state.
+    }
+  }
+
   Future<void> _ensurePush() async {
     final userId = _identity;
     final session = pushSessionId(widget.client);
     if (userId == null || session == null) return;
+    if (!kIsWeb && widget.pushBrowser == null) {
+      await _syncNativePush(admitted: _network.own != null);
+      return;
+    }
     if (_push?.repository.sessionId == session &&
         _push?.repository.userId == userId) {
       return;
@@ -524,75 +711,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
       }
       final route = await push.repository.resolve(click);
       if (!current()) return;
-      _navigator.currentState?.popUntil((route) => route.isFirst);
-      await WidgetsBinding.instance.endOfFrame;
-      if (!current()) return;
-      if (route.kind == 'community') {
-        setState(() => _tab = 1);
-        final controller = _ensureCommunity();
-        unawaited(
-          _navigator.currentState!.push<void>(
-            MaterialPageRoute(
-              builder: (_) => CommunityDetailView(
-                controller: controller,
-                requestId: route.requestId!,
-                onMessage: _openChat,
-                avatarFor: _peerAvatar,
-              ),
-            ),
-          ),
-        );
-      } else if (route.kind == 'operator') {
-        final admin = SupabaseAdminApi(widget.client, click.recipientId);
-        final access = await admin.context();
-        if (!current()) return;
-        final profile = access.profiles
-            .where(
-              (profile) =>
-                  profile.id == route.managedProfileId &&
-                  profile.canReply &&
-                  profile.disabledAt == null,
-            )
-            .firstOrNull;
-        if (profile == null) throw const PushException('push_forbidden');
-        unawaited(
-          _navigator.currentState!.push(
-            MaterialPageRoute<void>(
-              builder: (_) => OperatorInboxView(
-                repository: admin.operatorFor(profile.id),
-                actorId: click.recipientId,
-                profile: profile,
-                initialConversationId: route.conversationId,
-                senderAvatar: ManagedProfileAvatar(
-                  repository: admin,
-                  profile: profile,
-                  size: 65,
-                ),
-              ),
-            ),
-          ),
-        );
-      } else {
-        final threads = await _chat!.repository.list();
-        if (!current()) return;
-        final thread = threads
-            .where((thread) => thread.id == route.conversationId)
-            .firstOrNull;
-        final origin = _homeContext;
-        if (thread == null || origin == null || !origin.mounted) {
-          throw const PushException('push_forbidden');
-        }
-        final opening = Completer<void>();
-        unawaited(
-          _openChat(
-            origin,
-            thread.peer,
-            conversationId: thread.id,
-            opening: opening,
-          ),
-        );
-        await opening.future;
-      }
+      await _openPushRoute(route, click.recipientId, current);
     } catch (_) {
       if (current()) {
         _showMessage(
@@ -605,6 +724,82 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _openPushRoute(
+    PushRoute route,
+    String recipientId,
+    bool Function() current,
+  ) async {
+    _navigator.currentState?.popUntil((route) => route.isFirst);
+    await WidgetsBinding.instance.endOfFrame;
+    if (!current()) return;
+    if (route.kind == 'community') {
+      setState(() => _tab = 1);
+      final controller = _ensureCommunity();
+      unawaited(
+        _navigator.currentState!.push<void>(
+          MaterialPageRoute(
+            builder: (_) => CommunityDetailView(
+              controller: controller,
+              requestId: route.requestId!,
+              onMessage: _openChat,
+              avatarFor: _peerAvatar,
+            ),
+          ),
+        ),
+      );
+    } else if (route.kind == 'operator') {
+      final admin = SupabaseAdminApi(widget.client, recipientId);
+      final access = await admin.context();
+      if (!current()) return;
+      final profile = access.profiles
+          .where(
+            (profile) =>
+                profile.id == route.managedProfileId &&
+                profile.canReply &&
+                profile.disabledAt == null,
+          )
+          .firstOrNull;
+      if (profile == null) throw const PushException('push_forbidden');
+      unawaited(
+        _navigator.currentState!.push(
+          MaterialPageRoute<void>(
+            builder: (_) => OperatorInboxView(
+              repository: admin.operatorFor(profile.id),
+              actorId: recipientId,
+              profile: profile,
+              initialConversationId: route.conversationId,
+              senderAvatar: ManagedProfileAvatar(
+                repository: admin,
+                profile: profile,
+                size: 65,
+              ),
+            ),
+          ),
+        ),
+      );
+    } else {
+      final threads = await _chat!.repository.list();
+      if (!current()) return;
+      final thread = threads
+          .where((thread) => thread.id == route.conversationId)
+          .firstOrNull;
+      final origin = _homeContext;
+      if (thread == null || origin == null || !origin.mounted) {
+        throw const PushException('push_forbidden');
+      }
+      final opening = Completer<void>();
+      unawaited(
+        _openChat(
+          origin,
+          thread.peer,
+          conversationId: thread.id,
+          opening: opening,
+        ),
+      );
+      await opening.future;
+    }
+  }
+
   void _ensureChat() {
     final identity = _identity;
     if (_chat != null || identity == null || _network.own == null) return;
@@ -612,7 +807,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
       widget.chatRepositoryFor?.call(identity) ??
           SupabaseChatApi(widget.client, identity),
       identity,
-      drafts: SessionChatStateStore(),
+      drafts: createChatStateStore(_identity!),
     );
     _chat = chat;
     chat.onChanged = () {
@@ -657,11 +852,36 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     final controller = CommunityController(
       widget.communityRepositoryFor?.call(_identity!) ??
           SupabaseCommunityApi(widget.client, _identity!),
-      drafts: SessionChatStateStore(),
+      drafts: createChatStateStore(_identity!),
     );
     _community = controller;
     unawaited(controller.refresh());
     return controller;
+  }
+
+  bool _setupOpen = false;
+  Future<void> _showContinueSetup() async {
+    if (_setupOpen || _network.own == null) return;
+    _setupOpen = true;
+    try {
+      await _refreshCapabilities();
+      final level = _capabilities;
+      final context = _homeContext;
+      if (!mounted ||
+          context == null ||
+          !context.mounted ||
+          level == null ||
+          level.invitedRegistrations >= 10) {
+        return;
+      }
+      final invite = await showContinueSetupDialog(
+        context,
+        invitedRegistrations: level.invitedRegistrations,
+      );
+      if (mounted && invite == true) _openQr();
+    } finally {
+      _setupOpen = false;
+    }
   }
 
   Future<void> _askCommunity(String skill) async {
@@ -671,6 +891,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
         builder: (_) => CommunityComposeView(
           controller: _ensureCommunity(),
           onInvite: _openQr,
+          onPublishLimit: () => unawaited(_showContinueSetup()),
           initialSkill: skill,
         ),
       ),
@@ -682,6 +903,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     _resumed = state == AppLifecycleState.resumed;
     if (_resumed) {
       unawaited(_push?.refresh());
+      unawaited(_refreshNativePush());
       _chat?.resume();
       unawaited(_refreshCapabilities());
       unawaited(_profile?.refresh());
@@ -858,6 +1080,8 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
                           ),
                           peerAvatar: _peerAvatar(peer, size: 65),
                           onInvite: _openQr,
+                          onNewRecipientLimit: () =>
+                              unawaited(_showContinueSetup()),
                         ),
                 ),
         ),
@@ -950,6 +1174,16 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
   }
 
   void _backToGuest() {
+    if (widget.purpose == AppPurpose.app) {
+      _entryGeneration++;
+      removeSessionValue(_finalizeKey);
+      setState(() {
+        _entering = true;
+        _acceptedInvite = false;
+        _checking = false;
+      });
+      return;
+    }
     removeSessionValue(_entryReturnKey);
     _entryGeneration++;
     removeSessionValue(_finalizeKey);
@@ -969,6 +1203,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     setState(() {
       _checking = true;
       _error = null;
+      _invalidCredential = false;
     });
     try {
       final value = credential.trim();
@@ -985,18 +1220,34 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
         _credential = value;
         _acceptedInvite = true;
       });
+      unawaited(_refreshAuthProviders());
     } catch (error) {
       if (mounted && generation == _entryGeneration) {
-        setState(
-          () => _error = error is LiveApiException
+        setState(() {
+          _invalidCredential =
+              error is LiveApiException && error.code == 'invalid_invitation';
+          _error = error is LiveApiException
               ? error.toString()
-              : 'Could not check the code. Please retry.',
-        );
+              : 'Could not check the code. Please retry.';
+        });
       }
     } finally {
       if (mounted && generation == _entryGeneration) {
         setState(() => _checking = false);
       }
+    }
+  }
+
+  ({bool google, bool apple})? _providers;
+  OAuthProvider _onboardingProvider = OAuthProvider.google;
+  Future<void> _refreshAuthProviders() async {
+    try {
+      final providers =
+          await widget.loadAuthProviders?.call() ??
+          (google: widget.googleEnabled, apple: widget.appleEnabled);
+      if (mounted) setState(() => _providers = providers);
+    } catch (_) {
+      /* A later explicit action retries the provider settings. */
     }
   }
 
@@ -1009,38 +1260,21 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
           await widget.loadAuthProviders?.call() ??
           (google: widget.googleEnabled, apple: widget.appleEnabled);
       if (!context.mounted || generation != _entryGeneration) return null;
+      if (providers.google && !providers.apple) return OAuthProvider.google;
+      if (providers.apple && !providers.google) return OAuthProvider.apple;
+      if (!providers.google && !providers.apple) return null;
       return await showDialog<OAuthProvider>(
         context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Sign in'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextButton(
-                onPressed: providers.google
-                    ? () => Navigator.pop(context, OAuthProvider.google)
-                    : null,
-                child: const Text('Continue with Google'),
-              ),
-              TextButton(
-                onPressed: providers.apple
-                    ? () => Navigator.pop(context, OAuthProvider.apple)
-                    : null,
-                child: const Text('Continue with Apple'),
-              ),
-              if (!providers.google && !providers.apple)
-                const Text(
-                  'Sign-in is being configured. Your profile draft is saved.',
-                  style: TextStyle(fontSize: 12),
-                ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Back'),
+        builder: (dialogContext) => Dialog(
+          backgroundColor: const Color(0xFFF4F4F4),
+          child: Padding(
+            padding: const EdgeInsets.all(32),
+            child: MobileAuthActions(
+              onGoogle: () =>
+                  Navigator.pop(dialogContext, OAuthProvider.google),
+              onApple: () => Navigator.pop(dialogContext, OAuthProvider.apple),
             ),
-          ],
+          ),
         ),
       );
     } finally {
@@ -1049,11 +1283,18 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
   }
 
   Future<void> _signIn(OAuthProvider provider) async {
+    removeSessionValue(_pendingOwnerKey);
+    removeSessionValue(_pendingSessionKey);
     final opened = await widget.client.auth.signInWithOAuth(
       provider,
-      redirectTo: widget.appUrl
-          .replace(queryParameters: {'auth': 'callback'}, fragment: '')
-          .toString(),
+      authScreenLaunchMode: kIsWeb
+          ? LaunchMode.platformDefault
+          : LaunchMode.externalApplication,
+      redirectTo: !kIsWeb
+          ? 'app.paul://login-callback'
+          : widget.appUrl
+                .replace(queryParameters: {'auth': 'callback'}, fragment: '')
+                .toString(),
     );
     if (!opened) {
       throw const OnboardingSubmissionException(
@@ -1062,7 +1303,11 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _complete(BuildContext context, UserProfile draft) async {
+  Future<void> _complete(
+    BuildContext context,
+    UserProfile draft, {
+    OAuthProvider? provider,
+  }) async {
     try {
       if (_credential == null) {
         throw const LiveApiException('invalid_invitation');
@@ -1076,17 +1321,41 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
             'Please try again. Your profile draft is saved.',
           );
         }
-        final provider = await _chooseProvider(context);
-        if (provider == null) {
+        final selected = provider ?? await _chooseProvider(context);
+        if (selected == null) {
           throw const OnboardingSubmissionException(
             'Sign-in was cancelled. Your profile draft is saved.',
           );
         }
         writeSessionValue(_finalizeKey, '1');
-        await _signIn(provider);
+        await _signIn(selected);
         // The browser now navigates. The restored host finalizes the saved
         // snapshot after OAuth. Opening OAuth alone is never registration success.
-        await Future<void>.delayed(const Duration(seconds: 30));
+        if (!kIsWeb) {
+          final result = Completer<void>();
+          late final StreamSubscription<AuthState> subscription;
+          subscription = widget.client.auth.onAuthStateChange.listen(
+            (state) {
+              if (state.session != null && !result.isCompleted) {
+                result.complete();
+              }
+            },
+            onError: (Object error) {
+              if (!result.isCompleted) result.completeError(error);
+            },
+          );
+          try {
+            if (widget.client.auth.currentSession == null) {
+              await result.future.timeout(const Duration(minutes: 3));
+            }
+            await _load();
+            if (_network.own != null) return;
+          } finally {
+            await subscription.cancel();
+          }
+        } else {
+          await Future<void>.delayed(const Duration(seconds: 30));
+        }
         throw const OnboardingSubmissionException(
           'Sign-in did not finish. Your profile draft is saved. Please try again.',
         );
@@ -1099,6 +1368,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
       if (error.code == 'invalid_invitation' && mounted) {
         setState(() {
           _acceptedInvite = false;
+          _invalidCredential = true;
           _error = error.toString();
         });
       }
@@ -1125,6 +1395,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
       final profile = _profile;
       if (profile != null && !await profile.saveBeforeLeaving()) return;
       await _push?.disable();
+      await _syncNativePush(admitted: false);
       await widget.client.auth.signOut(scope: SignOutScope.local);
       await _clearPending();
       await OnboardingDraftStore(preferences: widget.draftPreferences).clear();
@@ -1348,7 +1619,8 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
         ),
       );
     }
-    if (!_entering &&
+    if (widget.purpose != AppPurpose.app &&
+        !_entering &&
         _network.own == null &&
         (_identity == null || !_loading)) {
       if (_editingGuestDraft) {
@@ -1433,12 +1705,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
               ),
           ],
         ),
-        memberLevel: MemberLevelStatus(
-          capabilities: _capabilities,
-          error: _capabilityError,
-          onRefresh: () => unawaited(_refreshCapabilities()),
-          onInvite: _openQr,
-        ),
+        onOfferingLimit: () => unawaited(_showContinueSetup()),
         push: _push,
         onQr: _openQr,
         onDismissInvite: () async {
@@ -1467,39 +1734,84 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
         preferences: widget.draftPreferences,
         initialDraft: _draft,
         onBack: _backToGuest,
-        onComplete: (draft) => _complete(context, draft),
+        pickPhoto: () => pickPlatformPhoto(
+          ownerId: onboardingPhotoOwner(),
+          destination: PhotoDestination.onboarding,
+          targetId: onboardingPhotoOwner(),
+        ),
+        onPhotoPersisted: (photo) => completePlatformPhoto(
+          ownerId: onboardingPhotoOwner(),
+          destination: PhotoDestination.onboarding,
+          targetId: onboardingPhotoOwner(),
+          photo: photo,
+        ),
+        onComplete: (draft) =>
+            _complete(context, draft, provider: _onboardingProvider),
+        registrationActions: (submit) => MobileAuthActions(
+          onGoogle: _providers?.google == false
+              ? null
+              : submit == null
+              ? null
+              : () {
+                  _onboardingProvider = OAuthProvider.google;
+                  submit();
+                },
+          onApple: _providers?.apple != true
+              ? null
+              : submit == null
+              ? null
+              : () {
+                  _onboardingProvider = OAuthProvider.apple;
+                  submit();
+                },
+        ),
       );
     }
-    return _JoinView(
+    return InvitationEntryView(
       pendingCredential: _credential,
-      onBack: _backFromEntry,
-      onClearInvite: () {
-        removeSessionValue(_inviteKey);
-        setState(() => _credential = null);
-      },
-      error: _visibleError,
-      checking: _checking,
-      onAccept: _accept,
-      onRetry:
-          !_callbackFailure &&
-              _error != null &&
-              (_credential != null || widget.client.auth.currentUser != null)
+      onBack: widget.purpose == AppPurpose.app ? null : _backFromEntry,
+      invalidCode: _invalidCredential,
+      errorText: _invalidCredential ? null : _visibleError,
+      onRetry: !_callbackFailure && !_invalidCredential && _error != null
           ? _load
           : null,
-      onSignIn: () async {
+      checking: _checking,
+      onJoin: (value) => unawaited(_accept(value)),
+      onCodeChanged: (_) {
+        if (_error != null || _invalidCredential) {
+          setState(() {
+            _error = null;
+            _invalidCredential = false;
+          });
+        }
+      },
+      onSignIn: (credential) async {
         if (_checking) return;
         final generation = _entryGeneration;
         removeSessionValue(_finalizeKey);
         setState(() => _checking = true);
         try {
+          await _api.check(credential.trim());
+          if (!mounted || generation != _entryGeneration) return;
+          _credential = credential.trim();
+          writeSessionValue(_inviteKey, _credential!);
+          writeSessionValue('paul.live.sign-in-existing.v1', '1');
+          _resumeInvitation();
+          if (!context.mounted) return;
           final provider = await _chooseProvider(context);
           if (provider == null || !mounted) return;
+          writeSessionValue(_finalizeKey, '1');
           await _signIn(provider);
-        } catch (_) {
+        } catch (error) {
           if (mounted && generation == _entryGeneration) {
-            setState(
-              () => _error = 'Could not open sign-in. Please try again.',
-            );
+            setState(() {
+              _invalidCredential =
+                  error is LiveApiException &&
+                  error.code == 'invalid_invitation';
+              _error = error is LiveApiException
+                  ? error.toString()
+                  : 'Could not open sign-in. Please try again.';
+            });
           }
         } finally {
           if (mounted && generation == _entryGeneration) {
@@ -1533,9 +1845,13 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
   @override
   void dispose() {
     _loadGeneration++;
+    _deletions.removeListener(_purgeDeletedLocalData);
     _deletions.dispose();
     unawaited(_auth.cancel());
+    unawaited(_stopPlatformLinks?.call());
     unawaited(_pushClicks.cancel());
+    unawaited(_nativePushRoutes?.cancel());
+    unawaited(_nativePushFuture.then((runtime) => runtime?.dispose()));
     _push?.dispose();
     if (widget.pushBrowser == null) _pushBrowser.dispose();
     WidgetsBinding.instance.removeObserver(this);
@@ -1563,118 +1879,6 @@ class _EntryFrame extends StatelessWidget {
   );
 }
 
-class _JoinView extends StatefulWidget {
-  const _JoinView({
-    required this.onAccept,
-    required this.onSignIn,
-    required this.checking,
-    this.error,
-    this.onRetry,
-    this.pendingCredential,
-    required this.onBack,
-    required this.onClearInvite,
-  });
-  final String? pendingCredential;
-  final VoidCallback onBack;
-  final VoidCallback onClearInvite;
-  final Future<void> Function(String) onAccept;
-  final VoidCallback onSignIn;
-  final bool checking;
-  final String? error;
-  final VoidCallback? onRetry;
-  @override
-  State<_JoinView> createState() => _JoinViewState();
-}
-
-class _JoinViewState extends State<_JoinView> {
-  final _code = TextEditingController();
-  @override
-  Widget build(BuildContext context) => _EntryFrame(
-    child: SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 37.5, vertical: 48),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const SizedBox(height: 80),
-          const Text(
-            'Join',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 28,
-              color: _blue,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const SizedBox(height: 44),
-          Text(
-            widget.pendingCredential == null
-                ? 'Enter your invitation code'
-                : 'Continue with this invitation.',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w300),
-          ),
-          const SizedBox(height: 24),
-          if (widget.pendingCredential == null)
-            TextField(
-              key: const Key('invite-code-input'),
-              controller: _code,
-              textAlign: TextAlign.center,
-              keyboardType: TextInputType.number,
-              maxLength: 8,
-              enabled: !widget.checking,
-              decoration: const InputDecoration(
-                hintText: 'Invite code',
-                counterText: '',
-              ),
-              onSubmitted: (value) =>
-                  widget.checking ? null : unawaited(widget.onAccept(value)),
-            ),
-          const SizedBox(height: 24),
-          FilledButton(
-            onPressed: widget.checking
-                ? null
-                : () => widget.onAccept(widget.pendingCredential ?? _code.text),
-            child: Text(widget.checking ? 'Checking…' : 'Join'),
-          ),
-          if (widget.error != null) ...[
-            const SizedBox(height: 20),
-            Text(
-              widget.error!,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 12,
-                color: Theme.of(context).colorScheme.error,
-              ),
-            ),
-            if (widget.onRetry != null)
-              TextButton(onPressed: widget.onRetry, child: const Text('Retry')),
-          ],
-          if (widget.pendingCredential != null)
-            TextButton(
-              onPressed: widget.checking ? null : widget.onClearInvite,
-              child: const Text('Use another invitation code'),
-            ),
-          TextButton(
-            key: const Key('join-back'),
-            onPressed: widget.onBack,
-            child: const Text('Back'),
-          ),
-          const SizedBox(height: 40),
-          TextButton(
-            onPressed: widget.checking ? null : widget.onSignIn,
-            child: const Text('Already a member? Sign in'),
-          ),
-        ],
-      ),
-    ),
-  );
-  @override
-  void dispose() {
-    _code.dispose();
-    super.dispose();
-  }
-}
-
 class _LiveContacts extends StatelessWidget {
   const _LiveContacts({
     required this.profile,
@@ -1686,7 +1890,7 @@ class _LiveContacts extends StatelessWidget {
     required this.onDelete,
     required this.onDeleteManaged,
     required this.deletionRecovery,
-    required this.memberLevel,
+    required this.onOfferingLimit,
     this.push,
     required this.adminRepository,
     required this.onQr,
@@ -1714,7 +1918,7 @@ class _LiveContacts extends StatelessWidget {
   final VoidCallback onDelete;
   final Future<void> Function(ManagedProfile) onDeleteManaged;
   final Widget deletionRecovery;
-  final Widget memberLevel;
+  final VoidCallback onOfferingLimit;
   final PushController? push;
   final AdminRepository adminRepository;
   final VoidCallback onQr;
@@ -1815,7 +2019,19 @@ class _LiveContacts extends StatelessWidget {
                   Expanded(
                     child: ProfileEditor(
                       controller: profile,
+                      pickPhoto: () => pickPlatformPhoto(
+                        ownerId: network.own!.id,
+                        destination: PhotoDestination.profile,
+                        targetId: network.own!.id,
+                      ),
+                      onPhotoPersisted: (photo) => completePlatformPhoto(
+                        ownerId: network.own!.id,
+                        destination: PhotoDestination.profile,
+                        targetId: network.own!.id,
+                        photo: photo,
+                      ),
                       onInvite: onQr,
+                      onOfferingLimit: onOfferingLimit,
                       onDelete: onDelete,
                       occupationRequired: false,
                       onViewProfile: () => onProfile(network.own!),
@@ -1823,18 +2039,12 @@ class _LiveContacts extends StatelessWidget {
                         padding: const EdgeInsets.only(top: 40),
                         child: Column(
                           children: [
-                            memberLevel,
-                            if (push != null) PushSettings(controller: push!),
                             AdminEntry(
                               key: ValueKey(network.own!.id),
                               repository: adminRepository,
                               onDeleteProfile: onDeleteManaged,
                             ),
                             deletionRecovery,
-                            TextButton(
-                              onPressed: onLogout,
-                              child: const Text('Sign out'),
-                            ),
                           ],
                         ),
                       ),

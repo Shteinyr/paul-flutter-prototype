@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -16,15 +17,18 @@ class OnboardingFlow extends StatefulWidget {
   const OnboardingFlow({
     super.key,
     this.onComplete,
+    this.registrationActions,
     this.onContinueToRegistration,
     this.initialDraft,
     this.onBack,
     this.pickPhoto,
+    this.onPhotoPersisted,
     this.preferences,
     this.maxOfferingSkills = 5,
   }) : assert((onComplete == null) != (onContinueToRegistration == null));
 
   final Future<void> Function(UserProfile draft)? onComplete;
+  final Widget Function(VoidCallback? submit)? registrationActions;
 
   /// Local-only handoff. Saves the draft without claiming registration success
   /// or clearing it; the host must still check an invitation and authenticate.
@@ -34,6 +38,7 @@ class OnboardingFlow extends StatefulWidget {
   final UserProfile? initialDraft;
   final VoidCallback? onBack;
   final PickProfilePhoto? pickPhoto;
+  final ValueChanged<Uint8List>? onPhotoPersisted;
   final SharedPreferencesAsync? preferences;
   final int maxOfferingSkills;
 
@@ -127,6 +132,9 @@ class _OnboardingFlowState extends State<OnboardingFlow>
     if (_controller.error != null) return false;
     try {
       await _store.write(_profile);
+      if (_profile.photo != null) {
+        widget.onPhotoPersisted?.call(_profile.photo!);
+      }
       if (mounted) setState(() => _draftError = null);
       return true;
     } catch (_) {
@@ -398,12 +406,18 @@ class _OnboardingFlowState extends State<OnboardingFlow>
                             tooltip: _step == 2
                                 ? 'Continue to sign in'
                                 : 'Next',
-                            onPressed: _busy
+                            onPressed:
+                                _busy ||
+                                    (_step == 2 &&
+                                        widget.registrationActions != null)
                                 ? null
                                 : _step == 2
                                 ? _complete
                                 : () => _move(1),
-                            icon: _working && _step == 2
+                            icon:
+                                _step == 2 && widget.registrationActions != null
+                                ? const SizedBox.shrink()
+                                : _working && _step == 2
                                 ? const SizedBox.square(
                                     dimension: 18,
                                     child: CircularProgressIndicator(
@@ -478,6 +492,12 @@ class _OnboardingFlowState extends State<OnboardingFlow>
                           else ...[
                             _aboutYou(),
                             const SizedBox(height: 30),
+                            if (widget.registrationActions != null)
+                              Center(
+                                child: widget.registrationActions!(
+                                  _busy ? null : _complete,
+                                ),
+                              ),
                             if (_submitError != null)
                               Padding(
                                 padding: const EdgeInsets.only(bottom: 12),
