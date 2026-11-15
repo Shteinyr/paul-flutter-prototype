@@ -177,8 +177,12 @@ class LiveApi implements InvitationIssuer {
   @override
   Future<void> revoke(String id) async => call('revoke', {'id': id});
 
-  Future<void> check(String credential) async =>
-      call('check', {'credential': credential});
+  Future<void> check(String credential) async {
+    if (!RegExp(r'^(?:[a-f0-9]{64}|[0-9]{8})$').hasMatch(credential)) {
+      throw const LiveApiException('invalid_invitation');
+    }
+    await call('check', {'credential': credential});
+  }
 
   Future<MemberNetwork> network() async {
     final data = await call('network');

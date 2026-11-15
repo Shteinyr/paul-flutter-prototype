@@ -12,6 +12,7 @@ import 'keep_signed_in_storage.dart';
 import 'auth_callback.dart';
 import 'guest_preview.dart';
 import 'live_app.dart';
+import 'limited_preview_app.dart';
 import 'public_preview_api.dart';
 
 Future<Widget> buildLiveApp({
@@ -24,6 +25,12 @@ Future<Widget> buildLiveApp({
   final publicPreview = previewUrl?.hasAuthority == true && key.isNotEmpty
       ? PublicPreviewApi(url: previewUrl!, publishableKey: key)
       : null;
+  if (purpose == AppPurpose.preview && publicPreview != null) {
+    return LimitedPreviewApp(
+      repository: publicPreview,
+      client: SupabaseClient(url, key),
+    );
+  }
   Future<void> retry() async => runApp(
     await buildLiveApp(url: url, key: key, appUrl: appUrl, purpose: purpose),
   );
@@ -66,7 +73,9 @@ Future<Widget> buildLiveApp({
         ),
         detectSessionInUriPredicate: (uri) => kIsWeb
             ? isAuthCallback(uri)
-            : uri.scheme == 'app.paul' && uri.host == 'login-callback',
+            : uri.scheme == 'app.paul' &&
+                  uri.host == 'login-callback' &&
+                  uri.path.isEmpty,
 
         authFlowType: AuthFlowType.pkce,
         // The web bootstrap awaits the same SDK exchange below and retains

@@ -73,3 +73,8 @@ android/key.properties
 /BOOTSTRAP_REPORT.md
 /.local/
 /supabase/.temp/
+
+# Client release signing and native provider files
+ios/Flutter/Client.xcconfig
+android/app/google-services.json
+ios/Runner/GoogleService-Info.plist

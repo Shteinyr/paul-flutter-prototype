@@ -26,6 +26,22 @@ void main() {
     oauthCallback: callback,
   );
 
+  test('installed-app invitation code is distinct from a PKCE callback', () {
+    expect(
+      parser.parse(Uri.parse('com.paul.app://invite?code=12345678')),
+      isA<InvitationLink>(),
+    );
+    expect(
+      parser.parse(
+        Uri.parse('com.paul.app://invite?code=12345678&invite=$token'),
+      ),
+      isNull,
+    );
+    expect(
+      parser.parse(Uri.parse('com.paul.app://invite?access_token=secret')),
+      isNull,
+    );
+  });
   for (final fragment in ['invite=$token', 'invite=12345678']) {
     test(
       'accepts a valid invitation at the configured public endpoint: $fragment',

@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../app.dart';
 import '../config/app_configuration.dart';
 import '../platform/storage/platform_storage.dart';
+import '../platform/links/platform_links.dart';
 import '../admin/admin_api.dart';
 import '../admin/admin_view.dart';
 import '../admin/managed_profile_header.dart';
@@ -23,6 +24,8 @@ import '../push/push_api.dart';
 import '../push/push_controller.dart';
 import '../onboarding/onboarding_draft_store.dart';
 import '../onboarding/onboarding_flow.dart';
+import '../onboarding/mobile_auth_actions.dart';
+import 'invitation_entry_view.dart';
 import '../profile/profile_controller.dart';
 import '../profile/profile_conflict_dialog.dart';
 import '../profile/public_profile_view.dart';
@@ -137,6 +140,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
   String? _identity;
   String? _authSession;
   String? _error;
+  bool _invalidCredential = false;
   bool _loading = true;
   bool _acceptedInvite = false;
   bool _entering = false;
@@ -151,6 +155,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
   int _loadGeneration = 0;
   int _tab = 0;
 
+  Future<void> Function()? _stopPlatformLinks;
   @override
   void initState() {
     super.initState();
@@ -224,6 +229,21 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
       },
     );
     unawaited(_load());
+    _stopPlatformLinks = observePlatformInvitations(widget.appUrl, (
+      credential,
+    ) {
+      if (!mounted) return;
+      _entryGeneration++;
+      writeSessionValue(_inviteKey, credential);
+      _resumeInvitation();
+      setState(() {
+        _credential = credential;
+        _acceptedInvite = false;
+        _entering = true;
+        _error = null;
+      });
+      if (_network.own != null) unawaited(_load());
+    });
   }
 
   final _purgedAccounts = <String>{};
@@ -274,6 +294,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     _credential = null;
     _draft = null;
     _acceptedInvite = false;
+    _invalidCredential = false;
   }
 
   Future<void> _load() {
@@ -401,6 +422,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
         }
       } on LiveApiException catch (error) {
         _error = error.toString();
+        _invalidCredential = error.code == 'invalid_invitation';
         _acceptedInvite = false;
         _entering = true;
       }
@@ -453,6 +475,24 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
       }
     } catch (error) {
       if (!mounted || generation != _loadGeneration) return;
+      if (error is LiveApiException &&
+          (error.code == 'session_revoked' ||
+              error.code == 'sign_in_required')) {
+        _navigator.currentState?.popUntil((route) => route.isFirst);
+        _disposeChat();
+        _disposeSearch();
+        _profile?.dispose();
+        _profile = null;
+        _network = const MemberNetwork();
+        _pendingPushClick = null;
+        _peerPhotos.clear();
+        _entering = widget.purpose == AppPurpose.app;
+        try {
+          await widget.client.auth.signOut(scope: SignOutScope.local);
+        } catch (_) {
+          /* Local SDK state is already cleared. */
+        }
+      }
       _error = error is LiveApiException
           ? error.toString()
           : 'Could not load Paul. Check your connection and retry.';
@@ -1047,6 +1087,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     setState(() {
       _checking = true;
       _error = null;
+      _invalidCredential = false;
     });
     try {
       final value = credential.trim();
@@ -1063,18 +1104,34 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
         _credential = value;
         _acceptedInvite = true;
       });
+      unawaited(_refreshAuthProviders());
     } catch (error) {
       if (mounted && generation == _entryGeneration) {
-        setState(
-          () => _error = error is LiveApiException
+        setState(() {
+          _invalidCredential =
+              error is LiveApiException && error.code == 'invalid_invitation';
+          _error = error is LiveApiException
               ? error.toString()
-              : 'Could not check the code. Please retry.',
-        );
+              : 'Could not check the code. Please retry.';
+        });
       }
     } finally {
       if (mounted && generation == _entryGeneration) {
         setState(() => _checking = false);
       }
+    }
+  }
+
+  ({bool google, bool apple})? _providers;
+  OAuthProvider _onboardingProvider = OAuthProvider.google;
+  Future<void> _refreshAuthProviders() async {
+    try {
+      final providers =
+          await widget.loadAuthProviders?.call() ??
+          (google: widget.googleEnabled, apple: widget.appleEnabled);
+      if (mounted) setState(() => _providers = providers);
+    } catch (_) {
+      /* A later explicit action retries the provider settings. */
     }
   }
 
@@ -1087,38 +1144,21 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
           await widget.loadAuthProviders?.call() ??
           (google: widget.googleEnabled, apple: widget.appleEnabled);
       if (!context.mounted || generation != _entryGeneration) return null;
+      if (providers.google && !providers.apple) return OAuthProvider.google;
+      if (providers.apple && !providers.google) return OAuthProvider.apple;
+      if (!providers.google && !providers.apple) return null;
       return await showDialog<OAuthProvider>(
         context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Sign in'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextButton(
-                onPressed: providers.google
-                    ? () => Navigator.pop(context, OAuthProvider.google)
-                    : null,
-                child: const Text('Continue with Google'),
-              ),
-              TextButton(
-                onPressed: providers.apple
-                    ? () => Navigator.pop(context, OAuthProvider.apple)
-                    : null,
-                child: const Text('Continue with Apple'),
-              ),
-              if (!providers.google && !providers.apple)
-                const Text(
-                  'Sign-in is being configured. Your profile draft is saved.',
-                  style: TextStyle(fontSize: 12),
-                ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Back'),
+        builder: (dialogContext) => Dialog(
+          backgroundColor: const Color(0xFFF4F4F4),
+          child: Padding(
+            padding: const EdgeInsets.all(32),
+            child: MobileAuthActions(
+              onGoogle: () =>
+                  Navigator.pop(dialogContext, OAuthProvider.google),
+              onApple: () => Navigator.pop(dialogContext, OAuthProvider.apple),
             ),
-          ],
+          ),
         ),
       );
     } finally {
@@ -1147,7 +1187,11 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _complete(BuildContext context, UserProfile draft) async {
+  Future<void> _complete(
+    BuildContext context,
+    UserProfile draft, {
+    OAuthProvider? provider,
+  }) async {
     try {
       if (_credential == null) {
         throw const LiveApiException('invalid_invitation');
@@ -1161,14 +1205,14 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
             'Please try again. Your profile draft is saved.',
           );
         }
-        final provider = await _chooseProvider(context);
-        if (provider == null) {
+        final selected = provider ?? await _chooseProvider(context);
+        if (selected == null) {
           throw const OnboardingSubmissionException(
             'Sign-in was cancelled. Your profile draft is saved.',
           );
         }
         writeSessionValue(_finalizeKey, '1');
-        await _signIn(provider);
+        await _signIn(selected);
         // The browser now navigates. The restored host finalizes the saved
         // snapshot after OAuth. Opening OAuth alone is never registration success.
         if (!kIsWeb) {
@@ -1208,6 +1252,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
       if (error.code == 'invalid_invitation' && mounted) {
         setState(() {
           _acceptedInvite = false;
+          _invalidCredential = true;
           _error = error.toString();
         });
       }
@@ -1572,25 +1617,45 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
         preferences: widget.draftPreferences,
         initialDraft: _draft,
         onBack: _backToGuest,
-        onComplete: (draft) => _complete(context, draft),
+        onComplete: (draft) =>
+            _complete(context, draft, provider: _onboardingProvider),
+        registrationActions: (submit) => MobileAuthActions(
+          onGoogle: _providers?.google == false
+              ? null
+              : submit == null
+              ? null
+              : () {
+                  _onboardingProvider = OAuthProvider.google;
+                  submit();
+                },
+          onApple: _providers?.apple != true
+              ? null
+              : submit == null
+              ? null
+              : () {
+                  _onboardingProvider = OAuthProvider.apple;
+                  submit();
+                },
+        ),
       );
     }
-    return _JoinView(
+    return InvitationEntryView(
       pendingCredential: _credential,
-      onBack: _backFromEntry,
-      onClearInvite: () {
-        removeSessionValue(_inviteKey);
-        setState(() => _credential = null);
-      },
-      error: _visibleError,
-      checking: _checking,
-      onAccept: _accept,
-      onRetry:
-          !_callbackFailure &&
-              _error != null &&
-              (_credential != null || widget.client.auth.currentUser != null)
+      onBack: widget.purpose == AppPurpose.app ? null : _backFromEntry,
+      invalidCode: _invalidCredential,
+      errorText: _invalidCredential ? null : _visibleError,
+      onRetry: !_callbackFailure && !_invalidCredential && _error != null
           ? _load
           : null,
+      checking: _checking,
+      onJoin: (value) => unawaited(_accept(value)),
+      onCodeChanged: (_) {
+        if (_error != null || _invalidCredential)
+          setState(() {
+            _error = null;
+            _invalidCredential = false;
+          });
+      },
       onSignIn: (credential) async {
         if (_checking) return;
         final generation = _entryGeneration;
@@ -1608,11 +1673,16 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
           if (provider == null || !mounted) return;
           writeSessionValue(_finalizeKey, '1');
           await _signIn(provider);
-        } catch (_) {
+        } catch (error) {
           if (mounted && generation == _entryGeneration) {
-            setState(
-              () => _error = 'Enter a valid invitation code to sign in.',
-            );
+            setState(() {
+              _invalidCredential =
+                  error is LiveApiException &&
+                  error.code == 'invalid_invitation';
+              _error = error is LiveApiException
+                  ? error.toString()
+                  : 'Could not open sign-in. Please try again.';
+            });
           }
         } finally {
           if (mounted && generation == _entryGeneration) {
@@ -1649,6 +1719,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     _deletions.removeListener(_purgeDeletedLocalData);
     _deletions.dispose();
     unawaited(_auth.cancel());
+    unawaited(_stopPlatformLinks?.call());
     unawaited(_pushClicks.cancel());
     _push?.dispose();
     if (widget.pushBrowser == null) _pushBrowser.dispose();
@@ -1675,120 +1746,6 @@ class _EntryFrame extends StatelessWidget {
       ),
     ),
   );
-}
-
-class _JoinView extends StatefulWidget {
-  const _JoinView({
-    required this.onAccept,
-    required this.onSignIn,
-    required this.checking,
-    this.error,
-    this.onRetry,
-    this.pendingCredential,
-    required this.onBack,
-    required this.onClearInvite,
-  });
-  final String? pendingCredential;
-  final VoidCallback onBack;
-  final VoidCallback onClearInvite;
-  final Future<void> Function(String) onAccept;
-  final Future<void> Function(String) onSignIn;
-  final bool checking;
-  final String? error;
-  final VoidCallback? onRetry;
-  @override
-  State<_JoinView> createState() => _JoinViewState();
-}
-
-class _JoinViewState extends State<_JoinView> {
-  final _code = TextEditingController();
-  @override
-  Widget build(BuildContext context) => _EntryFrame(
-    child: SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 37.5, vertical: 48),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const SizedBox(height: 80),
-          const Text(
-            'Join',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 28,
-              color: _blue,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const SizedBox(height: 44),
-          Text(
-            widget.pendingCredential == null
-                ? 'Enter your invitation code'
-                : 'Continue with this invitation.',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w300),
-          ),
-          const SizedBox(height: 24),
-          if (widget.pendingCredential == null)
-            TextField(
-              key: const Key('invite-code-input'),
-              controller: _code,
-              textAlign: TextAlign.center,
-              keyboardType: TextInputType.number,
-              maxLength: 8,
-              enabled: !widget.checking,
-              decoration: const InputDecoration(
-                hintText: 'Invite code',
-                counterText: '',
-              ),
-              onSubmitted: (value) =>
-                  widget.checking ? null : unawaited(widget.onAccept(value)),
-            ),
-          const SizedBox(height: 24),
-          FilledButton(
-            onPressed: widget.checking
-                ? null
-                : () => widget.onAccept(widget.pendingCredential ?? _code.text),
-            child: Text(widget.checking ? 'Checking…' : 'Join'),
-          ),
-          if (widget.error != null) ...[
-            const SizedBox(height: 20),
-            Text(
-              widget.error!,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 12,
-                color: Theme.of(context).colorScheme.error,
-              ),
-            ),
-            if (widget.onRetry != null)
-              TextButton(onPressed: widget.onRetry, child: const Text('Retry')),
-          ],
-          if (widget.pendingCredential != null)
-            TextButton(
-              onPressed: widget.checking ? null : widget.onClearInvite,
-              child: const Text('Use another invitation code'),
-            ),
-          TextButton(
-            key: const Key('join-back'),
-            onPressed: widget.onBack,
-            child: const Text('Back'),
-          ),
-          const SizedBox(height: 40),
-          TextButton(
-            onPressed: widget.checking
-                ? null
-                : () => widget.onSignIn(widget.pendingCredential ?? _code.text),
-            child: const Text('Already a member? Sign in'),
-          ),
-        ],
-      ),
-    ),
-  );
-  @override
-  void dispose() {
-    _code.dispose();
-    super.dispose();
-  }
 }
 
 class _LiveContacts extends StatelessWidget {

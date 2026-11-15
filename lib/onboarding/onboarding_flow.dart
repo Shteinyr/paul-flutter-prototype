@@ -16,6 +16,7 @@ class OnboardingFlow extends StatefulWidget {
   const OnboardingFlow({
     super.key,
     this.onComplete,
+    this.registrationActions,
     this.onContinueToRegistration,
     this.initialDraft,
     this.onBack,
@@ -25,6 +26,7 @@ class OnboardingFlow extends StatefulWidget {
   }) : assert((onComplete == null) != (onContinueToRegistration == null));
 
   final Future<void> Function(UserProfile draft)? onComplete;
+  final Widget Function(VoidCallback? submit)? registrationActions;
 
   /// Local-only handoff. Saves the draft without claiming registration success
   /// or clearing it; the host must still check an invitation and authenticate.
@@ -398,12 +400,18 @@ class _OnboardingFlowState extends State<OnboardingFlow>
                             tooltip: _step == 2
                                 ? 'Continue to sign in'
                                 : 'Next',
-                            onPressed: _busy
+                            onPressed:
+                                _busy ||
+                                    (_step == 2 &&
+                                        widget.registrationActions != null)
                                 ? null
                                 : _step == 2
                                 ? _complete
                                 : () => _move(1),
-                            icon: _working && _step == 2
+                            icon:
+                                _step == 2 && widget.registrationActions != null
+                                ? const SizedBox.shrink()
+                                : _working && _step == 2
                                 ? const SizedBox.square(
                                     dimension: 18,
                                     child: CircularProgressIndicator(
@@ -478,6 +486,12 @@ class _OnboardingFlowState extends State<OnboardingFlow>
                           else ...[
                             _aboutYou(),
                             const SizedBox(height: 30),
+                            if (widget.registrationActions != null)
+                              Center(
+                                child: widget.registrationActions!(
+                                  _busy ? null : _complete,
+                                ),
+                              ),
                             if (_submitError != null)
                               Padding(
                                 padding: const EdgeInsets.only(bottom: 12),

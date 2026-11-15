@@ -52,6 +52,21 @@ class IncomingLinkParser {
         if (fragment.containsKey(key)) return null;
         fragment[key] = value;
       }
+      if (uri.scheme == oauthCallback.scheme &&
+          uri.host == 'invite' &&
+          uri.path.isEmpty) {
+        if (query.values.any((values) => values.length != 1) ||
+            uri.fragment.isNotEmpty ||
+            query.keys.any((key) => key != 'invite' && key != 'code') ||
+            query.length != 1) {
+          return null;
+        }
+        final credential = query['invite']?.single ?? query['code']?.single;
+        return credential != null &&
+                RegExp(r'^(?:[a-f0-9]{64}|[0-9]{8})$').hasMatch(credential)
+            ? InvitationLink(credential)
+            : null;
+      }
       final auth =
           query.keys.any(
             {'code', 'error', 'error_description', 'access_token'}.contains,
