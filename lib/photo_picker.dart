@@ -14,11 +14,19 @@ Future<Uint8List?> pickProfilePhoto() async {
     requestFullMetadata: false,
   );
   if (file == null) return null;
+  return readProfilePhotoFile(file);
+}
+
+/// Both ordinary and recovered picker results use the same bounds/normalizer.
+Future<Uint8List> readProfilePhotoFile(XFile file) async {
   // Bound memory and local storage use before decoding untrusted image bytes.
   if (await file.length() > 3 * 1024 * 1024) {
     throw const PhotoSelectionException('Choose an image smaller than 3 MB.');
   }
   final bytes = await file.readAsBytes();
+  if (bytes.lengthInBytes > 3 * 1024 * 1024) {
+    throw const PhotoSelectionException('Choose an image smaller than 3 MB.');
+  }
   return normalizeProfilePhoto(bytes);
 }
 
