@@ -92,7 +92,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Hiring'), findsOneWidget);
       expect(find.text('Today'), findsOneWidget);
-      expect(find.text('Last Week'), findsOneWidget);
+      expect(find.text('Last week'), findsOneWidget);
       expect(find.textContaining('Urgent Hiring:  '), findsAtLeastNWidgets(3));
       await tester.drag(
         find.byKey(const Key('guest-hiring')),

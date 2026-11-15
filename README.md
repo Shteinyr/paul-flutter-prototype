@@ -96,8 +96,10 @@ TestFlight, Google Play or physical-device acceptance.
 
 The pinned iOS dependencies use CocoaPods (`pod install`, with `Podfile.lock`)
 and require iOS 15+. Swift Package Manager is disabled for this project.
-Android uses Java 17+ (verified tooling: Java 21), API 37, minimum API 24,
+Android uses Java 17+ (verified tooling: Java 21), compile API 37, minimum API 24,
 AGP 9.1.1 and the NDK version pinned by Flutter. Only one SDK installation is needed.
+The pinned plugins also compile against SDK platforms 35 and 36; install those
+in the same SDK rather than changing third-party plugin sources.
 
 `bash scripts/build_preview.sh` packages the limited public P16 preview in `dist/`.
 `bash scripts/build_live.sh` packages the separate full review target there.
@@ -122,6 +124,8 @@ configuration. A system permission request occurs only after server admission.
 
 The new session-admission and native-push migrations/functions must be installed
 together with their matching server handlers before full mobile acceptance.
+Follow [the coordinated backend rollout](docs/MOBILE_BACKEND_ROLLOUT.md): the
+published v27 cannot complete new registration against the new backend alone.
 `native-push-worker` stays inactive until its provider credentials are configured.
 The two notification bodies are `New message` and `New Hiring request`; they
 contain no sender, skill or conversation text. Android's notification artwork

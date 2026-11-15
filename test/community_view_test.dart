@@ -180,7 +180,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('Today'), findsOneWidget);
-    expect(find.text('Last Week'), findsOneWidget);
+    expect(find.text('Last week'), findsOneWidget);
     expect(find.text('Earlier'), findsOneWidget);
     await tester.scrollUntilVisible(
       find.byKey(const ValueKey('community-age-20')),

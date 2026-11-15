@@ -278,7 +278,7 @@ class _CommunityFeedViewState extends State<CommunityFeedView>
   String _group(CommunityRequest request) {
     final age = widget.controller.serverNow.difference(request.createdAt);
     if (age < const Duration(days: 1)) return 'Today';
-    if (age < const Duration(days: 7)) return 'Last Week';
+    if (age < const Duration(days: 7)) return 'Last week';
     return 'Earlier';
   }
 
