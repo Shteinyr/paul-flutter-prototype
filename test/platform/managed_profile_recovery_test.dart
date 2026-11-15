@@ -243,6 +243,9 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    expect(find.text('Profile'), findsOneWidget);
+    expect(find.text('Create user'), findsNothing);
+    expect(find.text('Edit user'), findsNothing);
   }
 
   testWidgets(
@@ -328,6 +331,18 @@ void main() {
       final saved = jsonDecode(repo.commands.last) as Map;
       expect(saved['profile']['name'], 'Other device');
       expect(saved['expected_updated_at'], repo.remote.updatedAt);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+  testWidgets(
+    'managed creation reuses the source Profile form title without issuing a command',
+    (tester) async {
+      final repo = Repository();
+      await open(tester, repo, create: true);
+      expect(find.text('Profile'), findsOneWidget);
+      expect(find.text('Create user'), findsNothing);
+      expect(find.text('Edit user'), findsNothing);
+      expect(repo.commands, isEmpty);
       await tester.pumpWidget(const SizedBox());
     },
   );

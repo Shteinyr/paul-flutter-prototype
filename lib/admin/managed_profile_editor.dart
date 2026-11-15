@@ -281,7 +281,7 @@ class _ManagedProfileEditorState extends State<ManagedProfileEditor> {
 
   @override
   Widget build(BuildContext context) => ProfilePage(
-    title: widget.profile == null ? 'Create user' : 'Edit user',
+    title: 'Profile',
     action: widget.profile == null
         ? null
         : IconButton(
