@@ -43,8 +43,9 @@ void main() {
                   tester.element(find.byType(CommunityComposeView)),
                   invitedRegistrations: 9,
                 ) ==
-                true)
+                true) {
               invites++;
+            }
           },
           initialSkill: 'Marketing',
         ),

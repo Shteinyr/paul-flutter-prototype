@@ -137,8 +137,9 @@ void main() {
                     tester.element(find.byType(LiveChatView)),
                     invitedRegistrations: 0,
                   ) ==
-                  true)
+                  true) {
                 invited = true;
+              }
             },
           ),
         ),
