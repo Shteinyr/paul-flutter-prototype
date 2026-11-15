@@ -142,8 +142,9 @@ class LiveApi implements InvitationIssuer {
   Future<LiveInvitation> issue(String token) async {
     final owner = client.auth.currentUser?.id;
     final session = pushSessionId(client);
-    if (owner == null || session == null)
+    if (owner == null || session == null) {
       throw const LiveApiException('sign_in_required');
+    }
     final pendingKey = 'paul.invitation.issue.$owner.$session';
     final operationToken = readSessionValue(pendingKey) ?? token;
     writeSessionValue(pendingKey, operationToken);

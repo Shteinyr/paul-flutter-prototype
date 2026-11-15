@@ -39,6 +39,12 @@ select pg_temp.reject($q$select public.redeem_session_invitation('91500000-0000-
 select pg_temp.reject($q$select private.require_member_session('91500000-0000-4000-8000-000000000002','91510000-0000-4000-8000-000000000003')$q$,'invitation_required');
 select set_config('request.jwt.claims','{"session_id":"91510000-0000-4000-8000-000000000003"}',true);
 select pg_temp.assert_true(not private.is_member() and not private.avatar_owner_access(),'same user/new session has no member or photo access');
+set local role authenticated;
+select pg_temp.assert_true((select count(*)=0 from public.profiles),'RLS hides member profiles from new unadmitted session');
+select pg_temp.assert_true((select count(*)=0 from storage.objects),'Storage hides own and contact photos before admission');
+select set_config('realtime.topic','chat:user:91500000-0000-4000-8000-000000000002',true);
+select pg_temp.assert_true((select count(*)=0 from realtime.messages),'Realtime denies hints before admission');
+reset role;
 select pg_temp.assert_true(private.push_route('91500000-0000-4000-8000-000000000002','91510000-0000-4000-8000-000000000003',gen_random_uuid()) is null,'push rejects unadmitted session');
 select public.issue_invitation('91500000-0000-4000-8000-000000000001',repeat('d',64),repeat('e',64));
 select public.redeem_session_invitation('91500000-0000-4000-8000-000000000002','91510000-0000-4000-8000-000000000003',repeat('d',64),false,'{"name":"Must not overwrite"}',null);
@@ -51,5 +57,14 @@ select pg_temp.assert_true(not has_table_privilege('authenticated','private.sess
 select pg_temp.assert_true(not has_function_privilege('authenticated','public.redeem_session_invitation(uuid,uuid,text,boolean,jsonb,text)','EXECUTE'),'service-only admission RPC');
 delete from auth.sessions where id='91510000-0000-4000-8000-000000000003';
 select pg_temp.assert_true(not private.is_member(),'revoked Auth session invalidates admission immediately');
+-- Expiry during external OAuth/upload cannot finalize or create membership.
+insert into auth.users(id) values('91500000-0000-4000-8000-000000000004');
+insert into auth.sessions(id,user_id) values('91510000-0000-4000-8000-000000000004','91500000-0000-4000-8000-000000000004');
+select public.issue_invitation('91500000-0000-4000-8000-000000000001',repeat('f',64),repeat('9',64));
+select public.prepare_registration_session('91500000-0000-4000-8000-000000000004','91510000-0000-4000-8000-000000000004',repeat('f',64),false,null);
+update private.invitations set created_at=statement_timestamp()-interval '16 minutes',expires_at=statement_timestamp()-interval '1 minute' where token_hash=repeat('f',64);
+select pg_temp.reject($q$select public.redeem_session_invitation('91500000-0000-4000-8000-000000000004','91510000-0000-4000-8000-000000000004',repeat('f',64),false,'{}',null)$q$,'invalid_invitation');
+select pg_temp.assert_true(not exists(select 1 from private.memberships where user_id='91500000-0000-4000-8000-000000000004'),'no partial membership after expiry');
+select pg_temp.reject($q$select public.member_delete_account('91500000-0000-4000-8000-000000000004','91510000-0000-4000-8000-000000000004','91500000-0000-4000-8000-000000000004',gen_random_uuid(),repeat('5',64))$q$,'membership_required');
 select 'PASS session admission: registration, photos, RLS, TTL, retry, fresh login, referrals, identity, revocation';
 rollback;

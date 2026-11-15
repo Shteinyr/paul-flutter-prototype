@@ -2,11 +2,13 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../app.dart';
 import '../config/app_configuration.dart';
+import '../platform/storage/platform_storage.dart';
 import '../admin/admin_api.dart';
 import '../admin/admin_view.dart';
 import '../admin/managed_profile_header.dart';
@@ -32,6 +34,7 @@ import 'browser_storage.dart';
 import 'auth_callback.dart';
 import 'live_api.dart';
 import 'member_capabilities.dart';
+import 'continue_setup_dialog.dart';
 import 'live_qr_view.dart';
 import 'guest_preview.dart';
 import 'public_preview_api.dart';
@@ -105,7 +108,6 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
   final _publicBrowsing = PublicGuestBrowsingState();
   ProfileController? _profile;
   MemberCapabilities? _capabilities;
-  String? _capabilityError;
   int _capabilityGeneration = 0;
   final _networkUpdates = ValueNotifier(const MemberNetwork());
   MemberNetwork get _network => _networkUpdates.value;
@@ -158,6 +160,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
       widget.deletionRepository ?? SupabaseDeletionApi(widget.client),
       widget.deletionStore ?? PreferenceDeletionStore(),
     );
+    _deletions.addListener(_purgeDeletedLocalData);
     unawaited(_deletions.load());
     final fragment = Uri.base.fragment;
     _credential = fragment.startsWith('invite=')
@@ -221,6 +224,23 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
       },
     );
     unawaited(_load());
+  }
+
+  final _purgedAccounts = <String>{};
+  void _purgeDeletedLocalData() {
+    for (final record in _deletions.records) {
+      if (!record.self ||
+          !_deletions.confirmed(record) ||
+          _purgedAccounts.contains(record.actorId)) {
+        continue;
+      }
+      try {
+        deleteAccountStorage(record.actorId);
+        _purgedAccounts.add(record.actorId);
+      } catch (_) {
+        // Retry on the next recovery update; keep the deletion receipt itself.
+      }
+    }
   }
 
   void _resumeInvitation() {
@@ -301,7 +321,6 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
       _profile?.dispose();
       _profile = null;
       _capabilities = null;
-      _capabilityError = null;
       _capabilityGeneration++;
       _network = const MemberNetwork();
       _tab = 0;
@@ -474,18 +493,10 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
       profile.setOfferingLimit(level.offeringLimit);
       setState(() {
         _capabilities = level;
-        _capabilityError = null;
       });
     } catch (_) {
-      if (mounted &&
-          generation == _capabilityGeneration &&
-          loadGeneration == _loadGeneration &&
-          widget.client.auth.currentUser?.id == identity &&
-          identity == _identity) {
-        setState(
-          () => _capabilityError = 'Could not refresh your invitation level.',
-        );
-      }
+      // Keep the last server-confirmed capabilities; failed refresh never grants
+      // an unlock and cannot fabricate a P15 milestone.
     }
   }
 
@@ -641,7 +652,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
       widget.chatRepositoryFor?.call(identity) ??
           SupabaseChatApi(widget.client, identity),
       identity,
-      drafts: SessionChatStateStore(),
+      drafts: createChatStateStore(_identity!),
     );
     _chat = chat;
     chat.onChanged = () {
@@ -686,11 +697,36 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     final controller = CommunityController(
       widget.communityRepositoryFor?.call(_identity!) ??
           SupabaseCommunityApi(widget.client, _identity!),
-      drafts: SessionChatStateStore(),
+      drafts: createChatStateStore(_identity!),
     );
     _community = controller;
     unawaited(controller.refresh());
     return controller;
+  }
+
+  bool _setupOpen = false;
+  Future<void> _showContinueSetup() async {
+    if (_setupOpen || _network.own == null) return;
+    _setupOpen = true;
+    try {
+      await _refreshCapabilities();
+      final level = _capabilities;
+      final context = _homeContext;
+      if (!mounted ||
+          context == null ||
+          !context.mounted ||
+          level == null ||
+          level.invitedRegistrations >= 10) {
+        return;
+      }
+      final invite = await showContinueSetupDialog(
+        context,
+        invitedRegistrations: level.invitedRegistrations,
+      );
+      if (mounted && invite == true) _openQr();
+    } finally {
+      _setupOpen = false;
+    }
   }
 
   Future<void> _askCommunity(String skill) async {
@@ -700,6 +736,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
         builder: (_) => CommunityComposeView(
           controller: _ensureCommunity(),
           onInvite: _openQr,
+          onPublishLimit: () => unawaited(_showContinueSetup()),
           initialSkill: skill,
         ),
       ),
@@ -887,6 +924,8 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
                           ),
                           peerAvatar: _peerAvatar(peer, size: 65),
                           onInvite: _openQr,
+                          onNewRecipientLimit: () =>
+                              unawaited(_showContinueSetup()),
                         ),
                 ),
         ),
@@ -1092,7 +1131,10 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     removeSessionValue(_pendingSessionKey);
     final opened = await widget.client.auth.signInWithOAuth(
       provider,
-      redirectTo: widget.purpose == AppPurpose.app
+      authScreenLaunchMode: kIsWeb
+          ? LaunchMode.platformDefault
+          : LaunchMode.externalApplication,
+      redirectTo: !kIsWeb
           ? 'app.paul://login-callback'
           : widget.appUrl
                 .replace(queryParameters: {'auth': 'callback'}, fragment: '')
@@ -1129,7 +1171,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
         await _signIn(provider);
         // The browser now navigates. The restored host finalizes the saved
         // snapshot after OAuth. Opening OAuth alone is never registration success.
-        if (widget.purpose == AppPurpose.app) {
+        if (!kIsWeb) {
           final result = Completer<void>();
           late final StreamSubscription<AuthState> subscription;
           subscription = widget.client.auth.onAuthStateChange.listen(
@@ -1501,12 +1543,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
               ),
           ],
         ),
-        memberLevel: MemberLevelStatus(
-          capabilities: _capabilities,
-          error: _capabilityError,
-          onRefresh: () => unawaited(_refreshCapabilities()),
-          onInvite: _openQr,
-        ),
+        onOfferingLimit: () => unawaited(_showContinueSetup()),
         push: _push,
         onQr: _openQr,
         onDismissInvite: () async {
@@ -1609,6 +1646,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
   @override
   void dispose() {
     _loadGeneration++;
+    _deletions.removeListener(_purgeDeletedLocalData);
     _deletions.dispose();
     unawaited(_auth.cancel());
     unawaited(_pushClicks.cancel());
@@ -1764,7 +1802,7 @@ class _LiveContacts extends StatelessWidget {
     required this.onDelete,
     required this.onDeleteManaged,
     required this.deletionRecovery,
-    required this.memberLevel,
+    required this.onOfferingLimit,
     this.push,
     required this.adminRepository,
     required this.onQr,
@@ -1792,7 +1830,7 @@ class _LiveContacts extends StatelessWidget {
   final VoidCallback onDelete;
   final Future<void> Function(ManagedProfile) onDeleteManaged;
   final Widget deletionRecovery;
-  final Widget memberLevel;
+  final VoidCallback onOfferingLimit;
   final PushController? push;
   final AdminRepository adminRepository;
   final VoidCallback onQr;
@@ -1894,6 +1932,7 @@ class _LiveContacts extends StatelessWidget {
                     child: ProfileEditor(
                       controller: profile,
                       onInvite: onQr,
+                      onOfferingLimit: onOfferingLimit,
                       onDelete: onDelete,
                       occupationRequired: false,
                       onViewProfile: () => onProfile(network.own!),

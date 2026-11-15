@@ -32,6 +32,10 @@ Flutter-приложение для профессиональных связе�
 
 ## Текущая база
 
+С 15.11.2026 основной продукт — устанавливаемое приложение **iOS/Android**. Общие Flutter-код и Supabase сохранены. `PAUL_TARGET=app` запускает основной первый вход по инвайту; `preview` предназначен для ограниченного P16; `review` — для полной проверки участника/Admin; `demo` явно включает прежнюю локальную демонстрацию. Готовность веб-версии и прежние принятые P01–P03/P12 сохраняются, но мобильная приёмка ведётся отдельно.
+
+Новая очередь: #20 мобильные хосты/запуск; #142 SQLite-журналы; #143 допуск каждой новой Auth-сессии; #144 профиль/P15; #23/#24 Google и Apple на обеих платформах; #33–#35 ссылки/приглашения; #39/#40 native push; #31/#41/#49 мобильные проверки. Тестовая доставка: #145 TestFlight, #146 Google Play testing, #147 магазинный выпуск. Клиентские identifiers/signing и реальные Firebase/APNs/Apple credentials — зависимости внешней доставки, не основание выдавать локальные проверки за магазинную готовность.
+
 Приёмочная v18 отклонена Александром 11.11.2026. Коррекция ведётся в [#94](https://github.com/Shteinyr/paul-flutter-prototype/issues/94), подзадачи #95–#102. Прежние технические проверки не означают клиентскую приёмку. Исправленный общий выпуск требует отдельной проверки и публикации.
 
 Порядок верхних вкладок по Figma и встрече: **Contacts → Hiring → Chat → Profile**. Hiring открывает общую ленту; отдельная кнопка Network hiring в Contacts удаляется. Подсказки раскрываются небольшим списком поверх Contacts, результаты показывают фотографии, имена и совпавшие навыки с фильтрами All / Offer / Hiring. Profile гостя открывает локальные P07–P09 до входа; возврат из Join сохраняет исходный шаг, текст и фото.
@@ -66,16 +70,23 @@ Validated SDK: **Flutter 3.47.9 / Dart 3.13.7**. Dependencies are recorded in `p
 
 ```sh
 flutter pub get --enforce-lockfile
-flutter run -d chrome
+flutter run -d <ios-or-android-device>
 ```
 
 For a browser-independent development server:
 
 ```sh
-flutter run -d web-server --web-hostname 0.0.0.0 --web-port 8080
+flutter run --dart-define=PAUL_TARGET=review -d web-server --web-hostname 0.0.0.0 --web-port 8080
 ```
 
-The default demo uses local data. The live configuration connects to the Paul Supabase project as described below.
+The default entry is the primary app, backed by the existing Paul project using public settings in `lib/config/app_configuration.dart`. Server/provider secrets are never client settings. Override public settings with `--dart-define-from-file` only when targeting another explicitly configured environment.
+
+For browser review: `flutter run -d chrome --dart-define=PAUL_TARGET=review`.
+For the explicit local demo: `flutter run -d chrome --dart-define=PAUL_TARGET=demo`.
+For iOS Simulator: `flutter build ios --simulator --debug --no-codesign`.
+For Android: `flutter build apk --debug`.
+
+Native OAuth returns to `app.paul://login-callback`; allowlist that exact URL in Supabase. `app.paul://invite?code=...` carries an invitation into an installed app. HTTPS universal/app links require the client domain association and signing identifiers; store installation is not assumed to retain an invite. Temporary debug bundle IDs are not approved store IDs.
 
 ## Checks and build
 

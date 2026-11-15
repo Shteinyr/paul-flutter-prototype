@@ -151,13 +151,39 @@ language sql stable security definer set search_path='' as $$
         and session_id=private.jwt_session_id() and expires_at>clock_timestamp())
     ));
 $$;
--- All dispatch/resolve paths call push_route. Keep its reviewed content checks.
-alter function private.push_route(uuid,uuid,uuid) rename to push_route_before_admission;
-create function private.push_route(p_user uuid,p_session uuid,p_job uuid) returns jsonb
-language sql stable set search_path='' as $$
-  select case when private.member_session_admitted(p_user,p_session)
-    then private.push_route_before_admission(p_user,p_session,p_job) end;
+-- Preserve the function identity used by dispatch and click authorization.
+create or replace function private.push_route(p_user uuid,p_session uuid,p_job uuid) returns jsonb
+language plpgsql stable set search_path = '' as $$
+declare job private.notification_jobs; recipient public.profiles;
+begin
+  if not private.member_session_admitted(p_user,p_session) then return null; end if;
+  if not private.push_session_active(p_user,p_session) or not exists(
+    select 1 from private.memberships m join public.profiles p on p.id=m.user_id
+      where m.user_id=p_user and p.auth_user_id=p_user and p.disabled_at is null and p.deleted_at is null) then return null; end if;
+  select * into job from private.notification_jobs where id=p_job;
+  if not found then return null; end if;
+  if job.kind='community_created' then
+    if job.recipient_user_id<>p_user then return null; end if;
+    return jsonb_build_object('kind','community','request_id',job.request_id,
+      'state',case when exists(select 1 from public.community_requests r join public.profiles p on p.id=r.author_profile_id
+        where r.id=job.request_id and r.expires_at>clock_timestamp() and p.deleted_at is null and p.disabled_at is null)
+        then 'active' else 'unavailable' end);
+  end if;
+  if not exists(select 1 from public.conversation_members where conversation_id=job.conversation_id and user_id=job.recipient_user_id)
+    or exists(select 1 from public.profiles p join public.conversation_members m on m.user_id=p.id
+      where m.conversation_id=job.conversation_id and p.disabled_at is not null) then return null; end if;
+  select * into recipient from public.profiles where id=job.recipient_user_id;
+  if recipient.profile_kind='member' and recipient.auth_user_id=p_user then
+    return jsonb_build_object('kind','chat','conversation_id',job.conversation_id);
+  end if;
+  if recipient.profile_kind='managed' and exists(select 1 from private.admin_roles r join private.managed_profile_grants g on g.user_id=r.user_id
+    where r.user_id=p_user and r.revoked_at is null and g.profile_id=recipient.id and g.can_reply and g.revoked_at is null) then
+    return jsonb_build_object('kind','operator','conversation_id',job.conversation_id,'managed_profile_id',recipient.id);
+  end if;
+  return null;
+end;
 $$;
+
 revoke all on function private.member_session_admitted(uuid,uuid),private.jwt_session_id(),
   private.valid_session_invitation(uuid,text,boolean,text),private.push_route(uuid,uuid,uuid),
   public.prepare_registration_session(uuid,uuid,text,boolean,text),
