@@ -35,6 +35,7 @@ const statuses: Record<string, number> = {
   rate_limited: 429,
   new_contact_limit_reached: 429,
   session_revoked: 401,
+  invitation_required: 403,
 };
 
 export async function handleChat(request: Request, database: SupabaseClient) {

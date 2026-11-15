@@ -20,6 +20,7 @@ class LiveApiException implements Exception {
       'This invitation has expired or is no longer valid. Ask for a new QR or code.',
     'own_invitation' =>
       'This is your own invitation. Open another person’s QR or code to connect.',
+    'invitation_required' => 'Enter a valid invitation code to sign in.',
     'membership_required' => 'Complete registration with an invitation first.',
     'invitation_account_mismatch' =>
       'Sign in with the Google account this invitation was sent to.',
@@ -232,6 +233,7 @@ class LiveApi implements InvitationIssuer {
   Future<void> redeem(String credential, {UserProfile? draft}) async {
     final user = client.auth.currentUser;
     if (user == null) throw const LiveApiException('sign_in_required');
+    await call('prepare', {'credential': credential});
     final payload = draft == null ? null : await profilePayload(draft, user.id);
     if (client.auth.currentUser?.id != user.id) {
       throw const LiveApiException('sign_in_required');

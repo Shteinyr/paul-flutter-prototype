@@ -142,9 +142,9 @@ void main() {
       expect(requests, isEmpty);
       await tester.tap(find.text('Already a member? Sign in'));
       await tester.pumpAndSettle();
-      expect(settingsLoads, 1);
+      expect(settingsLoads, 0);
       expect(
-        find.text('Could not open sign-in. Please try again.'),
+        find.text('Enter a valid invitation code to sign in.'),
         findsOneWidget,
       );
       await tester.tap(find.byKey(const Key('join-back')));

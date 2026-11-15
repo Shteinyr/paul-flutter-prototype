@@ -5,7 +5,7 @@ const actor = "42000000-0000-4000-8000-000000000001";
 function check(value: boolean, description: string) {
   if (!value) throw new Error(description);
 }
-function setup(denied = false, anonymous = false) {
+function setup(denied = false, anonymous = false, admissionDenied = false) {
   const calls: { url: string; body: unknown }[] = [];
   const database = createClient("https://admin-test.invalid", "test-key", {
     auth: { persistSession: false, autoRefreshToken: false },
@@ -16,6 +16,16 @@ function setup(denied = false, anonymous = false) {
           url,
           body: options?.body ? JSON.parse(String(options.body)) : null,
         });
+        if (url.endsWith("/member_require_session")) {
+          return Promise.resolve(
+            Response.json(
+              admissionDenied
+                ? { message: "invitation_required", code: "P0001" }
+                : null,
+              { status: admissionDenied ? 400 : 200 },
+            ),
+          );
+        }
         const isPrivileged = url.includes("/rest/v1/rpc/") &&
           !url.endsWith("/invite_request_limit");
         const body = url.endsWith("/auth/v1/user")
@@ -42,7 +52,10 @@ function setup(denied = false, anonymous = false) {
   });
   return { database, calls };
 }
-function request(body: unknown, authorization = "Bearer test-session") {
+const testSession = "72100000-0000-4000-8000-000000000003";
+const validBearer = "Bearer unit." +
+  btoa(JSON.stringify({ session_id: testSession })) + ".signature";
+function request(body: unknown, authorization = validBearer) {
   return new Request("https://admin-test.invalid", {
     method: "POST",
     headers: { Authorization: authorization },
@@ -80,7 +93,8 @@ Deno.test("managed deletion requires confirmation and a verified session and pre
     "Invalid deletion never reaches the command",
   );
   check(
-    (await handleAdmin(request(body), database)).status === 401,
+    (await handleAdmin(request(body, "Bearer test-session"), database))
+      .status === 401,
     "Live session UUID is required",
   );
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -299,4 +313,17 @@ Deno.test("operator inbox history and read preserve server access denial", async
     );
     check(response.status === 403, "Server role denial preserved");
   }
+});
+
+Deno.test("unadmitted admin session cannot read or mutate managed profiles", async () => {
+  const { database, calls } = setup(false, false, true);
+  const response = await handleAdmin(request({ action: "context" }), database);
+  check(
+    response.status === 403,
+    "Requires a fresh invitation for this session",
+  );
+  check(
+    !calls.some((call) => call.url.endsWith("/admin_context")),
+    "No administration before admission",
+  );
 });

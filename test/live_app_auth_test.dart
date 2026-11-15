@@ -334,7 +334,10 @@ void main() {
           );
         }
         if (request.url.path.startsWith('/storage/')) return upload.future;
-        redemptions++;
+        if (request.url.path.endsWith('/invitations') &&
+            (jsonDecode(request.body) as Map)['action'] == 'redeem') {
+          redemptions++;
+        }
         return http.Response(
           '{}',
           200,
@@ -389,7 +392,7 @@ void main() {
     testWidgets(
       changeAccount
           ? 'delayed avatar cannot open the previous account profile after account switch'
-          : 'delayed avatar cannot open a protected profile after UI logout',
+          : 'delayed avatar cannot open a protected profile after Auth logout',
       (tester) async {
         tester.view.physicalSize = const Size(402, 874);
         tester.view.devicePixelRatio = 1;
@@ -485,10 +488,9 @@ void main() {
             password: 'test-only',
           );
         } else {
-          await tester.tap(find.byKey(const Key('tab-3')));
-          await tester.pumpAndSettle();
-          await tester.ensureVisible(find.text('Sign out'));
-          await tester.tap(find.text('Sign out'));
+          await tester.runAsync(
+            () => client.auth.signOut(scope: SignOutScope.local),
+          );
         }
         await tester.pump();
         if (!changeAccount) {

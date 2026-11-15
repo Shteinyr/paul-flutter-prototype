@@ -135,6 +135,7 @@ Deno.serve(async (request) => {
     if (
       ![
         "check",
+        "prepare",
         "issue",
         "redeem",
         "revoke",
@@ -161,6 +162,7 @@ Deno.serve(async (request) => {
     }
 
     let userId: string | undefined;
+    let sessionId: string | undefined;
     let googleEmail: string | null = null;
     if (action !== "check") {
       const bearer = request.headers.get("Authorization")?.match(
@@ -195,6 +197,21 @@ Deno.serve(async (request) => {
               : "server_unavailable",
           },
         );
+      }
+      sessionId = session;
+      if (!["redeem", "prepare"].includes(String(action))) {
+        const admission = await database.rpc("member_require_session", {
+          p_user: data.user.id,
+          p_session: session,
+        });
+        if (admission.error) {
+          const code =
+            ["invitation_required", "membership_required", "session_revoked"]
+                .includes(admission.error.message)
+              ? admission.error.message
+              : "server_unavailable";
+          return reply(code === "server_unavailable" ? 503 : 403, { code });
+        }
       }
       userId = data.user.id;
       googleEmail = verifiedGoogleEmail(data.user);
@@ -272,20 +289,23 @@ Deno.serve(async (request) => {
       const manual = credential.length === 8;
       rpc = action === "check"
         ? "check_registration_invitation"
-        : "redeem_registration_invitation";
+        : action === "prepare"
+        ? "prepare_registration_session"
+        : "redeem_session_invitation";
       args = {
         p_hash: await digest(
           manual ? serviceKey + ":code:" + credential : "token:" + credential,
         ),
         p_manual: manual,
       };
-      if (action === "redeem") {
+      if (action === "redeem" || action === "prepare") {
         // Existing members may connect without supplying a registration draft.
         if (body.profile != null && !profileValid(body.profile)) {
           return reply(400, { code: "invalid_profile" });
         }
         args.p_user = userId;
-        args.p_profile = body.profile ?? {};
+        args.p_session = sessionId;
+        if (action === "redeem") args.p_profile = body.profile ?? {};
         args.p_verified_google_email = googleEmail;
       }
     }
@@ -298,6 +318,7 @@ Deno.serve(async (request) => {
         "invalid_invitation",
         "own_invitation",
         "membership_required",
+        "invitation_required",
         "invalid_profile",
         "profile_conflict",
         "avatar_retired",

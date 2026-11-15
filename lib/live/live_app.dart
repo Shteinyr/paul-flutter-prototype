@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../app.dart';
+import '../config/app_configuration.dart';
 import '../admin/admin_api.dart';
 import '../admin/admin_view.dart';
 import '../admin/managed_profile_header.dart';
@@ -18,7 +19,6 @@ import '../account/deletion_view.dart';
 import '../push/push_browser.dart';
 import '../push/push_api.dart';
 import '../push/push_controller.dart';
-import '../push/push_settings.dart';
 import '../onboarding/onboarding_draft_store.dart';
 import '../onboarding/onboarding_flow.dart';
 import '../profile/profile_controller.dart';
@@ -47,6 +47,8 @@ const _inviteKey = 'paul.live.pending.invitation.v1';
 const _draftKey = 'paul.live.pending.profile.v1';
 const _finalizeKey = 'paul.live.pending.finalize.v1';
 const _entryReturnKey = 'paul.live.entry.return.v1';
+const _pendingOwnerKey = 'paul.live.pending.owner.v1';
+const _pendingSessionKey = 'paul.live.pending.session.v1';
 // A dismissed failed redirect must not consume a saved invite after reload.
 const _failedCallbackKey = 'paul.live.pending.auth-failure.v1';
 
@@ -55,6 +57,7 @@ class PaulLiveApp extends StatefulWidget {
     super.key,
     required this.client,
     required this.appUrl,
+    this.purpose = AppPurpose.review,
     this.googleEnabled = false,
     this.appleEnabled = false,
     this.loadAuthProviders,
@@ -73,6 +76,7 @@ class PaulLiveApp extends StatefulWidget {
   });
   final SupabaseClient client;
   final Uri appUrl;
+  final AppPurpose purpose;
   final bool googleEnabled;
   final bool appleEnabled;
   final Future<({bool google, bool apple})> Function()? loadAuthProviders;
@@ -174,6 +178,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
         removeSessionValue(_draftKey);
       }
     }
+    if (widget.purpose == AppPurpose.app) _entering = true;
     _identity = widget.client.auth.currentUser?.id;
     _authSession = pushSessionId(widget.client);
     _pushBrowser = widget.pushBrowser ?? createPushBrowser();
@@ -241,6 +246,9 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     removeSessionValue(_draftKey);
     removeSessionValue(_finalizeKey);
     removeSessionValue(_entryReturnKey);
+    removeSessionValue(_pendingOwnerKey);
+    removeSessionValue(_pendingSessionKey);
+    removeSessionValue('paul.live.sign-in-existing.v1');
     _resumeInvitation();
     _callbackFailure = false;
     _credential = null;
@@ -297,7 +305,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
       _capabilityGeneration++;
       _network = const MemberNetwork();
       _tab = 0;
-      if (_identity != null) {
+      if (_identity != null && _identity != identity) {
         await _clearPending();
         await OnboardingDraftStore(
           preferences: widget.draftPreferences,
@@ -317,44 +325,65 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
       return;
     }
     try {
-      var network = identity == null
-          ? const MemberNetwork()
-          : await _api.network();
+      if (identity != null && readSessionValue(_finalizeKey) == '1') {
+        final owner = readSessionValue(_pendingOwnerKey);
+        final previousSession = readSessionValue(_pendingSessionKey);
+        if ((owner != null && owner != identity) ||
+            (previousSession != null && previousSession != session)) {
+          await _clearPending();
+          await OnboardingDraftStore(
+            preferences: widget.draftPreferences,
+          ).clear();
+        } else {
+          writeSessionValue(_pendingOwnerKey, identity);
+          if (session != null) writeSessionValue(_pendingSessionKey, session);
+        }
+      }
+      var network = const MemberNetwork();
+      if (identity != null) {
+        try {
+          network = await _api.network();
+        } on LiveApiException catch (error) {
+          if (error.code != 'invitation_required' &&
+              error.code != 'membership_required') {
+            rethrow;
+          }
+          _entering = true;
+        }
+      }
       if (!mounted ||
           generation != _loadGeneration ||
           session != pushSessionId(widget.client)) {
         return;
       }
       try {
-        if (_credential != null && !_deferInvitation) {
-          if (network.own != null) {
-            await _api.redeem(_credential!);
-            await _clearPending();
-            network = await _api.network();
-          } else if (widget.authCallback &&
-              identity != null &&
-              _draft != null &&
-              readSessionValue(_finalizeKey) == '1') {
-            try {
-              final latest = await OnboardingDraftStore(
-                preferences: widget.draftPreferences,
-              ).read();
-              if (latest.hasData) _draft = latest;
-            } on FormatException {
-              // A corrupt local draft can fall back to the submitted snapshot.
-            }
-            if (!mounted || generation != _loadGeneration) return;
-            await _api.redeem(_credential!, draft: _draft);
-            await _clearPending();
-            await OnboardingDraftStore(
+        if (identity != null &&
+            _credential != null &&
+            !_deferInvitation &&
+            (network.own != null || readSessionValue(_finalizeKey) == '1')) {
+          final existingOnly =
+              readSessionValue('paul.live.sign-in-existing.v1') == '1';
+          if (network.own == null && !existingOnly && _draft != null) {
+            final latest = await OnboardingDraftStore(
               preferences: widget.draftPreferences,
-            ).clear();
-            network = await _api.network();
+            ).read();
+            if (latest.hasData) _draft = latest;
           }
+          if (!mounted || generation != _loadGeneration) return;
+          await _api.redeem(
+            _credential!,
+            draft: existingOnly || network.own != null ? null : _draft,
+          );
+          await _clearPending();
+          await OnboardingDraftStore(
+            preferences: widget.draftPreferences,
+          ).clear();
+          network = await _api.network();
         }
       } on LiveApiException catch (error) {
         _error = error.toString();
         _acceptedInvite = false;
+        _entering = true;
       }
       if (!mounted || generation != _loadGeneration) return;
       if (network.own == null && _network.own != null) {
@@ -950,6 +979,16 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
   }
 
   void _backToGuest() {
+    if (widget.purpose == AppPurpose.app) {
+      _entryGeneration++;
+      removeSessionValue(_finalizeKey);
+      setState(() {
+        _entering = true;
+        _acceptedInvite = false;
+        _checking = false;
+      });
+      return;
+    }
     removeSessionValue(_entryReturnKey);
     _entryGeneration++;
     removeSessionValue(_finalizeKey);
@@ -1049,11 +1088,15 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
   }
 
   Future<void> _signIn(OAuthProvider provider) async {
+    removeSessionValue(_pendingOwnerKey);
+    removeSessionValue(_pendingSessionKey);
     final opened = await widget.client.auth.signInWithOAuth(
       provider,
-      redirectTo: widget.appUrl
-          .replace(queryParameters: {'auth': 'callback'}, fragment: '')
-          .toString(),
+      redirectTo: widget.purpose == AppPurpose.app
+          ? 'app.paul://login-callback'
+          : widget.appUrl
+                .replace(queryParameters: {'auth': 'callback'}, fragment: '')
+                .toString(),
     );
     if (!opened) {
       throw const OnboardingSubmissionException(
@@ -1086,7 +1129,31 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
         await _signIn(provider);
         // The browser now navigates. The restored host finalizes the saved
         // snapshot after OAuth. Opening OAuth alone is never registration success.
-        await Future<void>.delayed(const Duration(seconds: 30));
+        if (widget.purpose == AppPurpose.app) {
+          final result = Completer<void>();
+          late final StreamSubscription<AuthState> subscription;
+          subscription = widget.client.auth.onAuthStateChange.listen(
+            (state) {
+              if (state.session != null && !result.isCompleted) {
+                result.complete();
+              }
+            },
+            onError: (Object error) {
+              if (!result.isCompleted) result.completeError(error);
+            },
+          );
+          try {
+            if (widget.client.auth.currentSession == null) {
+              await result.future.timeout(const Duration(minutes: 3));
+            }
+            await _load();
+            if (_network.own != null) return;
+          } finally {
+            await subscription.cancel();
+          }
+        } else {
+          await Future<void>.delayed(const Duration(seconds: 30));
+        }
         throw const OnboardingSubmissionException(
           'Sign-in did not finish. Your profile draft is saved. Please try again.',
         );
@@ -1348,7 +1415,8 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
         ),
       );
     }
-    if (!_entering &&
+    if (widget.purpose != AppPurpose.app &&
+        !_entering &&
         _network.own == null &&
         (_identity == null || !_loading)) {
       if (_editingGuestDraft) {
@@ -1486,19 +1554,27 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
               (_credential != null || widget.client.auth.currentUser != null)
           ? _load
           : null,
-      onSignIn: () async {
+      onSignIn: (credential) async {
         if (_checking) return;
         final generation = _entryGeneration;
         removeSessionValue(_finalizeKey);
         setState(() => _checking = true);
         try {
+          await _api.check(credential.trim());
+          if (!mounted || generation != _entryGeneration) return;
+          _credential = credential.trim();
+          writeSessionValue(_inviteKey, _credential!);
+          writeSessionValue('paul.live.sign-in-existing.v1', '1');
+          _resumeInvitation();
+          if (!context.mounted) return;
           final provider = await _chooseProvider(context);
           if (provider == null || !mounted) return;
+          writeSessionValue(_finalizeKey, '1');
           await _signIn(provider);
         } catch (_) {
           if (mounted && generation == _entryGeneration) {
             setState(
-              () => _error = 'Could not open sign-in. Please try again.',
+              () => _error = 'Enter a valid invitation code to sign in.',
             );
           }
         } finally {
@@ -1578,7 +1654,7 @@ class _JoinView extends StatefulWidget {
   final VoidCallback onBack;
   final VoidCallback onClearInvite;
   final Future<void> Function(String) onAccept;
-  final VoidCallback onSignIn;
+  final Future<void> Function(String) onSignIn;
   final bool checking;
   final String? error;
   final VoidCallback? onRetry;
@@ -1661,7 +1737,9 @@ class _JoinViewState extends State<_JoinView> {
           ),
           const SizedBox(height: 40),
           TextButton(
-            onPressed: widget.checking ? null : widget.onSignIn,
+            onPressed: widget.checking
+                ? null
+                : () => widget.onSignIn(widget.pendingCredential ?? _code.text),
             child: const Text('Already a member? Sign in'),
           ),
         ],
@@ -1823,18 +1901,12 @@ class _LiveContacts extends StatelessWidget {
                         padding: const EdgeInsets.only(top: 40),
                         child: Column(
                           children: [
-                            memberLevel,
-                            if (push != null) PushSettings(controller: push!),
                             AdminEntry(
                               key: ValueKey(network.own!.id),
                               repository: adminRepository,
                               onDeleteProfile: onDeleteManaged,
                             ),
                             deletionRecovery,
-                            TextButton(
-                              onPressed: onLogout,
-                              child: const Text('Sign out'),
-                            ),
                           ],
                         ),
                       ),

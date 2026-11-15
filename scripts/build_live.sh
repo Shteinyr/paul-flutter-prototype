@@ -65,7 +65,7 @@ PY
   cd "$live_source"
   flutter pub get --enforce-lockfile
   flutter build web --release --no-web-resources-cdn --no-wasm-dry-run \
-    --pwa-strategy=none --dart-define=PAUL_LIVE=true "$@"
+    --pwa-strategy=none --dart-define=PAUL_TARGET=review "$@"
 )
 python3 - "$project_root" "$live_source" <<'PY'
 from pathlib import Path

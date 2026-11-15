@@ -6,6 +6,8 @@ import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'browser_storage.dart';
+import '../config/app_configuration.dart';
+import 'keep_signed_in_storage.dart';
 import 'auth_callback.dart';
 import 'guest_preview.dart';
 import 'live_app.dart';
@@ -15,13 +17,15 @@ Future<Widget> buildLiveApp({
   required String url,
   required String key,
   required String appUrl,
+  AppPurpose purpose = AppPurpose.review,
 }) async {
   final previewUrl = Uri.tryParse(url);
   final publicPreview = previewUrl?.hasAuthority == true && key.isNotEmpty
       ? PublicPreviewApi(url: previewUrl!, publishableKey: key)
       : null;
-  Future<void> retry() async =>
-      runApp(await buildLiveApp(url: url, key: key, appUrl: appUrl));
+  Future<void> retry() async => runApp(
+    await buildLiveApp(url: url, key: key, appUrl: appUrl, purpose: purpose),
+  );
   const probe = 'paul.live.storage.check.v1';
   try {
     // The chat journal keeps using the strict adapter. This preflight only
@@ -51,7 +55,17 @@ Future<Widget> buildLiveApp({
       url: url,
       publishableKey: key,
       debug: false,
-      authOptions: const FlutterAuthClientOptions(
+      authOptions: FlutterAuthClientOptions(
+        localStorage: KeepSignedInStorage(
+          SharedPreferencesLocalStorage(
+            persistSessionKey:
+                'sb-${Uri.parse(url).host.split('.').first}-auth-token',
+          ),
+        ),
+        detectSessionInUriPredicate: (uri) => kIsWeb
+            ? isAuthCallback(uri)
+            : uri.scheme == 'app.paul' && uri.host == 'login-callback',
+
         authFlowType: AuthFlowType.pkce,
         // The web bootstrap awaits the same SDK exchange below and retains
         // its outcome; the automatic observer would otherwise consume it twice.
@@ -71,7 +85,8 @@ Future<Widget> buildLiveApp({
     }
     return PaulLiveApp(
       client: Supabase.instance.client,
-      publicPreviewRepository: publicPreview,
+      purpose: purpose,
+      publicPreviewRepository: purpose == AppPurpose.app ? null : publicPreview,
       appUrl: Uri.parse(appUrl),
       authCallback: authCallback,
       authCallbackFailed: callbackResult == AuthCallbackResult.failed,
