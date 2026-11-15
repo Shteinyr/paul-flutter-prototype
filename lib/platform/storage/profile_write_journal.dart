@@ -98,8 +98,8 @@ class ProfileWriteRecovery {
     if (!isCurrent()) throw StateError('Account session changed.');
     final pending = await journal.prepare(candidate);
     if (pending.actorId != candidate.actorId ||
-        pending.originSessionId != candidate.originSessionId) {
-      throw StateError('Recover with the original account session.');
+        pending.profileId != candidate.profileId) {
+      throw StateError('Recover with the original account.');
     }
     if (!isCurrent()) throw StateError('Account session changed.');
     final result = await sendAndAccept(pending);

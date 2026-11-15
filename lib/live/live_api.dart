@@ -381,7 +381,8 @@ class SupabaseProfileStore implements ReconciledProfileStore {
     if (_journalLoaded) return;
     final saved = await _journal.read(userId, userId);
     _checkSession();
-    if (saved != null && saved.originSessionId != _session) {
+    if (saved != null &&
+        (saved.actorId != userId || saved.profileId != userId)) {
       throw const LiveApiException('sign_in_required');
     }
     _pending = saved;

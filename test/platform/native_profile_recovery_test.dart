@@ -54,6 +54,17 @@ class _LostUploadServer extends ProfileServer {
   }
 }
 
+class _AdmissionServer extends ProfileServer {
+  bool admitted = true;
+  @override
+  Future<http.Response> handle(http.Request request) async {
+    if (!admitted && request.url.path.startsWith('/functions/')) {
+      return json({'code': 'session_admission_required'}, 403);
+    }
+    return super.handle(request);
+  }
+}
+
 void main() {
   late Directory directory;
   late String path;
@@ -145,6 +156,56 @@ void main() {
         expect(server.attemptedPaths, hasLength(2));
         expect(server.attemptedPaths.toSet(), hasLength(1));
         expect(server.uploads, 1);
+        expect(server.receipts, hasLength(1));
+        expect(await journal.read(actor, actor), isNull);
+      } finally {
+        await server.client.dispose();
+      }
+    },
+  );
+  test(
+    'fresh admitted session for the same owner replays the original receipt',
+    () async {
+      final server = _AdmissionServer();
+      await server.start(withPhoto: false);
+      try {
+        final journal = SqliteProfileWriteJournal(database);
+        final previous = SupabaseProfileStore(
+          LiveApi(server.client),
+          actor,
+          journal: journal,
+        );
+        final before = await previous.read();
+        server.loseAck = true;
+        await expectLater(
+          previous.save(before.copyWith(name: 'Preserved edit')),
+          throwsA(isA<LiveApiException>()),
+        );
+        final pending = (await journal.read(actor, actor))!;
+        await server.client.auth.signInWithPassword(
+          email: 'a@example.invalid',
+          password: 'test',
+        );
+        server.admitted = false;
+        final blocked = SupabaseProfileStore(
+          LiveApi(server.client),
+          actor,
+          journal: journal,
+        );
+        await expectLater(blocked.read(), throwsA(isA<LiveApiException>()));
+        expect(
+          (await journal.read(actor, actor))!.operationId,
+          pending.operationId,
+        );
+        await expectLater(previous.read(), throwsA(isA<LiveApiException>()));
+        server.admitted = true;
+        final recovered = SupabaseProfileStore(
+          LiveApi(server.client),
+          actor,
+          journal: journal,
+        );
+        expect((await recovered.read()).name, 'Preserved edit');
+        expect(server.requests.last['operation_id'], pending.operationId);
         expect(server.receipts, hasLength(1));
         expect(await journal.read(actor, actor), isNull);
       } finally {
