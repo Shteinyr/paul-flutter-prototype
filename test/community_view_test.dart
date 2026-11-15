@@ -145,7 +145,7 @@ void main() {
     },
   );
 
-  testWidgets('feed keeps older active requests outside Last Week', (
+  testWidgets('feed keeps older active requests without an invented heading', (
     tester,
   ) async {
     final now = DateTime.now().toUtc();
@@ -181,7 +181,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Today'), findsOneWidget);
     expect(find.text('Last week'), findsOneWidget);
-    expect(find.text('Earlier'), findsOneWidget);
+    expect(find.text('Earlier'), findsNothing);
     await tester.scrollUntilVisible(
       find.byKey(const ValueKey('community-age-20')),
       200,

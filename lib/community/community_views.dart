@@ -191,6 +191,7 @@ class _CommunityFeedViewState extends State<CommunityFeedView>
         final requests = controller.requests
             .where((item) => item.expiresAt.isAfter(controller.serverNow))
             .toList();
+        final groups = requests.map(_group).toList(growable: false);
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -216,19 +217,19 @@ class _CommunityFeedViewState extends State<CommunityFeedView>
                         ),
                       ),
                     for (var index = 0; index < requests.length; index++) ...[
-                      if (index == 0 ||
-                          _group(requests[index]) !=
-                              _group(requests[index - 1]))
+                      if (index == 0 || groups[index] != groups[index - 1])
                         Padding(
                           padding: const EdgeInsets.only(bottom: 16, top: 8),
-                          child: Text(
-                            _group(requests[index]),
-                            style: const TextStyle(
-                              color: Colors.black,
-                              fontSize: 20,
-                              fontWeight: FontWeight.w400,
-                            ),
-                          ),
+                          child: groups[index] == null
+                              ? const SizedBox.shrink()
+                              : Text(
+                                  groups[index]!,
+                                  style: const TextStyle(
+                                    color: Colors.black,
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.w400,
+                                  ),
+                                ),
                         ),
                       InkWell(
                         key: ValueKey('community-${requests[index].id}'),
@@ -275,11 +276,13 @@ class _CommunityFeedViewState extends State<CommunityFeedView>
         : _CommunityFrame(title: 'Hiring', child: content);
   }
 
-  String _group(CommunityRequest request) {
+  String? _group(CommunityRequest request) {
     final age = widget.controller.serverNow.difference(request.createdAt);
     if (age < const Duration(days: 1)) return 'Today';
     if (age < const Duration(days: 7)) return 'Last week';
-    return 'Earlier';
+    // Figma defines Today/Last week only. Keep older active cards separate
+    // without inventing another heading or changing their 30-day lifetime.
+    return null;
   }
 
   @override
