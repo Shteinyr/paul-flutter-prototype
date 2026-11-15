@@ -1347,84 +1347,87 @@ class ContactRow extends StatelessWidget {
   final int unread;
 
   @override
-  Widget build(BuildContext context) => InkWell(
-    onTap: onOpen,
-    child: Padding(
-      padding: const EdgeInsets.only(bottom: 17),
-      child: SizedBox(
-        height: 83,
-        child: Stack(
-          children: [
-            const Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: _AssetIcon('separator.svg', width: 327, height: 1),
-            ),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                avatar,
-                const SizedBox(width: 21),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          height: 1.25,
-                          fontWeight: FontWeight.w500,
-                          letterSpacing: _tracking,
-                          color: Colors.black,
-                        ),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        occupation,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          height: 20 / 12,
-                          fontWeight: FontWeight.w300,
-                          letterSpacing: _tracking,
-                          color: Colors.black,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                if (unread > 0)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 20, left: 8),
-                    child: Semantics(
-                      label: '$unread unread messages',
-                      child: Container(
-                        key: Key('unread-$unread'),
-                        width: 18,
-                        height: 18,
-                        alignment: Alignment.center,
-                        decoration: const BoxDecoration(
-                          color: _blue,
-                          shape: BoxShape.circle,
-                        ),
-                        child: Text(
-                          unread > 99 ? '99+' : '$unread',
+  Widget build(BuildContext context) => Semantics(
+    button: onOpen != null,
+    child: InkWell(
+      onTap: onOpen,
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 17),
+        child: SizedBox(
+          height: 83,
+          child: Stack(
+            children: [
+              const Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: _AssetIcon('separator.svg', width: 327, height: 1),
+              ),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  avatar,
+                  const SizedBox(width: 21),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
-                            fontSize: 9,
-                            color: Colors.white,
+                            fontSize: 16,
+                            height: 1.25,
+                            fontWeight: FontWeight.w500,
+                            letterSpacing: _tracking,
+                            color: Colors.black,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          occupation,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            height: 20 / 12,
+                            fontWeight: FontWeight.w300,
+                            letterSpacing: _tracking,
+                            color: Colors.black,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (unread > 0)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 20, left: 8),
+                      child: Semantics(
+                        label: '$unread unread messages',
+                        child: Container(
+                          key: Key('unread-$unread'),
+                          width: 18,
+                          height: 18,
+                          alignment: Alignment.center,
+                          decoration: const BoxDecoration(
+                            color: _blue,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Text(
+                            unread > 99 ? '99+' : '$unread',
+                            style: const TextStyle(
+                              fontSize: 9,
+                              color: Colors.white,
+                            ),
                           ),
                         ),
                       ),
                     ),
-                  ),
-              ],
-            ),
-          ],
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     ),

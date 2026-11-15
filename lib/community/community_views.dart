@@ -231,19 +231,22 @@ class _CommunityFeedViewState extends State<CommunityFeedView>
                                   ),
                                 ),
                         ),
-                      InkWell(
-                        key: ValueKey('community-${requests[index].id}'),
-                        onTap: () => _open(requests[index]),
-                        child: Padding(
-                          key: _rowKeys.putIfAbsent(
-                            requests[index].id,
-                            GlobalKey.new,
-                          ),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          child: HiringRequestRow(
-                            name: requests[index].author.name,
-                            skill: requests[index].skill,
-                            avatar: widget.avatarFor(requests[index].author),
+                      Semantics(
+                        button: true,
+                        child: InkWell(
+                          key: ValueKey('community-${requests[index].id}'),
+                          onTap: () => _open(requests[index]),
+                          child: Padding(
+                            key: _rowKeys.putIfAbsent(
+                              requests[index].id,
+                              GlobalKey.new,
+                            ),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            child: HiringRequestRow(
+                              name: requests[index].author.name,
+                              skill: requests[index].skill,
+                              avatar: widget.avatarFor(requests[index].author),
+                            ),
                           ),
                         ),
                       ),
