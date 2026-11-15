@@ -109,7 +109,7 @@ begin
   -- Existing users skip profile entry and have no upload exception.
   if not exists(select 1 from private.memberships where user_id=p_user) then
     insert into private.registration_upload_permits(user_id,session_id,expires_at)
-      values(p_user,p_session,(invitation->>'expires_at')::timestamptz)
+      values(p_user,p_session,least((invitation->>'expires_at')::timestamptz,clock_timestamp()+interval '15 minutes'))
       on conflict(session_id) do update set expires_at=excluded.expires_at where private.registration_upload_permits.user_id=excluded.user_id;
   end if;
   return jsonb_build_object('admitted',false);
@@ -184,3 +184,16 @@ begin
  perform private.avatar_begin(p_path,'upload');
 end;$$;
 
+
+-- A fresh delete needs member admission; retries of an already authorized
+-- deletion retain their original receipt even after membership is removed.
+create or replace function public.member_delete_account(p_user uuid,p_session uuid,p_expected_user uuid,p_operation uuid,p_receipt_hash text) returns jsonb
+language plpgsql set search_path='' as $$
+begin
+  if p_expected_user is distinct from p_user then raise exception 'identity_changed'; end if;
+  if not exists(select 1 from private.account_deletions where operation_id=p_operation
+    and actor_profile_id=p_user and target_profile_id=p_user and kind='account' and receipt_hash=p_receipt_hash) then
+    perform private.require_member_session(p_user,p_session);
+  end if;
+  return private.start_profile_deletion(p_user,p_session,p_user,p_operation,'account',p_receipt_hash,null);
+end;$$;

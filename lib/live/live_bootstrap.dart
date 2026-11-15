@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'browser_storage.dart';
 import '../config/app_configuration.dart';
+import '../platform/storage/platform_storage.dart';
 import 'keep_signed_in_storage.dart';
 import 'auth_callback.dart';
 import 'guest_preview.dart';
@@ -28,6 +29,7 @@ Future<Widget> buildLiveApp({
   );
   const probe = 'paul.live.storage.check.v1';
   try {
+    await initializePlatformStorage();
     // The chat journal keeps using the strict adapter. This preflight only
     // chooses a read-only bootstrap when tab storage cannot retain operations.
     writeSessionValue(probe, '1');

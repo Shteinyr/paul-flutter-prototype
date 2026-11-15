@@ -1,4 +1,6 @@
 import 'dart:typed_data';
+import 'dart:convert';
+import 'package:crypto/crypto.dart';
 
 import '../push/push_api.dart' show pushSessionId;
 import 'chat_api.dart' show newChatOperationId;
@@ -8,6 +10,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../profile/profile_store.dart';
 import '../profile/user_profile.dart';
 import 'avatar_upload.dart';
+import 'browser_storage.dart';
 import 'invitation_controller.dart';
 import 'member_capabilities.dart';
 import '../platform/storage/profile_write_journal.dart';
@@ -137,17 +140,25 @@ class LiveApi implements InvitationIssuer {
 
   @override
   Future<LiveInvitation> issue(String token) async {
+    final owner = client.auth.currentUser?.id;
+    final session = pushSessionId(client);
+    if (owner == null || session == null)
+      throw const LiveApiException('sign_in_required');
+    final pendingKey = 'paul.invitation.issue.$owner.$session';
+    final operationToken = readSessionValue(pendingKey) ?? token;
+    writeSessionValue(pendingKey, operationToken);
     final elapsed = Stopwatch()..start();
     try {
-      final data = await call('issue', {'token': token});
+      final data = await call('issue', {'token': operationToken});
       final expires = DateTime.parse(data['expires_at'] as String);
       final remaining =
           expires.difference(DateTime.parse(data['server_now'] as String)) -
           elapsed.elapsed;
       if (remaining <= Duration.zero) throw InvitationRenewalRequired();
+      removeSessionValue(pendingKey);
       return LiveInvitation(
         id: data['id'] as String,
-        token: token,
+        token: operationToken,
         code: data['code'] as String,
         expiresAt: expires,
         lifetime: remaining,
@@ -155,6 +166,7 @@ class LiveApi implements InvitationIssuer {
     } on LiveApiException catch (error) {
       if (error.code == 'invalid_invitation' ||
           error.code == 'invitation_collision') {
+        removeSessionValue(pendingKey);
         throw InvitationRenewalRequired();
       }
       rethrow;
@@ -234,13 +246,61 @@ class LiveApi implements InvitationIssuer {
 
   Future<void> redeem(String credential, {UserProfile? draft}) async {
     final user = client.auth.currentUser;
+    final session = pushSessionId(client);
     if (user == null) throw const LiveApiException('sign_in_required');
-    await call('prepare', {'credential': credential});
-    final payload = draft == null ? null : await profilePayload(draft, user.id);
-    if (client.auth.currentUser?.id != user.id) {
+    final key =
+        'paul.registration.${user.id}.$session.${sha256.convert(utf8.encode(credential))}';
+    Map<String, dynamic>? pending;
+    if (draft != null) {
+      final saved = readSessionValue(key);
+      pending = saved == null
+          ? {
+              'owner': user.id,
+              'session': session,
+              'draft': draft.encode(),
+              'avatar_path': draft.photo == null
+                  ? null
+                  : newAvatarUploadPath(user.id),
+            }
+          : Map<String, dynamic>.from(jsonDecode(saved) as Map);
+      if (pending['owner'] != user.id || pending['session'] != session) {
+        throw const LiveApiException('sign_in_required');
+      }
+      // Synchronous SQLite commit on mobile, before any remote mutation.
+      writeSessionValue(key, jsonEncode(pending));
+    }
+    final preparation = await call('prepare', {'credential': credential});
+    Map<String, dynamic>? payload;
+    if (pending != null && preparation['admitted'] != true) {
+      final submitted = UserProfile.decode(pending['draft'] as String);
+      final path = pending['avatar_path'] as String?;
+      if (submitted.photo != null && path != null) {
+        try {
+          await uploadAvatar(
+            client,
+            user.id,
+            submitted.photo!,
+            reservedPath: path,
+          );
+        } on AuthException {
+          throw const LiveApiException('sign_in_required');
+        }
+      }
+      payload = {
+        'name': submitted.name,
+        'occupation': submitted.occupation,
+        'summary': submitted.summary,
+        'skills': submitted.skills,
+        'searching_skills': submitted.searchingSkills,
+        'avatar_path': path,
+      };
+    }
+    if (client.auth.currentUser?.id != user.id ||
+        pushSessionId(client) != session) {
       throw const LiveApiException('sign_in_required');
     }
     await call('redeem', {'credential': credential, 'profile': ?payload});
+    removeSessionValue(key);
   }
 
   Future<Uint8List?> photo(MemberProfile member) async {
