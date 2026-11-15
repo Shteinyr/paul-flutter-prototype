@@ -65,6 +65,18 @@ class _InvitationEntryViewState extends State<InvitationEntryView> {
     if (mounted) setState(() {});
   }
 
+  @override
+  void didUpdateWidget(covariant InvitationEntryView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final incoming = widget.pendingCredential;
+    if (incoming != null && incoming != oldWidget.pendingCredential) {
+      // A newly opened invitation replaces a previously typed code. Opaque QR
+      // credentials remain hidden; ordinary rebuilds retain the user's edits.
+      _code.text = RegExp(r'^\d{8}$').hasMatch(incoming) ? incoming : '';
+      _focus.unfocus();
+    }
+  }
+
   String get _credential => _code.text.trim().isNotEmpty
       ? _code.text.trim()
       : widget.pendingCredential ?? '';

@@ -173,6 +173,34 @@ void main() {
     },
   );
   testWidgets(
+    'a new invitation link replaces the previous manual code without exposing its token',
+    (tester) async {
+      viewport(tester);
+      String? submitted;
+      Widget view(String? credential) => MaterialApp(
+        home: InvitationEntryView(
+          pendingCredential: credential,
+          onJoin: (value) => submitted = value,
+          onSignIn: (_) {},
+        ),
+      );
+      await tester.pumpWidget(view(null));
+      await tester.enterText(
+        find.byKey(const Key('invite-code-input')),
+        '00000000',
+      );
+      await tester.pumpWidget(view(null));
+      expect(find.text('00000000'), findsOneWidget);
+      final incoming = List.filled(64, 'a').join();
+      await tester.pumpWidget(view(incoming));
+      await tester.pumpAndSettle();
+      expect(find.text('00000000'), findsNothing);
+      expect(find.text(incoming), findsNothing);
+      await tester.tap(find.byKey(const Key('invitation-join')));
+      expect(submitted, incoming);
+    },
+  );
+  testWidgets(
     'checking disables both callbacks without introducing Checking copy',
     (tester) async {
       viewport(tester);

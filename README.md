@@ -83,6 +83,51 @@ The default entry is the primary app, backed by the existing Paul project using 
 
 For browser review: `flutter run -d chrome --dart-define=PAUL_TARGET=review`.
 For the explicit local demo: `flutter run -d chrome --dart-define=PAUL_TARGET=demo`.
+
+### Installed app and separate browser targets
+
+`bash scripts/build_mobile.sh ios-simulator` builds the main app for an installed
+iOS Simulator. `ios-unsigned` prepares an unsigned iOS release; `android-debug`
+builds an APK; `android-bundle` requires the client's release signing configuration.
+The development identifiers are `app.paul.paulDemo` (iOS) and
+`app.paul.paul_demo` (Android). They must be replaced with the client's identifiers
+before store delivery. Neither a successful build nor a browser review confirms
+TestFlight, Google Play or physical-device acceptance.
+
+The pinned iOS dependencies use CocoaPods (`pod install`, with `Podfile.lock`)
+and require iOS 15+. Swift Package Manager is disabled for this project.
+Android uses Java 17+ (verified tooling: Java 21), API 37, minimum API 24,
+AGP 9.1.1 and the NDK version pinned by Flutter. Only one SDK installation is needed.
+
+`bash scripts/build_preview.sh` packages the limited public P16 preview in `dist/`.
+`bash scripts/build_live.sh` packages the separate full review target there.
+The latter requires ordinary server authentication/admission for member and
+Admin actions; selecting a build target grants no role. Each command replaces
+the previous local `dist/`; it does not publish it.
+
+Native OAuth returns through `app.paul://login-callback`; installed invitation
+links use `app.paul://invite?invite=…` or `?code=…`. Allow the exact OAuth return in
+the target Supabase project's Auth settings. Verified HTTPS App Links/Universal
+Links additionally require the eventual domain and client signing identifiers;
+the custom scheme does not claim to provide an automatic store-install handoff.
+
+Native notifications initialize from the platform Firebase configuration or the
+public build parameters `PAUL_FIREBASE_API_KEY`, `PAUL_FIREBASE_APP_ID`,
+`PAUL_FIREBASE_MESSAGING_SENDER_ID`, `PAUL_FIREBASE_PROJECT_ID` and optional
+`PAUL_FIREBASE_IOS_BUNDLE_ID`. Incomplete configuration is rejected; an unconfigured
+development build runs without notifications. Supply server FCM credentials only
+to the worker environment and upload the client's APNs key to Firebase, never
+to Dart defines or source. Both main and background isolates use the same public
+configuration. A system permission request occurs only after server admission.
+
+The new session-admission and native-push migrations/functions must be installed
+together with their matching server handlers before full mobile acceptance.
+`native-push-worker` stays inactive until its provider credentials are configured.
+The two notification bodies are `New message` and `New Hiring request`; they
+contain no sender, skill or conversation text. Android's notification artwork
+reuses the existing Figma Chat icon. iOS enables the Push Notifications capability
+and remote-notification background mode; actual delivery still needs signed
+client configuration and physical devices.
 For iOS Simulator: `flutter build ios --simulator --debug --no-codesign`.
 For Android: `flutter build apk --debug`.
 
@@ -101,7 +146,9 @@ The build script produces the browser app in `dist/`. To review the release buil
 
 For an explicit source handoff, run `bash scripts/build_demo.sh --include-source`. The separate archive is written to `build/paul-demo-source.zip`. It includes only tracked application paths. Project documents and local scratch files are excluded. Publish only `dist/` for a browser preview.
 
-Packaging regression checks run with `python3 -m unittest discover -s scripts -p 'test_*.py' -v`.
+Packaging regression checks run with `python3 -m unittest discover -s scripts -p 'test_package_demo.py' -v`.
+Database/concurrency scripts require their explicitly isolated test containers;
+they are not unittest-discovery modules.
 
 The GitHub Actions workflow defines formatting, analysis, tests and a release web build. **Flutter checks is disabled as of 2026-11-09.** A hosted run requires Alexander's explicit approval naming this repository and workflow. Local checks remain available. When enabled for an authorized run, browser and coverage artifacts are retained for seven days. Record checks against the exact commit.
 
@@ -116,6 +163,9 @@ The GitHub Actions workflow defines formatting, analysis, tests and a release we
 | `lib/live/` | Supabase integration, protected contacts, registration host and rotating live QR |
 | `lib/search/` | RLS-scoped skill suggestions, All/Offering/Hiring, pagination and search state |
 | `lib/onboarding/` | P07–P09 steps and durable drafts |
+| `lib/config/` | Explicit primary app, limited preview, review and demo targets |
+| `lib/platform/` | Mobile SQLite, owned photo recovery, OAuth/invitation links, contacts, Share/SMS and native push |
+| `ios/`, `android/` | Mobile hosts with development identifiers and separate client signing |
 | `supabase/` | Migrations, invitation function and SQL regression |
 | `lib/demo_contacts.dart` | Fictional contact content |
 | `lib/photo_picker.dart` | Photo selection, validation and image normalisation |

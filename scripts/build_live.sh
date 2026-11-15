@@ -3,6 +3,11 @@ set -euo pipefail
 
 project_root="$(cd "$(dirname "$0")/.." && pwd)"
 live_source="$project_root/build/live-source"
+web_target="${PAUL_WEB_TARGET:-review}"
+case "$web_target" in
+  review|preview) ;;
+  *) echo 'PAUL_WEB_TARGET must be review or preview.' >&2; exit 2 ;;
+esac
 
 # Build the live configuration from the same sources with its own asset list.
 # The guest preview uses Paul and Julia. Other portraits belong to the demo build.
@@ -65,7 +70,7 @@ PY
   cd "$live_source"
   flutter pub get --enforce-lockfile
   flutter build web --release --no-web-resources-cdn --no-wasm-dry-run \
-    --pwa-strategy=none --dart-define=PAUL_TARGET=review "$@"
+    --pwa-strategy=none --dart-define="PAUL_TARGET=$web_target" "$@"
 )
 python3 - "$project_root" "$live_source" <<'PY'
 from pathlib import Path

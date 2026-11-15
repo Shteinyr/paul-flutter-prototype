@@ -11,6 +11,7 @@ import '../config/app_configuration.dart';
 import '../platform/storage/platform_storage.dart';
 import '../platform/links/platform_links.dart';
 import '../platform/photos/platform_photos.dart';
+import '../platform/notifications/platform_push.dart';
 import '../admin/admin_api.dart';
 import '../admin/admin_view.dart';
 import '../admin/managed_profile_header.dart';
@@ -79,6 +80,7 @@ class PaulLiveApp extends StatefulWidget {
     this.recoverSignIn,
     this.pushBrowser,
     this.pushRepositoryFor,
+    this.platformPushFactory,
     this.publicPreviewRepository,
   });
   final SupabaseClient client;
@@ -97,6 +99,8 @@ class PaulLiveApp extends StatefulWidget {
   final DeletionRepository? deletionRepository;
   final Future<void> Function()? recoverSignIn;
   final PushBrowser? pushBrowser;
+  final Future<PlatformPushRuntime?> Function(SupabaseClient client)?
+  platformPushFactory;
   final PublicPreviewRepository? publicPreviewRepository;
   final PushRepository Function(String userId, String sessionId)?
   pushRepositoryFor;
@@ -127,6 +131,9 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
   late final StreamSubscription<PushClick> _pushClicks;
   PushController? _push;
   PushClick? _pendingPushClick;
+  late final Future<PlatformPushRuntime?> _nativePushFuture;
+  StreamSubscription<PlatformPushNavigation>? _nativePushRoutes;
+  PlatformPushNavigation? _pendingNativePush;
   BuildContext? _homeContext;
   bool _openingPush = false;
   bool _signingOut = false;
@@ -190,6 +197,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     if (widget.purpose == AppPurpose.app) _entering = true;
     _identity = widget.client.auth.currentUser?.id;
     _authSession = pushSessionId(widget.client);
+    _nativePushFuture = _initializeNativePush();
     _pushBrowser = widget.pushBrowser ?? createPushBrowser();
     final click = _pushBrowser.takeClick();
     if (click?.recipientId == _identity) _pendingPushClick = click;
@@ -443,6 +451,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
         unawaited(_setPushIdentity(null));
       }
       _network = network;
+      if (network.own == null) unawaited(_syncNativePush(admitted: false));
       if (network.own != null && (_profile == null || !_profile!.loaded)) {
         final controller = ProfileController(
           SupabaseProfileStore(
@@ -505,6 +514,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
         _profile = null;
         _network = const MemberNetwork();
         _pendingPushClick = null;
+        unawaited(_syncNativePush(admitted: false));
         _peerPhotos.clear();
         _entering = widget.purpose == AppPurpose.app;
         try {
@@ -523,11 +533,14 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
       if (mounted && generation == _loadGeneration) {
         setState(() => _loading = false);
         unawaited(_drainPushClick());
+        unawaited(_drainNativePush());
       }
     }
   }
 
   Future<void> _setPushIdentity(String? userId) async {
+    _pendingNativePush = null;
+    unawaited(_syncNativePush(admitted: false));
     try {
       await _pushBrowser.identity(userId, pushSessionId(widget.client));
     } catch (_) {
@@ -577,10 +590,84 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     );
   }
 
+  Future<PlatformPushRuntime?> _initializeNativePush() async {
+    final runtime =
+        await (widget.platformPushFactory ?? createPlatformPushRuntime)(
+          widget.client,
+        );
+    if (!mounted) {
+      await runtime?.dispose();
+      return null;
+    }
+    _nativePushRoutes = runtime?.routes.listen((navigation) {
+      _pendingNativePush = navigation;
+      unawaited(_drainNativePush());
+    });
+    return runtime;
+  }
+
+  Future<void> _syncNativePush({required bool admitted}) async {
+    final identity = _identity, session = pushSessionId(widget.client);
+    try {
+      final runtime = await _nativePushFuture;
+      if (!mounted ||
+          identity != _identity ||
+          session != pushSessionId(widget.client)) {
+        return;
+      }
+      await runtime?.bind(
+        userId: identity,
+        sessionId: session,
+        admitted: admitted && identity != null && session != null,
+      );
+    } catch (_) {
+      // Failure of notification transport must not block the admitted app.
+    }
+  }
+
+  Future<void> _drainNativePush() async {
+    final navigation = _pendingNativePush;
+    if (navigation == null || _loading || _openingPush) return;
+    _pendingNativePush = null;
+    final generation = _loadGeneration;
+    bool current() =>
+        mounted &&
+        generation == _loadGeneration &&
+        _network.own != null &&
+        _identity == navigation.userId &&
+        pushSessionId(widget.client) == navigation.sessionId;
+    if (!current()) return;
+    _openingPush = true;
+    try {
+      await _openPushRoute(navigation.route, navigation.userId, current);
+    } catch (_) {
+      if (current()) {
+        _showMessage(
+          'This notification is no longer available. Open your current chats.',
+        );
+      }
+    } finally {
+      _openingPush = false;
+      if (_pendingNativePush != null) unawaited(_drainNativePush());
+    }
+  }
+
+  Future<void> _refreshNativePush() async {
+    try {
+      await (await _nativePushFuture)?.refresh();
+    } catch (_) {
+      // Network/provider failures remain retryable notification state.
+    }
+  }
+
   Future<void> _ensurePush() async {
     final userId = _identity;
     final session = pushSessionId(widget.client);
     if (userId == null || session == null) return;
+    if (!kIsWeb && widget.pushBrowser == null) {
+      await _syncNativePush(admitted: _network.own != null);
+      return;
+    }
     if (_push?.repository.sessionId == session &&
         _push?.repository.userId == userId) {
       return;
@@ -624,75 +711,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
       }
       final route = await push.repository.resolve(click);
       if (!current()) return;
-      _navigator.currentState?.popUntil((route) => route.isFirst);
-      await WidgetsBinding.instance.endOfFrame;
-      if (!current()) return;
-      if (route.kind == 'community') {
-        setState(() => _tab = 1);
-        final controller = _ensureCommunity();
-        unawaited(
-          _navigator.currentState!.push<void>(
-            MaterialPageRoute(
-              builder: (_) => CommunityDetailView(
-                controller: controller,
-                requestId: route.requestId!,
-                onMessage: _openChat,
-                avatarFor: _peerAvatar,
-              ),
-            ),
-          ),
-        );
-      } else if (route.kind == 'operator') {
-        final admin = SupabaseAdminApi(widget.client, click.recipientId);
-        final access = await admin.context();
-        if (!current()) return;
-        final profile = access.profiles
-            .where(
-              (profile) =>
-                  profile.id == route.managedProfileId &&
-                  profile.canReply &&
-                  profile.disabledAt == null,
-            )
-            .firstOrNull;
-        if (profile == null) throw const PushException('push_forbidden');
-        unawaited(
-          _navigator.currentState!.push(
-            MaterialPageRoute<void>(
-              builder: (_) => OperatorInboxView(
-                repository: admin.operatorFor(profile.id),
-                actorId: click.recipientId,
-                profile: profile,
-                initialConversationId: route.conversationId,
-                senderAvatar: ManagedProfileAvatar(
-                  repository: admin,
-                  profile: profile,
-                  size: 65,
-                ),
-              ),
-            ),
-          ),
-        );
-      } else {
-        final threads = await _chat!.repository.list();
-        if (!current()) return;
-        final thread = threads
-            .where((thread) => thread.id == route.conversationId)
-            .firstOrNull;
-        final origin = _homeContext;
-        if (thread == null || origin == null || !origin.mounted) {
-          throw const PushException('push_forbidden');
-        }
-        final opening = Completer<void>();
-        unawaited(
-          _openChat(
-            origin,
-            thread.peer,
-            conversationId: thread.id,
-            opening: opening,
-          ),
-        );
-        await opening.future;
-      }
+      await _openPushRoute(route, click.recipientId, current);
     } catch (_) {
       if (current()) {
         _showMessage(
@@ -702,6 +721,82 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     } finally {
       _openingPush = false;
       if (_pendingPushClick != null) unawaited(_drainPushClick());
+    }
+  }
+
+  Future<void> _openPushRoute(
+    PushRoute route,
+    String recipientId,
+    bool Function() current,
+  ) async {
+    _navigator.currentState?.popUntil((route) => route.isFirst);
+    await WidgetsBinding.instance.endOfFrame;
+    if (!current()) return;
+    if (route.kind == 'community') {
+      setState(() => _tab = 1);
+      final controller = _ensureCommunity();
+      unawaited(
+        _navigator.currentState!.push<void>(
+          MaterialPageRoute(
+            builder: (_) => CommunityDetailView(
+              controller: controller,
+              requestId: route.requestId!,
+              onMessage: _openChat,
+              avatarFor: _peerAvatar,
+            ),
+          ),
+        ),
+      );
+    } else if (route.kind == 'operator') {
+      final admin = SupabaseAdminApi(widget.client, recipientId);
+      final access = await admin.context();
+      if (!current()) return;
+      final profile = access.profiles
+          .where(
+            (profile) =>
+                profile.id == route.managedProfileId &&
+                profile.canReply &&
+                profile.disabledAt == null,
+          )
+          .firstOrNull;
+      if (profile == null) throw const PushException('push_forbidden');
+      unawaited(
+        _navigator.currentState!.push(
+          MaterialPageRoute<void>(
+            builder: (_) => OperatorInboxView(
+              repository: admin.operatorFor(profile.id),
+              actorId: recipientId,
+              profile: profile,
+              initialConversationId: route.conversationId,
+              senderAvatar: ManagedProfileAvatar(
+                repository: admin,
+                profile: profile,
+                size: 65,
+              ),
+            ),
+          ),
+        ),
+      );
+    } else {
+      final threads = await _chat!.repository.list();
+      if (!current()) return;
+      final thread = threads
+          .where((thread) => thread.id == route.conversationId)
+          .firstOrNull;
+      final origin = _homeContext;
+      if (thread == null || origin == null || !origin.mounted) {
+        throw const PushException('push_forbidden');
+      }
+      final opening = Completer<void>();
+      unawaited(
+        _openChat(
+          origin,
+          thread.peer,
+          conversationId: thread.id,
+          opening: opening,
+        ),
+      );
+      await opening.future;
     }
   }
 
@@ -808,6 +903,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     _resumed = state == AppLifecycleState.resumed;
     if (_resumed) {
       unawaited(_push?.refresh());
+      unawaited(_refreshNativePush());
       _chat?.resume();
       unawaited(_refreshCapabilities());
       unawaited(_profile?.refresh());
@@ -1299,6 +1395,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
       final profile = _profile;
       if (profile != null && !await profile.saveBeforeLeaving()) return;
       await _push?.disable();
+      await _syncNativePush(admitted: false);
       await widget.client.auth.signOut(scope: SignOutScope.local);
       await _clearPending();
       await OnboardingDraftStore(preferences: widget.draftPreferences).clear();
@@ -1753,6 +1850,8 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     unawaited(_auth.cancel());
     unawaited(_stopPlatformLinks?.call());
     unawaited(_pushClicks.cancel());
+    unawaited(_nativePushRoutes?.cancel());
+    unawaited(_nativePushFuture.then((runtime) => runtime?.dispose()));
     _push?.dispose();
     if (widget.pushBrowser == null) _pushBrowser.dispose();
     WidgetsBinding.instance.removeObserver(this);
