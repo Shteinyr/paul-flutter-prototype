@@ -8,6 +8,7 @@ import '../profile/public_profile_view.dart';
 import '../search/skill_search_controller.dart';
 import '../search/skill_search_view.dart';
 import 'public_preview_api.dart';
+import 'guest_invitation_prompt.dart';
 import 'public_avatar_image.dart';
 import 'chat_controller.dart';
 
@@ -265,16 +266,7 @@ class _PublicGuestPreviewState extends State<PublicGuestPreview> {
                       avatarFor: (peer) => _avatar(peer.id, 65),
                     ),
                     2 => Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Text('Sign in to view your messages.'),
-                          TextButton(
-                            onPressed: _requireSignIn,
-                            child: const Text('Sign in'),
-                          ),
-                        ],
-                      ),
+                      child: GuestChatPrompt(onSignUp: _requireSignIn),
                     ),
                     _ => _contacts(),
                   },

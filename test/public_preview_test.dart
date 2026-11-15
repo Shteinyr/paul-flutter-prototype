@@ -297,7 +297,7 @@ void main() {
       expect(find.text('Close request'), findsNothing);
       await tester.tap(find.byKey(const Key('tab-2')));
       await tester.pumpAndSettle();
-      expect(find.text('Sign in to view your messages.'), findsOneWidget);
+      expect(find.text('Sign up to chat'), findsOneWidget);
       expect(signIns, 1); // A tab inspection itself does not force Join.
       await tester.tap(find.byKey(const Key('tab-3')));
       await tester.pumpAndSettle();

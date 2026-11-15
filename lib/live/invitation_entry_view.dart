@@ -47,7 +47,11 @@ class _InvitationEntryViewState extends State<InvitationEntryView> {
   @override
   void initState() {
     super.initState();
-    _code = TextEditingController(text: widget.initialCode);
+    _code = TextEditingController(
+      text: RegExp(r'^\d{0,8}$').hasMatch(widget.initialCode)
+          ? widget.initialCode
+          : '',
+    );
     _focus.addListener(_changed);
     _terms = TapGestureRecognizer();
     _privacy = TapGestureRecognizer();
