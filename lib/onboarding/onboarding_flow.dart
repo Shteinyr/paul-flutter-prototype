@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -21,6 +22,7 @@ class OnboardingFlow extends StatefulWidget {
     this.initialDraft,
     this.onBack,
     this.pickPhoto,
+    this.onPhotoPersisted,
     this.preferences,
     this.maxOfferingSkills = 5,
   }) : assert((onComplete == null) != (onContinueToRegistration == null));
@@ -36,6 +38,7 @@ class OnboardingFlow extends StatefulWidget {
   final UserProfile? initialDraft;
   final VoidCallback? onBack;
   final PickProfilePhoto? pickPhoto;
+  final ValueChanged<Uint8List>? onPhotoPersisted;
   final SharedPreferencesAsync? preferences;
   final int maxOfferingSkills;
 
@@ -129,6 +132,9 @@ class _OnboardingFlowState extends State<OnboardingFlow>
     if (_controller.error != null) return false;
     try {
       await _store.write(_profile);
+      if (_profile.photo != null) {
+        widget.onPhotoPersisted?.call(_profile.photo!);
+      }
       if (mounted) setState(() => _draftError = null);
       return true;
     } catch (_) {

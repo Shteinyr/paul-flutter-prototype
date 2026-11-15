@@ -10,6 +10,7 @@ import '../app.dart';
 import '../config/app_configuration.dart';
 import '../platform/storage/platform_storage.dart';
 import '../platform/links/platform_links.dart';
+import '../platform/photos/platform_photos.dart';
 import '../admin/admin_api.dart';
 import '../admin/admin_view.dart';
 import '../admin/managed_profile_header.dart';
@@ -292,6 +293,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     _resumeInvitation();
     _callbackFailure = false;
     _credential = null;
+    clearOnboardingPhotoOwner();
     _draft = null;
     _acceptedInvite = false;
     _invalidCredential = false;
@@ -458,6 +460,24 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
         }
         _profile?.dispose();
         _profile = controller;
+        final photo = pendingPlatformPhoto(
+          ownerId: identity,
+          destination: PhotoDestination.profile,
+          targetId: identity,
+        );
+        if (photo != null) {
+          controller.updatePhoto(photo);
+          await controller.flush();
+          if (!controller.hasUnsavedChanges) {
+            completePlatformPhoto(
+              ownerId: identity,
+              destination: PhotoDestination.profile,
+              targetId: identity,
+              photo: photo,
+            );
+          }
+          if (!mounted || generation != _loadGeneration) return;
+        }
       } else if (network.own != null && _profile?.loaded == true) {
         await _profile!.refresh();
         if (!mounted || generation != _loadGeneration) return;
@@ -1617,6 +1637,17 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
         preferences: widget.draftPreferences,
         initialDraft: _draft,
         onBack: _backToGuest,
+        pickPhoto: () => pickPlatformPhoto(
+          ownerId: onboardingPhotoOwner(),
+          destination: PhotoDestination.onboarding,
+          targetId: onboardingPhotoOwner(),
+        ),
+        onPhotoPersisted: (photo) => completePlatformPhoto(
+          ownerId: onboardingPhotoOwner(),
+          destination: PhotoDestination.onboarding,
+          targetId: onboardingPhotoOwner(),
+          photo: photo,
+        ),
         onComplete: (draft) =>
             _complete(context, draft, provider: _onboardingProvider),
         registrationActions: (submit) => MobileAuthActions(
@@ -1650,11 +1681,12 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
       checking: _checking,
       onJoin: (value) => unawaited(_accept(value)),
       onCodeChanged: (_) {
-        if (_error != null || _invalidCredential)
+        if (_error != null || _invalidCredential) {
           setState(() {
             _error = null;
             _invalidCredential = false;
           });
+        }
       },
       onSignIn: (credential) async {
         if (_checking) return;
@@ -1888,6 +1920,17 @@ class _LiveContacts extends StatelessWidget {
                   Expanded(
                     child: ProfileEditor(
                       controller: profile,
+                      pickPhoto: () => pickPlatformPhoto(
+                        ownerId: network.own!.id,
+                        destination: PhotoDestination.profile,
+                        targetId: network.own!.id,
+                      ),
+                      onPhotoPersisted: (photo) => completePlatformPhoto(
+                        ownerId: network.own!.id,
+                        destination: PhotoDestination.profile,
+                        targetId: network.own!.id,
+                        photo: photo,
+                      ),
                       onInvite: onQr,
                       onOfferingLimit: onOfferingLimit,
                       onDelete: onDelete,

@@ -484,6 +484,7 @@ class ProfileEditor extends StatefulWidget {
     this.footer,
     this.onInvite,
     this.onOfferingLimit,
+    this.onPhotoPersisted,
   });
   final ProfileController controller;
   final PickProfilePhoto? pickPhoto;
@@ -493,6 +494,7 @@ class ProfileEditor extends StatefulWidget {
   final Widget? footer;
   final VoidCallback? onInvite;
   final VoidCallback? onOfferingLimit;
+  final ValueChanged<Uint8List>? onPhotoPersisted;
   @override
   State<ProfileEditor> createState() => _ProfileEditorState();
 }
@@ -533,6 +535,15 @@ class _ProfileEditorState extends State<ProfileEditor> {
 
   void _profileChanged() {
     if (!mounted) return;
+    if (!controller.hasUnsavedChanges &&
+        controller.error == null &&
+        controller.profile.photo != null) {
+      try {
+        widget.onPhotoPersisted?.call(controller.profile.photo!);
+      } catch (_) {
+        /* Keep the journal until a later confirmed save. */
+      }
+    }
     _sync(_name, controller.profile.name);
     _sync(_occupation, controller.profile.occupation);
     _sync(_summary, controller.profile.summary);
