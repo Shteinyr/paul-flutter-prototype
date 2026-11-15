@@ -10,6 +10,8 @@ import '../profile/user_profile.dart';
 import 'avatar_upload.dart';
 import 'invitation_controller.dart';
 import 'member_capabilities.dart';
+import '../platform/storage/profile_write_journal.dart';
+import '../platform/storage/profile_write_journal_factory.dart';
 
 class LiveApiException implements Exception {
   const LiveApiException(this.code);
@@ -253,7 +255,9 @@ class SupabaseProfileStore implements ReconciledProfileStore {
     this.userId, {
     MemberProfile? initialProfile,
     String? initialSession,
-  }) : _session =
+    ProfileWriteJournal? journal,
+  }) : _journal = journal ?? createProfileWriteJournal(),
+       _session =
            pushSessionId(api.client) ??
            api.client.auth.currentSession?.accessToken {
     if (initialProfile?.id == userId &&
@@ -268,7 +272,9 @@ class SupabaseProfileStore implements ReconciledProfileStore {
   MemberProfile? _initialProfile;
   Map<String, dynamic>? _base;
   UserProfile? _localBase;
-  _ProfileWrite? _pending;
+  final ProfileWriteJournal _journal;
+  PendingProfileWrite? _pending;
+  bool _journalLoaded = false;
   Uint8List? _uploadedPhoto;
   String? _uploadedPath;
 
@@ -310,9 +316,22 @@ class SupabaseProfileStore implements ReconciledProfileStore {
     );
   }
 
+  Future<void> _restorePending() async {
+    if (_journalLoaded) return;
+    final saved = await _journal.read(userId, userId);
+    _checkSession();
+    if (saved != null && saved.originSessionId != _session) {
+      throw const LiveApiException('sign_in_required');
+    }
+    _pending = saved;
+    if (saved != null) _initialProfile = null;
+    _journalLoaded = true;
+  }
+
   @override
   Future<UserProfile> read() async {
     _checkSession();
+    await _restorePending();
     // Resolve an uncertain write before replacing the baseline used by its retry.
     if (_pending != null) await _sendPending();
     // Consume before any await, including a failed private photo download.
@@ -328,8 +347,27 @@ class SupabaseProfileStore implements ReconciledProfileStore {
     final pending = _pending!;
     _checkSession();
     try {
+      if (pending.uploadRequired && !pending.uploaded) {
+        await uploadAvatar(
+          api.client,
+          userId,
+          pending.profile.photo!,
+          reservedPath: pending.avatarPath,
+        );
+        _checkSession();
+        _uploadedPhoto = Uint8List.fromList(pending.profile.photo!);
+        _uploadedPath = pending.avatarPath;
+        await _journal.markUploaded(pending);
+        _checkSession();
+        _pending = PendingProfileWrite.restore(
+          operationId: pending.operationId,
+          originSessionId: pending.originSessionId,
+          uploaded: true,
+          payload: pending.payload,
+        );
+      }
       final result = await api.call('merge_profile', {
-        'operation_id': pending.operation,
+        'operation_id': pending.operationId,
         'base': pending.base,
         'changes': pending.changes,
       });
@@ -341,20 +379,30 @@ class SupabaseProfileStore implements ReconciledProfileStore {
       final saved = await _accept(
         own,
         submitted: pending.profile,
-        submittedPath: pending.path,
+        submittedPath: pending.avatarPath,
       );
+      await _journal.complete(pending);
+      _checkSession();
       _pending = null;
       return saved;
     } on LiveApiException catch (error) {
       if (error.code == 'profile_conflict') {
+        await _journal.complete(pending);
+        _checkSession();
         _pending = null;
         final own = (await api.network()).own;
         _checkSession();
         if (own == null) throw const LiveApiException('membership_required');
         throw ProfileConflictException(await _accept(own));
       }
-      if (error.code == 'offering_limit_reached') _pending = null;
+      if (error.code == 'offering_limit_reached') {
+        await _journal.complete(pending);
+        _checkSession();
+        _pending = null;
+      }
       if (error.code == 'invalid_profile' || error.code == 'avatar_retired') {
+        await _journal.complete(pending);
+        _checkSession();
         _pending = null;
         _uploadedPath = null;
         _uploadedPhoto = null;
@@ -366,6 +414,7 @@ class SupabaseProfileStore implements ReconciledProfileStore {
   @override
   Future<UserProfile> save(UserProfile profile) async {
     _checkSession();
+    await _restorePending();
     if (_base == null || _localBase == null) {
       throw StateError('Read the profile before saving.');
     }
@@ -377,6 +426,7 @@ class SupabaseProfileStore implements ReconciledProfileStore {
     final dirty = profile.changesFrom(_localBase!);
     if (dirty.isEmpty) return _localBase!;
     var path = _base!['avatar_path'] as String?;
+    var uploadRequired = false;
     if (dirty.contains('photo')) {
       if (profile.photo == null) {
         path = null;
@@ -384,10 +434,8 @@ class SupabaseProfileStore implements ReconciledProfileStore {
           _uploadedPath != null) {
         path = _uploadedPath;
       } else {
-        path = await uploadAvatar(api.client, userId, profile.photo!);
-        _checkSession();
-        _uploadedPhoto = Uint8List.fromList(profile.photo!);
-        _uploadedPath = path;
+        path = newAvatarUploadPath(userId);
+        uploadRequired = true;
       }
     }
     final values = {...profile.editableFields}..remove('photo');
@@ -395,13 +443,20 @@ class SupabaseProfileStore implements ReconciledProfileStore {
       for (final key in dirty.where((k) => k != 'photo')) key: values[key],
       if (dirty.contains('photo')) 'avatar_path': path,
     };
-    _pending = _ProfileWrite(
-      newChatOperationId(),
-      Map.of(_base!),
-      changes,
-      profile,
-      path,
+    _pending = await _journal.prepare(
+      PendingProfileWrite(
+        actorId: userId,
+        profileId: userId,
+        operationId: newChatOperationId(),
+        originSessionId: _session,
+        base: Map.of(_base!),
+        changes: changes,
+        profile: profile,
+        avatarPath: path,
+        uploadRequired: uploadRequired,
+      ),
     );
+    _checkSession();
     return _sendPending();
   }
 
@@ -414,18 +469,4 @@ class SupabaseProfileStore implements ReconciledProfileStore {
   Future<void> clear() async => throw UnsupportedError(
     'Account deletion requires the server account workflow.',
   );
-}
-
-class _ProfileWrite {
-  _ProfileWrite(
-    this.operation,
-    this.base,
-    this.changes,
-    this.profile,
-    this.path,
-  );
-  final String operation;
-  final Map<String, dynamic> base, changes;
-  final UserProfile profile;
-  final String? path;
 }
