@@ -74,11 +74,15 @@ void main() {
       var store = SqliteNativePushStore(db);
       await store.write(NativePushBinding(actor, session, bindingId, 'a' * 64));
       await store.write(NativePushBinding(other, session, bindingId, 'b' * 64));
+      await store.setRetirementPending(true);
       db.close();
       db = SqliteJournalStore.open(path);
       store = SqliteNativePushStore(db);
+      expect(await store.retirementPending(), isTrue);
       expect((await store.read(actor, session))?.tokenDigest, 'a' * 64);
       expect((await store.read(other, session))?.tokenDigest, 'b' * 64);
+      await store.setRetirementPending(false);
+      expect(await store.retirementPending(), isFalse);
       expect(await store.read(actor, laterSession), isNull);
       await store.remove(actor, session);
       expect(await store.read(actor, session), isNull);

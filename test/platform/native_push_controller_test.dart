@@ -25,7 +25,7 @@ Map<String, dynamic> envelope({
   'kind': kind,
 };
 
-class Messaging extends Fake implements MessagingPort {
+class Messaging extends Fake implements MessagingPort, ForegroundMessagingPort {
   @override
   bool isApple = false;
   final tokens = StreamController<String>.broadcast(sync: true);
@@ -37,6 +37,21 @@ class Messaging extends Fake implements MessagingPort {
   Map<String, dynamic>? initial;
   Completer<Map<String, dynamic>?>? initialGate;
   int prompts = 0, deletes = 0, reads = 0;
+  int failedDeletes = 0, foregroundClears = 0, foregroundDisposals = 0;
+  final shown = <NativePushEnvelope>[];
+  @override
+  Future<void> showForeground(NativePushEnvelope envelope) async =>
+      shown.add(envelope);
+  @override
+  Future<void> clearForeground() async {
+    foregroundClears++;
+  }
+
+  @override
+  Future<void> disposeForeground() async {
+    foregroundDisposals++;
+  }
+
   @override
   Stream<String> get tokenChanges => tokens.stream;
   @override
@@ -63,6 +78,10 @@ class Messaging extends Fake implements MessagingPort {
   @override
   Future<void> deleteToken() async {
     deletes++;
+    if (failedDeletes > 0) {
+      failedDeletes--;
+      throw StateError('offline unregistration');
+    }
   }
 
   Future<void> close() async {
@@ -72,8 +91,16 @@ class Messaging extends Fake implements MessagingPort {
   }
 }
 
-class Bindings implements NativePushStore {
+class Bindings implements NativePushStore, NativePushRetirementStore {
   final values = <(String, String), NativePushBinding>{};
+  bool retiring = false;
+  @override
+  Future<bool> retirementPending() async => retiring;
+  @override
+  Future<void> setRetirementPending(bool pending) async {
+    retiring = pending;
+  }
+
   @override
   Future<NativePushBinding?> read(String userId, String sessionId) async =>
       values[(userId, sessionId)];
@@ -344,6 +371,110 @@ void main() {
       });
       expect(parsed!.kind, 'message_created');
       expect(parsed.click.deliveryId, deliveryId);
+    },
+  );
+  test(
+    'Android foreground display requires admitted current owner and binding; iOS is not duplicated',
+    () async {
+      messaging.active.add(envelope());
+      await controller.settled;
+      expect(messaging.shown, isEmpty);
+      await admit();
+      messaging.active.add(envelope(user: other));
+      messaging.active.add(envelope(binding: deliveryId));
+      await controller.settled;
+      expect(messaging.shown, isEmpty);
+      messaging.active.add(
+        envelope(binding: repository.registrations.single.$1),
+      );
+      await controller.settled;
+      expect(messaging.shown.single.kind, 'message_created');
+      messaging.isApple = true;
+      messaging.active.add(envelope(kind: 'community_created'));
+      await controller.settled;
+      expect(messaging.shown, hasLength(1));
+    },
+  );
+  test(
+    'cold unadmitted startup retires device and ignores late registration events',
+    () async {
+      await controller.setIdentity(
+        userId: null,
+        sessionId: null,
+        admitted: false,
+      );
+      expect(messaging.deletes, 1);
+      expect(messaging.foregroundClears, 1);
+      messaging.tokens.add('late-fid-installation-id');
+      messaging.active.add(envelope());
+      await controller.settled;
+      expect(repository.registrations, isEmpty);
+      expect(messaging.shown, isEmpty);
+      expect(messaging.prompts, 0);
+    },
+  );
+  test(
+    'failed cold unregistration survives restart and blocks new registration until acknowledged',
+    () async {
+      messaging.failedDeletes = 3;
+      await controller.setIdentity(
+        userId: actor,
+        sessionId: session,
+        admitted: false,
+      );
+      expect(bindings.retiring, isTrue);
+      await controller.dispose();
+      controller = NativePushController(messaging: messaging, store: bindings);
+      await controller.setIdentity(
+        userId: null,
+        sessionId: null,
+        admitted: false,
+      );
+      await admit();
+      expect(repository.registrations, isEmpty);
+      expect(bindings.retiring, isTrue);
+      await controller.refresh();
+      expect(bindings.retiring, isFalse);
+      expect(repository.registrations, hasLength(1));
+      expect(messaging.deletes, 4);
+    },
+  );
+  test(
+    'signed-out resume retries pending retirement without registering or prompting',
+    () async {
+      messaging.failedDeletes = 1;
+      await controller.setIdentity(
+        userId: null,
+        sessionId: null,
+        admitted: false,
+      );
+      expect(bindings.retiring, isTrue);
+      await controller.refresh();
+      expect(bindings.retiring, isFalse);
+      expect(messaging.deletes, 2);
+      expect(repository.registrations, isEmpty);
+      expect(messaging.prompts, 0);
+    },
+  );
+  test(
+    'a later hot click wins over delayed cold notification launch',
+    () async {
+      await controller.dispose();
+      messaging.initialGate = Completer<Map<String, dynamic>?>();
+      controller = NativePushController(messaging: messaging, store: bindings);
+      await admit();
+      final routes = <PushRoute>[];
+      final sub = controller.routes.listen(routes.add);
+      final data = envelope(binding: repository.registrations.single.$1);
+      messaging.clicks.add(data);
+      await controller.settled;
+      await Future<void>.delayed(Duration.zero);
+      messaging.initialGate!.complete({...data, 'delivery_id': other});
+      await Future<void>.delayed(Duration.zero);
+      await controller.settled;
+      expect(repository.resolutions, hasLength(1));
+      expect(routes, hasLength(1));
+      await sub.cancel();
     },
   );
 }

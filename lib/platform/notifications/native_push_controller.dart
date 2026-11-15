@@ -42,6 +42,10 @@ class NativePushController {
           if (_current(generation) &&
               binding?.bindingId == envelope.click.bindingId) {
             _activities.add(envelope);
+            final presenter = _foregroundPresenter;
+            if (enabled && !messaging.isApple && presenter != null) {
+              await presenter.showForeground(envelope);
+            }
           }
         }),
       );
@@ -50,6 +54,14 @@ class NativePushController {
   }
   final MessagingPort messaging;
   final NativePushStore store;
+  ForegroundMessagingPort? get _foregroundPresenter =>
+      messaging is ForegroundMessagingPort
+      ? messaging as ForegroundMessagingPort
+      : null;
+  NativePushRetirementStore? get _retirementStore =>
+      store is NativePushRetirementStore
+      ? store as NativePushRetirementStore
+      : null;
   late final StreamSubscription<String> _tokens;
   late final StreamSubscription<Map<String, dynamic>> _taps, _foreground;
   final _routes = StreamController<PushRoute>.broadcast();
@@ -61,6 +73,7 @@ class NativePushController {
   _Identity? _identity;
   NativePushEnvelope? _pendingTap;
   int _generation = 0;
+  int _tapRevision = 0;
   bool _disposed = false;
   bool enabled = false;
   bool waitingForApns = false;
@@ -82,9 +95,12 @@ class NativePushController {
       !_disposed && generation == _generation && _identity != null;
 
   Future<void> _initialTap() async {
+    final revision = _tapRevision;
     try {
       final data = await messaging.initialTap();
-      if (data != null && !_disposed) _receiveTap(data);
+      if (data != null && !_disposed && revision == _tapRevision) {
+        _receiveTap(data);
+      }
     } catch (_) {
       if (!_disposed) error = 'notification_unavailable';
     }
@@ -94,6 +110,7 @@ class NativePushController {
     if (_disposed) return;
     final envelope = NativePushEnvelope.parse(data);
     if (envelope == null) return;
+    _tapRevision++;
     _pendingTap = envelope;
     final generation = _generation;
     unawaited(_queue(() => _drainTap(generation)));
@@ -122,6 +139,7 @@ class NativePushController {
           userId != previous?.userId ||
           sessionId != previous?.sessionId;
       if (previous != null && changed) await _clear(previous);
+      if (previous == null && !admitted) await _retireDevice();
       if (_disposed || generation != _generation || !admitted) return;
       _identity = _Identity(userId!, sessionId!, repository!);
       await _refresh(generation);
@@ -130,8 +148,10 @@ class NativePushController {
   }
 
   Future<void> _clear(_Identity identity) async {
-    final binding = await store.read(identity.userId, identity.sessionId);
+    // Persist retirement before either remote unsubscription or SDK mutation.
+    await _markRetirement();
     try {
+      final binding = await store.read(identity.userId, identity.sessionId);
       if (binding != null) {
         await identity.repository.unsubscribe(binding.bindingId);
       }
@@ -139,10 +159,39 @@ class NativePushController {
       // Deleting the device token also retires a server binding whose logout
       // acknowledgement was lost. No further request uses the new account.
     } finally {
-      try {
-        await messaging.deleteToken();
-      } catch (_) {}
+      await _retireDevice();
       await store.remove(identity.userId, identity.sessionId);
+    }
+  }
+
+  bool _retirementPending = false;
+  Future<void> _markRetirement() async {
+    _retirementPending = true;
+    final durable = _retirementStore;
+    if (durable != null) {
+      await durable.setRetirementPending(true);
+    }
+  }
+
+  Future<bool> _retireDevice() async {
+    await _markRetirement();
+    final durable = _retirementStore;
+    final presenter = _foregroundPresenter;
+    if (presenter != null) {
+      try {
+        await presenter.clearForeground();
+      } catch (_) {}
+    }
+    try {
+      await messaging.deleteToken();
+      if (durable != null) {
+        await durable.setRetirementPending(false);
+      }
+      _retirementPending = false;
+      return true;
+    } catch (_) {
+      error = 'notification_unavailable';
+      return false;
     }
   }
 
@@ -157,7 +206,18 @@ class NativePushController {
 
   Future<void> refresh() {
     final generation = _generation;
-    return _queue(() => _refresh(generation));
+    return _queue(() async {
+      if (generation != _generation || _disposed) return;
+      if (_identity == null) {
+        final durable = _retirementStore;
+        if (_retirementPending ||
+            (durable != null && await durable.retirementPending())) {
+          if (generation == _generation && !_disposed) await _retireDevice();
+        }
+        return;
+      }
+      await _refresh(generation);
+    });
   }
 
   Future<void> _refresh(int generation, {String? token}) async {
@@ -165,6 +225,13 @@ class NativePushController {
     final identity = _identity!;
     error = null;
     enabled = false;
+    final durable = _retirementStore;
+    final pending =
+        _retirementPending ||
+        (durable != null && await durable.retirementPending());
+    if (!_current(generation)) return;
+    if (pending && !await _retireDevice()) return;
+    if (!_current(generation)) return;
     permission = await messaging.permission();
     if (!_current(generation)) return;
     if (permission != NativePushPermission.authorized &&
@@ -250,6 +317,10 @@ class NativePushController {
     _identity = null;
     await Future.wait([_tokens.cancel(), _taps.cancel(), _foreground.cancel()]);
     await _work;
+    final presenter = _foregroundPresenter;
+    if (presenter != null) {
+      await presenter.disposeForeground();
+    }
     await _routes.close();
     await _activities.close();
   }

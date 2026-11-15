@@ -20,10 +20,29 @@ abstract interface class NativePushStore {
   Future<void> remove(String userId, String sessionId);
 }
 
-class SqliteNativePushStore implements NativePushStore {
+/// Installation scoped: unregistration must survive logout and process death.
+abstract interface class NativePushRetirementStore {
+  Future<bool> retirementPending();
+  Future<void> setRetirementPending(bool pending);
+}
+
+class SqliteNativePushStore
+    implements NativePushStore, NativePushRetirementStore {
   const SqliteNativePushStore(this.database);
   final SqliteJournalStore database;
   String _key(String sessionId) => 'native-push-binding:$sessionId';
+  @override
+  Future<bool> retirementPending() async =>
+      database.read('installation', 'native-push-retirement') == 'pending';
+  @override
+  Future<void> setRetirementPending(bool pending) async {
+    if (pending) {
+      database.write('installation', 'native-push-retirement', 'pending');
+    } else {
+      database.remove('installation', 'native-push-retirement');
+    }
+  }
+
   @override
   Future<NativePushBinding?> read(String userId, String sessionId) async {
     final source = database.read(accountStorageScope(userId), _key(sessionId));
