@@ -483,6 +483,7 @@ class ProfileEditor extends StatefulWidget {
     this.occupationRequired = true,
     this.footer,
     this.onInvite,
+    this.onOfferingLimit,
   });
   final ProfileController controller;
   final PickProfilePhoto? pickPhoto;
@@ -491,6 +492,7 @@ class ProfileEditor extends StatefulWidget {
   final bool occupationRequired;
   final Widget? footer;
   final VoidCallback? onInvite;
+  final VoidCallback? onOfferingLimit;
   @override
   State<ProfileEditor> createState() => _ProfileEditorState();
 }
@@ -721,7 +723,7 @@ class _ProfileEditorState extends State<ProfileEditor> {
               onAdd: (value) => controller.addSkill(value),
               onRemove: (value) => controller.removeSkill(value),
               maxSkills: controller.offeringLimit,
-              onInvite: widget.onInvite,
+              onLimit: widget.onOfferingLimit,
             ),
             SizedBox(height: controller.profile.skills.isEmpty ? 51 : 34),
             _SkillsEditor(
@@ -763,13 +765,6 @@ class _ProfileEditorState extends State<ProfileEditor> {
               ),
             ],
             ?widget.footer,
-            TextButton(
-              onPressed: () => showSkillCatalogueAttribution(context),
-              child: const Text(
-                'Skill catalogue source',
-                style: TextStyle(fontSize: 11),
-              ),
-            ),
           ],
         ),
       ),
@@ -1059,7 +1054,7 @@ class _SkillsEditor extends StatefulWidget {
     required this.validate,
     this.isRequired = true,
     this.maxSkills,
-    this.onInvite,
+    this.onLimit,
   });
   final String label;
   final Key fieldKey;
@@ -1071,7 +1066,7 @@ class _SkillsEditor extends StatefulWidget {
   final bool validate;
   final bool isRequired;
   final int? maxSkills;
-  final VoidCallback? onInvite;
+  final VoidCallback? onLimit;
 
   @override
   State<_SkillsEditor> createState() => _SkillsEditorState();
@@ -1111,7 +1106,12 @@ class _SkillsEditorState extends State<_SkillsEditor> {
       return;
     }
     if (widget.maxSkills != null && widget.values.length >= widget.maxSkills!) {
-      setState(() => _error = 'Skill limit reached');
+      if (widget.onLimit != null) {
+        _focus.unfocus();
+        widget.onLimit!();
+      } else {
+        setState(() => _error = 'Skill limit reached');
+      }
       return;
     }
     if (widget.onAdd(text)) {
@@ -1220,11 +1220,6 @@ class _SkillsEditorState extends State<_SkillsEditor> {
       ),
       if (_fieldError != null && _fieldError != 'Required')
         _ValidationMessage(_fieldError!),
-      if (_fieldError == 'Skill limit reached' && widget.onInvite != null)
-        TextButton(
-          onPressed: widget.onInvite,
-          child: const Text('Invite friends'),
-        ),
       if (widget.values.isNotEmpty) ...[
         const SizedBox(height: 21),
         Transform.translate(

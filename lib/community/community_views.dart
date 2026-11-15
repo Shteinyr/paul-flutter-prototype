@@ -5,7 +5,6 @@ import 'package:flutter/rendering.dart';
 
 import '../live/chat_api.dart';
 import '../profile/public_profile_view.dart';
-import '../live/member_capabilities.dart';
 import '../skills/skill_suggestions.dart';
 import 'community_api.dart';
 import 'community_controller.dart';
@@ -298,10 +297,12 @@ class CommunityComposeView extends StatefulWidget {
     super.key,
     required this.controller,
     required this.onInvite,
+    this.onPublishLimit,
     this.initialSkill = '',
   });
   final CommunityController controller;
   final VoidCallback onInvite;
+  final VoidCallback? onPublishLimit;
   final String initialSkill;
 
   @override
@@ -349,6 +350,11 @@ class _CommunityComposeViewState extends State<CommunityComposeView>
 
   Future<void> _publish() async {
     FocusScope.of(context).unfocus();
+    if (!widget.controller.pendingPublish &&
+        widget.controller.capabilities?.canPublishCommunity != true) {
+      widget.onPublishLimit?.call();
+      return;
+    }
     final receipt = await widget.controller.publish();
     if (!mounted || receipt == null) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -376,7 +382,6 @@ class _CommunityComposeViewState extends State<CommunityComposeView>
         final editing =
             controller.current &&
             controller.draftReady &&
-            allowed &&
             !pending &&
             !controller.publishing;
         return ListView(
@@ -397,13 +402,6 @@ class _CommunityComposeViewState extends State<CommunityComposeView>
               ),
             ),
             const SizedBox(height: 50),
-            if (level == null || !level.canPublishCommunity)
-              MemberLevelStatus(
-                capabilities: level,
-                error: controller.capabilityError,
-                onRefresh: controller.refreshCapabilities,
-                onInvite: widget.onInvite,
-              ),
             if (!controller.draftReady && controller.draftError == null)
               const Center(child: CircularProgressIndicator()),
             TextField(
@@ -481,7 +479,8 @@ class _CommunityComposeViewState extends State<CommunityComposeView>
                 onPressed:
                     controller.current &&
                         controller.draftReady &&
-                        allowed &&
+                        (allowed ||
+                            (level != null && widget.onPublishLimit != null)) &&
                         !controller.publishing
                     ? _publish
                     : null,
