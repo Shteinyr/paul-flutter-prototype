@@ -98,8 +98,11 @@ The pinned iOS dependencies use CocoaPods (`pod install`, with `Podfile.lock`)
 and require iOS 15+. Swift Package Manager is disabled for this project.
 Android uses Java 17+ (verified tooling: Java 21), compile API 37, minimum API 24,
 AGP 9.1.1 and the NDK version pinned by Flutter. Only one SDK installation is needed.
-The pinned plugins also compile against SDK platforms 35 and 36; install those
-in the same SDK rather than changing third-party plugin sources.
+The pinned plugins also compile against SDK platforms 34, 35 and 36; install
+those and CMake 3.22.1 in the same SDK rather than changing plugin sources.
+The verified debug APK targets ARM64:
+`bash scripts/build_mobile.sh android-debug --target-platform android-arm64`.
+Its Android Debug signature is for local testing, not store delivery.
 
 `bash scripts/build_preview.sh` packages the limited public P16 preview in `dist/`.
 `bash scripts/build_live.sh` packages the separate full review target there.
