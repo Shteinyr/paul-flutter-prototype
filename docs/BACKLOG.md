@@ -11,6 +11,8 @@
 
 Прежние accepted и browser evidence сохраняются; новая мобильная проверка их не отменяет. SMS/phone matching, тарифы, media chat, передача владения не берутся. История ниже относится к прежним этапам.
 
+Итоговая сверка16.11.2026: код очереди объединён в PR #148/main e2a2161, сервер и Sites v29 обновлены. iOS Simulator прошёл доступные сценарии; Android APK собран, но на устройстве не запускался. 570 Flutter tests, 64 Deno tests, SQL gates и обе сборки прошли. Исполнительские задачи сохраняют Review до соответствующей проверки и клиентской приёмки. Реальные providers, два телефона, фото/контакты/отправка приглашения и Firebase/FCM/APNs остаются внешними критериями #22/#24/#31/#39/#40/#41/#49. Доставка #145–#147 ждёт клиентские identifiers/signing/домен и утверждённые материалы #71. Первый запуск браузерной версии #102 остаётся отдельной открытой работой; мобильные проверки его не закрывают.
+
 # Backlog по блокам Figma
 
 Каждый пункт открыт до согласования и проверки production-критериев. Локальный прототип не закрывает серверные работы. Все оценки: **не оценено**.
@@ -54,7 +56,7 @@
 - [x] [#13](https://github.com/Shteinyr/paul-flutter-prototype/issues/13) **P12 — Skill search + Filter**. Глобальный поиск зарегистрированных участников и общий справочник со свободным вводом #45/#46 реализованы. Принято12.11.2026; новые #75/#112 ожидают отдельной приёмки. [Требования и приёмка](PROJECT_SPEC.md#p12)
 - [ ] [#14](https://github.com/Shteinyr/paul-flutter-prototype/issues/14) **P13 — Community reach out — Local**. Hiring/feed/create/close/30-day expiry и Web Push реализованы в #47/#48. Клиентская и системная приёмка уведомлений открыты. [Требования и приёмка](PROJECT_SPEC.md#p13)
 - [ ] [#15](https://github.com/Shteinyr/paul-flutter-prototype/issues/15) **P14 — Connections — Search — Hiring — Chat**. Общие знакомые опубликованы, ожидается приёмка. [Требования и приёмка](PROJECT_SPEC.md#p14)
-- [ ] [#16](https://github.com/Shteinyr/paul-flutter-prototype/issues/16) **P15 — Pop-ups**. Статус базы: Частично. [Требования и приёмка](PROJECT_SPEC.md#p15)
+- [ ] [#16](https://github.com/Shteinyr/paul-flutter-prototype/issues/16) **P15 — Pop-ups**. Continue setup 1 of 3 / 2 of 3 и общие состояния реализованы, источники Figma и тесты проверены. Физические permissions и полная мобильная/клиентская приёмка открыты. [Требования и приёмка](PROJECT_SPEC.md#p15)
 - [ ] [#17](https://github.com/Shteinyr/paul-flutter-prototype/issues/17) **P16 — Реальные карточки и Hiring для гостя во Flutter**. Опубликовано, ожидается приёмка. [Требования и приёмка](PROJECT_SPEC.md#p16)
 
 Порядок: согласование scope и backend → доступы/окружения → auth/profile → messaging/connections → push/invites/contacts → согласованные discovery/admin/community/web.
