@@ -1,5 +1,7 @@
 import 'dart:io';
+
 import 'package:path_provider/path_provider.dart';
+
 import 'native_session_storage.dart';
 import 'sqlite_journal_store.dart';
 import 'sqlite_adapters.dart';
@@ -25,8 +27,10 @@ ChatStateStore createChatStateStore(String accountId) =>
     : SessionChatStateStore();
 
 void deleteAccountStorage(String accountId) {
-  if (!Platform.isIOS && !Platform.isAndroid) return;
-  NativeSessionStorage.current.database.deleteScope(
-    accountStorageScope(accountId),
-  );
+  if (!Platform.isIOS &&
+      !Platform.isAndroid &&
+      NativeSessionStorage.installed == null) {
+    return;
+  }
+  NativeSessionStorage.current.database.deleteAccountData(accountId);
 }

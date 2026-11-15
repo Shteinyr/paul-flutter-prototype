@@ -3,6 +3,8 @@ import 'dart:math';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
 
+import '../push/push_api.dart' show pushSessionId;
+
 /// Each attempt owns an immutable version, including after a failed finalization.
 /// A retired path is never reused by a late upload or cleanup request.
 Future<String> uploadAvatar(
@@ -11,8 +13,13 @@ Future<String> uploadAvatar(
   Uint8List photo, {
   String? reservedPath,
 }) async {
+  final session =
+      pushSessionId(client) ?? client.auth.currentSession?.accessToken;
   void checkIdentity() {
-    if (client.auth.currentUser?.id != userId) {
+    if (session == null ||
+        client.auth.currentUser?.id != userId ||
+        (pushSessionId(client) ?? client.auth.currentSession?.accessToken) !=
+            session) {
       throw const AuthException('sign_in_required');
     }
   }

@@ -6,6 +6,9 @@ import 'package:flutter/material.dart';
 import '../app.dart';
 import '../live/chat_api.dart';
 import '../profile/profile_controller.dart';
+import '../profile/profile_conflict_dialog.dart';
+import '../platform/photos/platform_photos.dart';
+import 'managed_profile_write_journal.dart';
 import '../profile/profile_store.dart';
 import '../profile/public_profile_view.dart';
 import '../profile/user_profile.dart';
@@ -29,10 +32,57 @@ class _ManagedProfileEditorState extends State<ManagedProfileEditor> {
   String? _error;
   bool _busy = true;
   Map<String, dynamic>? _pending;
+  late final ManagedProfileWriteJournal _journal;
+  late final String _actor;
+  String? _session;
+  String get _photoTarget => 'managed:${widget.profile?.id ?? 'create'}';
+  UserProfile _base = UserProfile.empty;
+  String? _version;
+  String? _avatarPath;
+
+  void _checkActor() {
+    if (widget.repository.userId != _actor) {
+      throw const AdminException('sign_in_required');
+    }
+    final repository = widget.repository;
+    if (repository is SupabaseAdminApi &&
+        (repository.client.auth.currentUser?.id != _actor ||
+            (repository.sessionIdForPortraitReuse ??
+                    repository.client.auth.currentSession?.accessToken) !=
+                _session)) {
+      throw const AdminException('sign_in_required');
+    }
+  }
+
+  void _persistDraft(UserProfile draft) {
+    _checkActor();
+    _journal.saveDraft(
+      draft,
+      base: _base,
+      version: _version,
+      avatarPath: _avatarPath,
+    );
+    if (draft.photo != null) {
+      completePlatformPhoto(
+        ownerId: _actor,
+        destination: PhotoDestination.profile,
+        targetId: _photoTarget,
+        photo: draft.photo!,
+      );
+    }
+  }
 
   @override
   void initState() {
     super.initState();
+    _actor = widget.repository.userId;
+    final repository = widget.repository;
+    if (repository is SupabaseAdminApi) {
+      _session =
+          repository.sessionIdForPortraitReuse ??
+          repository.client.auth.currentSession?.accessToken;
+    }
+    _journal = ManagedProfileWriteJournal(_actor, widget.profile?.id);
     unawaited(_load());
   }
 
@@ -42,15 +92,37 @@ class _ManagedProfileEditorState extends State<ManagedProfileEditor> {
       _error = null;
     });
     try {
+      _checkActor();
+      _journal.load();
+      _pending = _journal.pending;
       final profile = widget.profile;
-      final photo = profile == null
+      // Recovery does not depend on downloading the old portrait again.
+      final restored = _journal.draft;
+      final photo = restored != null || profile == null
           ? null
           : await widget.repository.photo(profile);
+      _checkActor();
       if (!mounted) return;
+      _base = _journal.base ?? profile?.draft(photo) ?? UserProfile.empty;
+      _version = restored != null ? _journal.version : profile?.updatedAt;
+      _avatarPath = restored != null
+          ? _journal.avatarPath
+          : profile?.avatarPath;
       final controller = ProfileController(
-        _DraftStore(profile?.draft(photo) ?? UserProfile.empty),
+        _DraftStore(restored ?? _base, _persistDraft),
       );
       await controller.load();
+      final recoveredPhoto = _pending != null
+          ? null
+          : pendingPlatformPhoto(
+              ownerId: _actor,
+              destination: PhotoDestination.profile,
+              targetId: _photoTarget,
+            );
+      if (recoveredPhoto != null) {
+        controller.updatePhoto(recoveredPhoto);
+        await controller.flush();
+      }
       if (!mounted) {
         controller.dispose();
         return;
@@ -73,52 +145,127 @@ class _ManagedProfileEditorState extends State<ManagedProfileEditor> {
   Future<void> _save() async {
     final controller = _controller;
     if (controller == null || _busy) return;
-    await controller.flush();
-    if (!mounted) return;
-    final draft = controller.profile;
-    if (_pending == null &&
-        (draft.name.trim().isEmpty ||
-            draft.summary.trim().isEmpty ||
-            draft.skills.isEmpty)) {
-      setState(() {
-        _error = 'Enter a name, summary and at least one offered skill.';
-      });
-      return;
-    }
-    // A failed or lost response is retried with the exact original operation.
-    _pending ??= {
-      'action': 'save',
-      'create': widget.profile == null,
-      'profile_id': ?widget.profile?.id,
-      'expected_updated_at': ?widget.profile?.updatedAt,
-      'client_operation_id': newChatOperationId(),
-      'profile': {
-        'name': draft.name,
-        'occupation': draft.occupation,
-        'summary': draft.summary,
-        'skills': draft.skills,
-        'searching_skills': draft.searchingSkills,
-        'avatar_path': widget.profile?.avatarPath,
-      },
-      'photo_base64': ?(draft.photo == null
-          ? null
-          : base64Encode(draft.photo!)),
-    };
-    // Removing a photo is an explicit null, while unchanged photos are retained.
-    if (draft.photo == null) {
-      (_pending!['profile'] as Map)['avatar_path'] = null;
-    }
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
-      await widget.repository.command(_pending!);
+      _checkActor();
+      if (!_journal.isCurrent) throw const ManagedProfileDraftChanged();
+      await controller.flush();
+      if (!mounted) return;
+      if (!_journal.isCurrent) throw const ManagedProfileDraftChanged();
+      if (controller.hasUnsavedChanges || controller.error != null) {
+        throw StateError('Could not persist the local draft.');
+      }
+      var draft = controller.profile;
+      if (_pending == null) {
+        if (draft.name.trim().isEmpty ||
+            draft.summary.trim().isEmpty ||
+            draft.skills.isEmpty) {
+          setState(() {
+            _error = 'Enter a name, summary and at least one offered skill.';
+          });
+          return;
+        }
+        // A rejected version can be edited again. Reconcile against the current
+        // server snapshot before assigning a new operation ID.
+        if (widget.profile != null) {
+          final access = await widget.repository.context();
+          _checkActor();
+          final remoteProfile = access.profiles
+              .where((p) => p.id == widget.profile!.id && p.canManage)
+              .firstOrNull;
+          if (remoteProfile == null) {
+            throw const AdminException('managed_profile_forbidden');
+          }
+          if (remoteProfile.updatedAt != _version) {
+            final remote = remoteProfile.draft(
+              await widget.repository.photo(remoteProfile),
+            );
+            _checkActor();
+            if (!mounted) return;
+            final conflicts = draft.conflictsWith(_base, remote);
+            bool? keep = true;
+            if (conflicts.isNotEmpty) {
+              keep = await reviewProfileSnapshots(
+                context,
+                fields: conflicts,
+                saved: remote,
+                local: draft,
+              );
+              _checkActor();
+              if (!mounted || keep == null) return;
+            }
+            draft = draft.rebase(
+              _base,
+              remote,
+              useRemote: keep == false ? conflicts : {},
+            );
+            _base = remote;
+            _version = remoteProfile.updatedAt;
+            _avatarPath = remoteProfile.avatarPath;
+            final replacement = ProfileController(
+              _DraftStore(draft, _persistDraft),
+            );
+            await replacement.load();
+            if (!mounted) {
+              replacement.dispose();
+              return;
+            }
+            _controller!.dispose();
+            _controller = replacement;
+          }
+        }
+        _persistDraft(draft);
+        _pending = _journal.prepare({
+          'action': 'save',
+          'create': widget.profile == null,
+          'profile_id': ?widget.profile?.id,
+          'expected_updated_at': ?_version,
+          'client_operation_id': newChatOperationId(),
+          'profile': {
+            'name': draft.name,
+            'occupation': draft.occupation,
+            'summary': draft.summary,
+            'skills': draft.skills,
+            'searching_skills': draft.searchingSkills,
+            'avatar_path': draft.photo == null ? null : _avatarPath,
+          },
+          'photo_base64': ?(draft.photo == null
+              ? null
+              : base64Encode(draft.photo!)),
+        });
+      }
+      _checkActor();
+      await widget.repository.command(
+        jsonDecode(jsonEncode(_pending!)) as Map<String, dynamic>,
+      );
+      _checkActor();
+      _journal.complete(_pending!['client_operation_id'] as String);
+      _pending = null;
       if (mounted) Navigator.of(context).pop(true);
     } catch (error) {
+      // These codes prove the command was not committed. Keep the editable draft,
+      // allowing corrected input or a fresh three-way version reconciliation.
+      if (error is AdminException &&
+          const {
+            'invalid_profile',
+            'invalid_request',
+            'profile_version_conflict',
+          }.contains(error.code) &&
+          _pending != null) {
+        try {
+          _journal.reject(_pending!['client_operation_id'] as String);
+          _pending = null;
+        } catch (_) {
+          // A failed local commit must retain the exact uncertain operation.
+        }
+      }
       if (mounted) {
         setState(() {
-          _error = error is AdminException
+          _error =
+              error is AdminException || error is ManagedProfileDraftChanged
               ? error.toString()
               : 'Could not save the profile. Retry the same request.';
         });
@@ -170,6 +317,16 @@ class _ManagedProfileEditorState extends State<ManagedProfileEditor> {
                   child: ProfileEditor(
                     controller: _controller!,
                     occupationRequired: false,
+                    pickPhoto: () async {
+                      _checkActor();
+                      final photo = await pickPlatformPhoto(
+                        ownerId: _actor,
+                        destination: PhotoDestination.profile,
+                        targetId: _photoTarget,
+                      );
+                      _checkActor();
+                      return photo;
+                    },
                   ),
                 ),
               ),
@@ -209,12 +366,14 @@ class _ManagedProfileEditorState extends State<ManagedProfileEditor> {
 /// Existing profile controls edit this isolated draft. Only Save sends a
 /// privileged command, so Cancel never creates or partially updates a profile.
 class _DraftStore implements ProfileStore {
-  _DraftStore(this.profile);
+  _DraftStore(this.profile, this.persist);
   UserProfile profile;
+  final void Function(UserProfile) persist;
   @override
   Future<UserProfile> read() async => profile;
   @override
   Future<void> write(UserProfile value) async {
+    persist(value);
     profile = value;
   }
 

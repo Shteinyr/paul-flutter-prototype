@@ -106,15 +106,16 @@ class SqliteJournalStore {
   void write(String scope, String key, String value) {
     _validate(scope);
     _validate(key);
-    _transaction(
-      () => _database.execute(
+    _transaction(() {
+      _requireWritableScope(scope, key: key, value: value);
+      _database.execute(
         '''
       INSERT INTO scoped_values(scope, key, value) VALUES (?, ?, ?)
       ON CONFLICT(scope, key) DO UPDATE SET value = excluded.value
     ''',
         [scope, key, value],
-      ),
-    );
+      );
+    });
   }
 
   void remove(String scope, String key) {
@@ -126,6 +127,114 @@ class SqliteJournalStore {
         [scope, key],
       ),
     );
+  }
+
+  /// A stale editor/ACK cannot replace a newer draft, or resurrect a deleted one.
+  bool compareAndSwap(
+    String scope,
+    String key,
+    String? expected,
+    String? value,
+  ) {
+    _validate(scope);
+    _validate(key);
+    return _transaction(() {
+      _requireWritableScope(scope, key: key, value: value);
+      if (read(scope, key) != expected) return false;
+      if (value == null) {
+        _database.execute(
+          'DELETE FROM scoped_values WHERE scope = ? AND key = ?',
+          [scope, key],
+        );
+      } else {
+        _database.execute(
+          '''
+          INSERT INTO scoped_values(scope, key, value) VALUES (?, ?, ?)
+          ON CONFLICT(scope, key) DO UPDATE SET value = excluded.value
+        ''',
+          [scope, key, value],
+        );
+      }
+      return true;
+    });
+  }
+
+  /// Older native adapters stored private account journals at installation scope.
+  /// Match literal prefixes, never SQL LIKE patterns or another actor's keys.
+  void deleteAccountData(String accountId) {
+    final scope = 'account:$accountId';
+    _validate(scope);
+    _transaction(() {
+      // Retire the immutable Auth ID before deleting its data. Late controllers,
+      // picker completions and WAL writers must not recreate a deleted account.
+      _database.execute(
+        '''
+        INSERT INTO scoped_values(scope, key, value) VALUES ('installation', ?, 'true')
+        ON CONFLICT(scope, key) DO UPDATE SET value = 'true'
+      ''',
+        ['account.deleted.$accountId'],
+      );
+      _database.execute('DELETE FROM operations WHERE scope = ?', [scope]);
+      _database.execute('DELETE FROM scoped_values WHERE scope = ?', [scope]);
+      final photo = read('installation', 'photo.selection.v1');
+      if (photo != null) {
+        try {
+          final intent = jsonDecode(photo);
+          if (intent is Map &&
+              intent['owner'] == accountId &&
+              intent['destination'] == 'profile') {
+            _database.execute(
+              "DELETE FROM scoped_values WHERE scope = 'installation' AND key = 'photo.selection.v1'",
+            );
+          }
+        } on FormatException {
+          // An unreadable unrelated slot must not block account deletion.
+        }
+      }
+      for (final prefix in [
+        'paul.live.chat.state.v1.admin.$accountId.',
+        'paul.registration.$accountId.',
+        'paul.invitation.issue.$accountId.',
+      ]) {
+        _database.execute(
+          '''
+          DELETE FROM scoped_values WHERE scope = 'installation'
+          AND substr(key, 1, ?) = ?
+        ''',
+          [prefix.length, prefix],
+        );
+      }
+    });
+  }
+
+  bool isAccountDeleted(String accountId) =>
+      read('installation', 'account.deleted.$accountId') == 'true';
+
+  void _requireWritableScope(String scope, {String? key, String? value}) {
+    if (scope.startsWith('account:') && isAccountDeleted(scope.substring(8))) {
+      throw StateError('This account was deleted.');
+    }
+    if (scope == 'installation' && key != null) {
+      for (final prefix in [
+        'paul.live.chat.state.v1.admin.',
+        'paul.registration.',
+        'paul.invitation.issue.',
+      ]) {
+        if (key.startsWith(prefix) &&
+            isAccountDeleted(key.substring(prefix.length).split('.').first)) {
+          throw StateError('This account was deleted.');
+        }
+      }
+      if (key == 'photo.selection.v1' && value != null) {
+        final intent = jsonDecode(value);
+        if (intent is Map &&
+            intent['destination'] == 'profile' &&
+            intent['owner'] is String &&
+            isAccountDeleted(intent['owner'] as String)) {
+          throw StateError('This account was deleted.');
+        }
+      }
+    }
   }
 
   JournalOperation? pending(String scope, String kind, String target) {
@@ -148,6 +257,7 @@ class SqliteJournalStore {
     _validate(candidate.operationId);
     final payload = canonicalJournalJson(candidate.payload);
     return _transaction(() {
+      _requireWritableScope(candidate.scope);
       final existing = pending(
         candidate.scope,
         candidate.kind,

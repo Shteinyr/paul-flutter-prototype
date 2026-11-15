@@ -40,6 +40,12 @@ class RecoverablePhotoPicker {
     }
     // Keep a consumed plugin result in memory if a local write temporarily fails.
     if (_unstaged != null) {
+      if (!_current(_unstaged!.intent)) {
+        _unstaged = null;
+        _lostFile = null;
+        _recovered = true;
+        return;
+      }
       journal.stage(_unstaged!.intent, _unstaged!.photo!);
       _unstaged = null;
       _lostFile = null;
@@ -48,6 +54,11 @@ class RecoverablePhotoPicker {
     }
     if (_retrieveLostData && _lostFile == null) {
       final lost = await _picker.retrieveLostData();
+      if (pending != null && !_current(pending.intent)) {
+        _lostFile = null;
+        _recovered = true;
+        return;
+      }
       if (pending != null && !lost.isEmpty) {
         if (lost.exception != null) {
           journal.complete(pending.intent);
@@ -60,16 +71,23 @@ class RecoverablePhotoPicker {
       // With no saved intent the result is orphaned: drain it, never assign it
       // to whichever account happens to be signed in after process restart.
     }
-    if (pending != null) {
+    if (pending != null && _current(pending.intent)) {
       if (_lostFile == null) {
         journal.complete(pending.intent); // Cancellation/no recoverable result.
       } else {
         final photo = await _read(_lostFile!, pending.intent);
+        if (!_current(pending.intent)) {
+          _lostFile = null;
+          _recovered = true;
+          return;
+        }
         _unstaged = PendingPhotoSelection(pending.intent, photo);
         journal.stage(pending.intent, photo);
         _unstaged = null;
         _lostFile = null;
       }
+    } else if (pending != null) {
+      _lostFile = null;
     }
     _recovered = true;
   }
@@ -91,16 +109,21 @@ class RecoverablePhotoPicker {
           requestFullMetadata: false,
         );
       } catch (_) {
-        journal.complete(intent);
+        if (_current(intent)) journal.complete(intent);
         rethrow;
       }
       if (file == null) {
-        journal.complete(intent);
+        if (_current(intent)) journal.complete(intent);
         return null;
       }
+      if (!_current(intent)) return null;
       _lostFile = file;
       try {
         final photo = await _read(file, intent);
+        if (!_current(intent)) {
+          _lostFile = null;
+          return null;
+        }
         _unstaged = PendingPhotoSelection(intent, photo);
         journal.stage(intent, photo);
         _unstaged = null;
@@ -119,9 +142,12 @@ class RecoverablePhotoPicker {
     try {
       return await readProfilePhotoFile(file);
     } on PhotoSelectionException {
-      journal.complete(intent);
+      if (_current(intent)) journal.complete(intent);
       _lostFile = null;
       rethrow;
     }
   }
+
+  bool _current(PhotoSelectionIntent intent) =>
+      journal.read()?.intent.matches(intent) == true;
 }

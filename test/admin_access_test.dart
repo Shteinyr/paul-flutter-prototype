@@ -231,6 +231,17 @@ void main() {
       expect(repository.commands, isEmpty);
       await tester.tap(find.text('Open editor'));
       await tester.pumpAndSettle();
+      repository.load = () async => const AdminAccess('admin', [
+        ManagedProfile(
+          id: 'managed-qa',
+          name: 'Managed QA',
+          canManage: true,
+          canReply: true,
+          summary: 'QA summary',
+          skills: ['Design'],
+          updatedAt: '2026-11-10T00:00:00Z',
+        ),
+      ]);
       repository.failSave = true;
       await tester.tap(find.text('Save'));
       await tester.pumpAndSettle();

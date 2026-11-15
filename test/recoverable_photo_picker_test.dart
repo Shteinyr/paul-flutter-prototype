@@ -6,6 +6,8 @@ import 'package:image_picker/image_picker.dart';
 import 'package:paul_demo/photo_picker.dart';
 import 'package:paul_demo/photo_selection_journal.dart';
 import 'package:paul_demo/recoverable_photo_picker.dart';
+import 'package:paul_demo/platform/storage/sqlite_journal_store.dart';
+import 'package:sqlite3/sqlite3.dart';
 
 class _Store {
   String? raw;
@@ -23,11 +25,13 @@ class _Store {
 class _Picker extends ImagePicker {
   Future<XFile?> Function()? choose;
   LostDataResponse? lost;
+  Future<LostDataResponse> Function()? retrieve;
   int recoveries = 0;
   int picks = 0;
   @override
   Future<LostDataResponse> retrieveLostData() async {
     recoveries++;
+    if (retrieve != null) return retrieve!();
     final response = lost ?? LostDataResponse.empty();
     lost = null;
     return response;
@@ -395,6 +399,93 @@ void main() {
       await expectLater(service.pick(_intent()), throwsFormatException);
       expect(picker.picks, 0);
       expect(picker.recoveries, 0);
+    },
+  );
+
+  for (final stage in ['picker', 'lost recovery']) {
+    test(
+      'account deletion discards late $stage result without recreating private data',
+      () async {
+        final db = SqliteJournalStore.fromDatabase(sqlite3.openInMemory());
+        final journal = PhotoSelectionJournal(
+          read: () => db.read('installation', 'photo.selection.v1'),
+          write: (value) =>
+              db.write('installation', 'photo.selection.v1', value),
+          remove: () => db.remove('installation', 'photo.selection.v1'),
+        );
+        final pickerResult = Completer<XFile?>();
+        final lostResult = Completer<LostDataResponse>();
+        final opened = Completer<void>();
+        final picker = _Picker();
+        if (stage == 'picker') {
+          picker.choose = () {
+            opened.complete();
+            return pickerResult.future;
+          };
+        } else {
+          journal.prepare(_intent());
+          picker.retrieve = () {
+            opened.complete();
+            return lostResult.future;
+          };
+        }
+        final service = RecoverablePhotoPicker(
+          journal: journal,
+          picker: picker,
+          retrieveLostData: stage != 'picker',
+        );
+        final Future<Object?> pending = stage == 'picker'
+            ? service.pick(_intent())
+            : service.recover();
+        await opened.future;
+        db.deleteAccountData('actor-a');
+        expect(journal.read(), isNull);
+        if (stage == 'picker') {
+          pickerResult.complete(image);
+        } else {
+          lostResult.complete(LostDataResponse(files: [image]));
+        }
+        expect(await pending, isNull);
+        expect(journal.read(), isNull);
+        expect(
+          () => db.write('account:actor-a', 'photo', 'late result'),
+          throwsStateError,
+        );
+        await service
+            .recover(); // Startup stays usable after discarding the result.
+        picker.choose = () async => image;
+        final next = await service.pick(
+          _intent(owner: 'other', target: 'managed-other'),
+        );
+        expect(next, isNotEmpty);
+        expect(journal.read()!.intent.ownerId, 'other');
+        db.close();
+      },
+    );
+  }
+
+  test(
+    'deleting a failed staging owner releases its retained in-memory photo',
+    () async {
+      final store = _Store();
+      final picker = _Picker()
+        ..choose = () async {
+          store.failWrite = true;
+          return image;
+        };
+      final service = RecoverablePhotoPicker(
+        journal: store.journal,
+        picker: picker,
+        retrieveLostData: false,
+      );
+      await expectLater(service.pick(_intent()), throwsStateError);
+      store.raw = null; // Account deletion removed the global intent.
+      store.failWrite = false;
+      await service.recover();
+      expect(store.raw, isNull);
+      picker.choose = () async => image;
+      expect(await service.pick(_intent(owner: 'other')), isNotEmpty);
+      expect(store.journal.read()!.intent.ownerId, 'other');
     },
   );
 }

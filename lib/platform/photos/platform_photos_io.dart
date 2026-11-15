@@ -28,6 +28,11 @@ void _archiveSelection() {
   final pending = _global.read();
   if (pending?.photo == null) return;
   final intent = pending!.intent;
+  if (intent.destination == PhotoDestination.profile &&
+      _storage.database.isAccountDeleted(intent.ownerId)) {
+    _global.complete(intent);
+    return;
+  }
   final raw = _storage.database.read('installation', _globalKey)!;
   // Copy first, then acknowledge the global OS slot. A crash between commits
   // safely copies the same operation again, never to a different owner.
@@ -68,6 +73,10 @@ Future<Uint8List?> pickPlatformPhoto({
   required String targetId,
 }) async {
   if (!_mobile) return pickProfilePhoto();
+  if (destination == PhotoDestination.profile &&
+      _storage.database.isAccountDeleted(ownerId)) {
+    throw StateError('This account was deleted.');
+  }
   await recoverPlatformPhotos();
   final intent = PhotoSelectionIntent(
     ownerId: ownerId,

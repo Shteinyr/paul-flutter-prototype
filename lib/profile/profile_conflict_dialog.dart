@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../app.dart' show ProfileAvatar;
 import 'profile_controller.dart';
 import 'user_profile.dart';
@@ -10,6 +11,26 @@ Future<void> reviewProfileConflict(
 ) async {
   final fields = controller.conflictingFields;
   final saved = controller.savedProfile, local = controller.profile;
+  final keep = await reviewProfileSnapshots(
+    context,
+    fields: fields,
+    saved: saved,
+    local: local,
+  );
+  // A lifecycle refresh may have changed either snapshot while the dialog was open.
+  if (keep != null &&
+      identical(saved, controller.savedProfile) &&
+      identical(local, controller.profile)) {
+    await controller.resolveConflict(keepLocal: keep);
+  }
+}
+
+Future<bool?> reviewProfileSnapshots(
+  BuildContext context, {
+  required Set<String> fields,
+  required UserProfile saved,
+  required UserProfile local,
+}) async {
   const labels = {
     'name': 'Name',
     'occupation': 'Occupation',
@@ -20,7 +41,7 @@ Future<void> reviewProfileConflict(
   };
   String text(Object? value) =>
       value is List ? value.join(', ') : value?.toString() ?? 'None';
-  final keep = await showDialog<bool>(
+  return showDialog<bool>(
     context: context,
     builder: (context) => AlertDialog(
       title: const Text('Review profile changes'),
@@ -95,10 +116,4 @@ Future<void> reviewProfileConflict(
       ],
     ),
   );
-  // A lifecycle refresh may have changed either snapshot while the dialog was open.
-  if (keep != null &&
-      identical(saved, controller.savedProfile) &&
-      identical(local, controller.profile)) {
-    await controller.resolveConflict(keepLocal: keep);
-  }
 }
