@@ -9,6 +9,7 @@ import 'package:paul_demo/platform/storage/profile_write_journal.dart';
 import 'package:paul_demo/platform/storage/sqlite_adapters.dart';
 import 'package:paul_demo/platform/storage/sqlite_journal_store.dart';
 import 'package:paul_demo/profile/user_profile.dart';
+import 'package:paul_demo/platform/storage/registration_journal.dart';
 
 const actor = '15000000-0000-4000-8000-000000000001';
 const other = '15000000-0000-4000-8000-000000000002';
@@ -305,5 +306,84 @@ void main() {
       }
     },
     timeout: const Timeout(Duration(seconds: 90)),
+  );
+  test(
+    'registration recovery pins session and rechecks authorization before any upload',
+    () async {
+      const session = '15000000-0000-4000-8000-000000000005';
+      final journal = SqliteRegistrationJournal(store);
+      final candidate = PendingRegistration(
+        userId: actor,
+        sessionId: session,
+        operationId: operation,
+        credential: '12345678',
+        profile: write().profile,
+        avatarPath: write().avatarPath,
+      );
+      var uploads = 0;
+      var redemptions = 0;
+      await expectLater(
+        RegistrationRecovery(journal).execute(
+          candidate,
+          currentUserId: () => actor,
+          currentSessionId: () => session,
+          authorize: (_) async => throw StateError('expired invite'),
+          upload: (_) async {
+            uploads++;
+          },
+          redeem: (_) async {
+            redemptions++;
+          },
+        ),
+        throwsStateError,
+      );
+      expect(uploads, 0);
+      expect(redemptions, 0);
+      store.close();
+      store = SqliteJournalStore.open(path);
+      final restored = SqliteRegistrationJournal(store);
+      expect(await restored.read(actor, 'different-session'), isNull);
+      final pending = (await restored.read(actor, session))!;
+      expect(pending.operationId, operation);
+      await expectLater(
+        RegistrationRecovery(restored).execute(
+          pending,
+          currentUserId: () => actor,
+          currentSessionId: () => 'different-session',
+          authorize: (_) async {},
+          upload: (_) async {
+            uploads++;
+          },
+          redeem: (_) async {
+            redemptions++;
+          },
+        ),
+        throwsStateError,
+      );
+      expect(uploads, 0);
+      final result = await RegistrationRecovery(restored).execute(
+        pending,
+        currentUserId: () => actor,
+        currentSessionId: () => session,
+        authorize: (_) async {},
+        upload: (value) async {
+          expect(
+            (await restored.read(actor, session))!.avatarPath,
+            value.avatarPath,
+          );
+          uploads++;
+        },
+        redeem: (value) async {
+          expect(value.profilePayload.containsKey('photo'), isFalse);
+          expect(value.profilePayload['avatar_path'], value.avatarPath);
+          redemptions++;
+          return 'registered';
+        },
+      );
+      expect(result, 'registered');
+      expect(uploads, 1);
+      expect(redemptions, 1);
+      expect(await restored.read(actor, session), isNull);
+    },
   );
 }

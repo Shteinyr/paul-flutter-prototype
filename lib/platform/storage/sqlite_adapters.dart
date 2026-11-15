@@ -2,6 +2,7 @@ import '../../live/chat_controller.dart';
 import 'native_session_storage.dart';
 import 'profile_write_journal.dart';
 import 'sqlite_journal_store.dart';
+import 'registration_journal.dart';
 
 class SqliteChatStateStore implements ChatStateStore {
   const SqliteChatStateStore(this.database, {required this.accountId});
@@ -79,6 +80,58 @@ class SqliteProfileWriteJournal implements ProfileWriteJournal {
 
   @override
   Future<void> complete(PendingProfileWrite pending) async {
+    database.complete(_operation(pending));
+  }
+}
+
+class SqliteRegistrationJournal implements RegistrationJournal {
+  const SqliteRegistrationJournal(this.database);
+  final SqliteJournalStore database;
+
+  JournalOperation _operation(PendingRegistration pending) => JournalOperation(
+    scope: accountStorageScope(pending.userId),
+    kind: 'registration',
+    target: pending.sessionId,
+    operationId: pending.operationId,
+    originSessionId: pending.sessionId,
+    payload: pending.payload,
+  );
+  PendingRegistration _decode(JournalOperation operation) {
+    final pending = PendingRegistration.restore(
+      operationId: operation.operationId,
+      payload: operation.payload,
+      uploaded: operation.uploaded,
+    );
+    if (operation.scope != accountStorageScope(pending.userId) ||
+        operation.target != pending.sessionId ||
+        operation.originSessionId != pending.sessionId) {
+      throw const FormatException('Saved registration session mismatch.');
+    }
+    return pending;
+  }
+
+  @override
+  Future<PendingRegistration?> read(String userId, String sessionId) async {
+    final value = database.pending(
+      accountStorageScope(userId),
+      'registration',
+      sessionId,
+    );
+    return value == null ? null : _decode(value);
+  }
+
+  @override
+  Future<PendingRegistration> prepare(PendingRegistration candidate) async =>
+      _decode(database.prepare(_operation(candidate)));
+  @override
+  Future<void> markUploaded(PendingRegistration pending) async {
+    if (!database.markUploaded(_operation(pending))) {
+      throw StateError('Registration changed.');
+    }
+  }
+
+  @override
+  Future<void> complete(PendingRegistration pending) async {
     database.complete(_operation(pending));
   }
 }
