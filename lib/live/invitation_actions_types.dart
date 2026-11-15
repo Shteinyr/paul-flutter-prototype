@@ -10,7 +10,7 @@ abstract interface class InvitationActions {
   bool get canShare;
   bool get canPickContacts;
   Future<InvitationContactSelection> pickContacts();
-  Future<InvitationActionResult> openSms(String number);
+  Future<InvitationActionResult> openSms(String number, {String? message});
   Future<InvitationActionResult> copy(String message);
   Future<InvitationActionResult> share(String message);
 }

@@ -194,6 +194,17 @@ void main() {
         InvitationActionResult.failed,
       );
       expect(requested, hasLength(1));
+      expect(
+        await actions.openSms(
+          '+1234567890',
+          message: 'Join Paul https://paul.example/#invite=12345678',
+        ),
+        InvitationActionResult.completed,
+      );
+      expect(
+        requested.last.queryParameters['body'],
+        'Join Paul https://paul.example/#invite=12345678',
+      );
     },
   );
 

@@ -43,7 +43,10 @@ class _Actions implements InvitationActions {
       pendingSelection?.future ?? Future.value(selection);
 
   @override
-  Future<InvitationActionResult> openSms(String number) async {
+  Future<InvitationActionResult> openSms(
+    String number, {
+    String? message,
+  }) async {
     smsNumbers.add(number);
     return result;
   }

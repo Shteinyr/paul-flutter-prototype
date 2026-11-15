@@ -86,11 +86,22 @@ class NativeInvitationActions implements InvitationActions {
   }
 
   @override
-  Future<InvitationActionResult> openSms(String number) async {
+  Future<InvitationActionResult> openSms(
+    String number, {
+    String? message,
+  }) async {
     final safe = invitationSmsNumber(number);
     if (safe == null) return InvitationActionResult.failed;
     try {
-      return await _launch(Uri(scheme: 'sms', path: safe))
+      return await _launch(
+            Uri(
+              scheme: 'sms',
+              path: safe,
+              query: message == null
+                  ? null
+                  : 'body=${Uri.encodeComponent(message)}',
+            ),
+          )
           ? InvitationActionResult.completed
           : InvitationActionResult.unavailable;
     } catch (error) {

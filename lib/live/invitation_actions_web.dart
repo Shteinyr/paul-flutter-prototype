@@ -65,12 +65,21 @@ class _BrowserActions implements InvitationActions {
   }
 
   @override
-  Future<InvitationActionResult> openSms(String number) async {
+  Future<InvitationActionResult> openSms(
+    String number, {
+    String? message,
+  }) async {
     final safe = invitationSmsNumber(number);
     if (safe == null) return InvitationActionResult.failed;
     try {
       final link = web.HTMLAnchorElement()
-        ..href = Uri(scheme: 'sms', path: safe).toString();
+        ..href = Uri(
+          scheme: 'sms',
+          path: safe,
+          query: message == null
+              ? null
+              : 'body=${Uri.encodeComponent(message)}',
+        ).toString();
       web.document.body?.appendChild(link);
       try {
         link.click();

@@ -18,8 +18,10 @@ class _FallbackActions implements InvitationActions {
       const InvitationContactSelection(InvitationActionResult.unavailable);
 
   @override
-  Future<InvitationActionResult> openSms(String number) async =>
-      InvitationActionResult.unavailable;
+  Future<InvitationActionResult> openSms(
+    String number, {
+    String? message,
+  }) async => InvitationActionResult.unavailable;
 
   @override
   bool get canShare => false;
