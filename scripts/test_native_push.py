@@ -1,7 +1,7 @@
 """Native push gates in one disposable PostgreSQL container; no ports or volumes.
 
-The admission migration is supplied explicitly to permit integration with the
-coordinator's current migration without editing that checkout or hosted data.
+Uses this checkout's admission migration by default. An explicit override permits
+read-only integration with the coordinator's migration; hosted data is never used.
 """
 import argparse
 from concurrent.futures import ThreadPoolExecutor
@@ -15,13 +15,14 @@ import uuid
 
 
 def main():
+    root = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser()
-    parser.add_argument('--admission-migration', type=Path, required=True)
+    parser.add_argument('--admission-migration', type=Path,
+                        default=root / 'supabase/migrations/20261115045020_invite_session_admission.sql')
     args = parser.parse_args()
     admission = args.admission_migration.read_text()
     if args.admission_migration.name != '20261115045020_invite_session_admission.sql':
         raise SystemExit('Supply the reviewed session-admission migration.')
-    root = Path(__file__).resolve().parents[1]
     image = 'postgres:17-alpine3.23'
     subprocess.run(['docker', 'image', 'inspect', image], check=True, stdout=subprocess.DEVNULL)
     container = f'paul-native-push15-{os.getpid()}'
@@ -58,17 +59,22 @@ def main():
             if migration.name in skipped or migration.name >= '20261115':
                 continue
             sql(migration.read_text())
+        sql((root / 'supabase/tests/session_admission_upgrade_setup.sql').read_text())
         sql(admission)
         sql((root / 'supabase/migrations/20261115063818_native_push_transport.sql').read_text())
         print('PASS schema against admission SHA256 ' + hashlib.sha256(admission.encode()).hexdigest(), flush=True)
+        sql((root / 'supabase/tests/session_admission.sql').read_text())
+        print('PASS existing admission, RLS, TTL, retry and referral regressions', flush=True)
+        sql((root / 'supabase/tests/session_admission_upgrade.sql').read_text())
+        print('PASS real legacy snapshot receipts and invite-bound Storage permit regressions', flush=True)
         sql(f"""insert into auth.users(id) select ('15000000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid from generate_series(1,12)n;
           select private.save_profile(id,jsonb_build_object('name','Native QA','occupation','','summary','Test',
-            'skills',array['Design'],'searching_skills','[]'::jsonb)) from auth.users;
-          insert into private.memberships(user_id) select id from auth.users;
+            'skills',array['Design'],'searching_skills','[]'::jsonb)) from auth.users where id::text like '15000000-0000-4000-8000-%';
+          insert into private.memberships(user_id) select id from auth.users where id::text like '15000000-0000-4000-8000-%';
           insert into auth.sessions(id,user_id) values('{session(1)}','{uid(1)}'),('{session(2)}','{uid(2)}'),('{session(3)}','{uid(1)}');
           insert into private.session_admissions(user_id,session_id,source) values('{uid(1)}','{session(1)}','existing_session'),('{uid(2)}','{session(2)}','existing_session');
           insert into private.invited_registrations(invitee_profile_id,inviter_profile_id,registered_at)
-            select id,'{uid(2)}',clock_timestamp() from auth.users where id not in('{uid(1)}','{uid(2)}');
+            select id,'{uid(2)}',clock_timestamp() from auth.users where id::text like '15000000-0000-4000-8000-%' and id not in('{uid(1)}','{uid(2)}');
           insert into public.connections(user_low,user_high) values('{uid(1)}','{uid(2)}');""")
         binding = str(uuid.uuid4())
         token = 'native-device-capability-1234567890'

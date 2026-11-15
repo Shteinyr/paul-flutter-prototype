@@ -3,6 +3,7 @@ create table private.session_admissions (
   user_id uuid not null references auth.users(id) on delete cascade,
   session_id uuid primary key,
   admitted_at timestamptz not null default clock_timestamp(),
+  legacy_snapshot_at timestamptz,
   invitation_id uuid,
   source text not null check(source in ('existing_session','invitation','owner_invitation')),
   credential_hash text check(credential_hash ~ '^[a-f0-9]{64}$'),
@@ -15,8 +16,8 @@ revoke all on private.session_admissions from public,anon,authenticated;
 grant all on private.session_admissions to service_role;
 
 -- One-time compatibility snapshot, never a permanent exemption for old users.
-insert into private.session_admissions(user_id,session_id,source)
-select s.user_id,s.id,'existing_session'
+insert into private.session_admissions(user_id,session_id,source,legacy_snapshot_at)
+select s.user_id,s.id,'existing_session',clock_timestamp()
 from auth.sessions s join private.memberships m on m.user_id=s.user_id
 join public.profiles p on p.id=m.user_id
 where (s.not_after is null or s.not_after>clock_timestamp())
@@ -58,11 +59,35 @@ language sql stable set search_path='' as $$ select private.require_member_sessi
 create table private.registration_upload_permits (
   session_id uuid primary key,
   user_id uuid not null references auth.users(id) on delete cascade,
-  expires_at timestamptz not null
+  expires_at timestamptz not null,
+  invitation_id uuid not null,
+  source text not null check(source in ('invitation','owner_invitation')),
+  owner_email text,
+  check((source='owner_invitation' and owner_email is not null)
+    or (source='invitation' and owner_email is null))
 );
 alter table private.registration_upload_permits enable row level security;
 revoke all on private.registration_upload_permits from public,anon,authenticated;
 grant all on private.registration_upload_permits to service_role;
+
+-- A permit is a reference to one live invitation, not an independent upload
+-- capability. Revocation, expiry, exhaustion and issuer deletion take effect
+-- in the Storage policy even when the Auth session itself remains active.
+create function private.registration_upload_permit_valid(p_user uuid,p_session uuid) returns boolean
+language sql stable security definer set search_path='' as $$
+  select exists(select 1 from private.registration_upload_permits permit
+    where permit.user_id=p_user and permit.session_id=p_session and permit.expires_at>clock_timestamp()
+    and ((permit.source='invitation' and exists(select 1 from private.invitations i
+      where i.id=permit.invitation_id and i.revoked_at is null and i.expires_at>clock_timestamp()
+        and (i.max_uses is null or i.uses<i.max_uses) and i.issuer_id is distinct from p_user
+        and (i.issuer_id is null or exists(select 1 from public.profiles issuer
+          join private.memberships m on m.user_id=issuer.id where issuer.id=i.issuer_id
+          and issuer.auth_user_id=issuer.id and issuer.profile_kind='member'
+          and issuer.disabled_at is null and issuer.deleted_at is null))))
+    or (permit.source='owner_invitation' and exists(select 1 from private.owner_registration_invitations i
+      where i.id=permit.invitation_id and i.revoked_at is null and i.claimed_at is null
+        and i.expires_at>clock_timestamp() and i.expected_email=permit.owner_email))));
+$$;
 
 create function private.valid_session_invitation(p_user uuid,p_hash text,p_manual boolean,p_email text)
 returns jsonb language plpgsql set search_path='' as $$
@@ -108,9 +133,13 @@ begin
   invitation:=private.valid_session_invitation(p_user,p_hash,p_manual,p_verified_google_email);
   -- Existing users skip profile entry and have no upload exception.
   if not exists(select 1 from private.memberships where user_id=p_user) then
-    insert into private.registration_upload_permits(user_id,session_id,expires_at)
-      values(p_user,p_session,least((invitation->>'expires_at')::timestamptz,clock_timestamp()+interval '15 minutes'))
-      on conflict(session_id) do update set expires_at=excluded.expires_at where private.registration_upload_permits.user_id=excluded.user_id;
+    insert into private.registration_upload_permits(user_id,session_id,expires_at,invitation_id,source,owner_email)
+      values(p_user,p_session,least((invitation->>'expires_at')::timestamptz,clock_timestamp()+interval '15 minutes'),
+        (invitation->>'id')::uuid,invitation->>'source',
+        case when invitation->>'source'='owner_invitation' then lower(btrim(p_verified_google_email)) end)
+      on conflict(session_id) do update set expires_at=excluded.expires_at,
+        invitation_id=excluded.invitation_id,source=excluded.source,owner_email=excluded.owner_email
+      where private.registration_upload_permits.user_id=excluded.user_id;
   end if;
   return jsonb_build_object('admitted',false);
 end;
@@ -118,6 +147,7 @@ $$;
 create function public.redeem_session_invitation(p_user uuid,p_session uuid,p_hash text,p_manual boolean,p_profile jsonb,p_verified_google_email text)
 returns jsonb language plpgsql set search_path='' as $$
 declare invitation jsonb; result jsonb; previous private.session_admissions;
+  legacy private.invitations;
 begin
   perform private.require_auth_session(p_user,p_session);
   perform pg_advisory_xact_lock(hashtextextended(p_user::text,0));
@@ -127,6 +157,26 @@ begin
   if found and previous.credential_hash=p_hash and previous.manual=p_manual then
     perform private.require_member_session(p_user,p_session);
     return jsonb_build_object('admitted',true,'replayed',true);
+  end if;
+  -- Only sessions captured at the compatibility boundary can acknowledge an
+  -- older completed redemption without a session-specific credential receipt.
+  -- History must predate that boundary and belong to this exact user+invite.
+  -- Never call legacy redemption here: no profile, role, referral or connection
+  -- can be restored by acknowledging an old response.
+  if previous.legacy_snapshot_at is not null then
+    perform private.require_member_session(p_user,p_session);
+    if not p_manual and exists(select 1 from private.owner_registration_invitations i
+      where i.token_hash=p_hash and i.claimed_by=p_user and i.claimed_at<=previous.legacy_snapshot_at) then
+      return jsonb_build_object('admitted',true,'replayed',true,'connected',false);
+    end if;
+    select i.* into legacy from private.invitations i join private.invite_redemptions r on r.invitation_id=i.id
+      where r.user_id=p_user and r.redeemed_at<=previous.legacy_snapshot_at
+        and ((p_manual and i.code_hash=p_hash) or (not p_manual and i.token_hash=p_hash));
+    if found then
+      return jsonb_build_object('admitted',true,'replayed',true,'connected',
+        legacy.issuer_id is not null and exists(select 1 from public.connections
+          where user_low=least(p_user,legacy.issuer_id) and user_high=greatest(p_user,legacy.issuer_id)));
+    end if;
   end if;
   invitation:=private.valid_session_invitation(p_user,p_hash,p_manual,p_verified_google_email);
   result:=public.redeem_registration_invitation(p_user,p_hash,p_manual,p_profile,p_verified_google_email);
@@ -147,8 +197,7 @@ language sql stable security definer set search_path='' as $$
     and not exists(select 1 from private.account_deletions where target_profile_id=auth.uid() and kind='account')
     and (private.member_session_admitted(auth.uid(),private.jwt_session_id()) or (
       not exists(select 1 from private.memberships where user_id=auth.uid())
-      and exists(select 1 from private.registration_upload_permits where user_id=auth.uid()
-        and session_id=private.jwt_session_id() and expires_at>clock_timestamp())
+      and private.registration_upload_permit_valid(auth.uid(),private.jwt_session_id())
     ));
 $$;
 -- Preserve the function identity used by dispatch and click authorization.
@@ -185,10 +234,12 @@ end;
 $$;
 
 revoke all on function private.member_session_admitted(uuid,uuid),private.jwt_session_id(),
+  private.registration_upload_permit_valid(uuid,uuid),
   private.valid_session_invitation(uuid,text,boolean,text),private.push_route(uuid,uuid,uuid),
   public.prepare_registration_session(uuid,uuid,text,boolean,text),
   public.redeem_session_invitation(uuid,uuid,text,boolean,jsonb,text) from public,anon,authenticated;
 grant execute on function private.member_session_admitted(uuid,uuid),private.jwt_session_id(),
+  private.registration_upload_permit_valid(uuid,uuid),
   private.valid_session_invitation(uuid,text,boolean,text),private.push_route(uuid,uuid,uuid),
   public.prepare_registration_session(uuid,uuid,text,boolean,text),
   public.redeem_session_invitation(uuid,uuid,text,boolean,jsonb,text) to service_role;

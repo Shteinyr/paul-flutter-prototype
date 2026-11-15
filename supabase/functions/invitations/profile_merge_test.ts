@@ -1,10 +1,12 @@
 import { assertEquals } from "jsr:@std/assert@1";
 
-Deno.test("legacy writes require refresh; merge forwards a verified actor; registration is unchanged", async () => {
+Deno.test("legacy writes require refresh; merge and registration forward verified actor and session", async () => {
   const actor = "13300000-0000-4000-8000-000000000001";
   const calls: { rpc: string; args: Record<string, unknown> }[] = [];
   const originalServe = Deno.serve;
   let rpcProblem: string | undefined;
+  let admissionProblem: string | undefined;
+  let registrationProblem: string | undefined;
   const json = (value: unknown) =>
     new Response(JSON.stringify(value), {
       headers: { "Content-Type": "application/json" },
@@ -26,6 +28,22 @@ Deno.test("legacy writes require refresh; merge forwards a verified actor; regis
     const rpc = path.split("/").at(-1)!;
     const args = await request.json();
     calls.push({ rpc, args });
+    if (
+      (rpc === "member_require_session" && admissionProblem) ||
+      (["prepare_registration_session", "redeem_session_invitation"].includes(
+        rpc,
+      ) && registrationProblem)
+    ) {
+      return new Response(
+        JSON.stringify({
+          message: rpc === "member_require_session"
+            ? admissionProblem
+            : registrationProblem,
+          code: "P0001",
+        }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
+      );
+    }
     if (rpc === "merge_member_profile" && rpcProblem) {
       return new Response(
         JSON.stringify({ message: rpcProblem, code: "P0001" }),
@@ -123,9 +141,71 @@ Deno.test("legacy writes require refresh; merge forwards a verified actor; regis
     assertEquals(result.status, 200);
     await result.body?.cancel();
     assertEquals(
-      calls.find((c) => c.rpc === "redeem_registration_invitation")?.args
+      calls.find((c) => c.rpc === "redeem_session_invitation")?.args
         .p_profile,
       base,
+    );
+    const redemption = calls.find((c) =>
+      c.rpc === "redeem_session_invitation"
+    )!.args;
+    assertEquals(redemption.p_user, actor);
+    assertEquals(redemption.p_session, "13300000-0000-4000-8000-000000000002");
+    assertEquals(
+      calls.some((c) => c.rpc === "redeem_registration_invitation"),
+      false,
+    );
+    result = await send({
+      action: "prepare",
+      credential: "b".repeat(64),
+      p_user: "spoofed",
+      p_session: "spoofed",
+    });
+    assertEquals(result.status, 200);
+    await result.body?.cancel();
+    const prepared = calls.find((c) =>
+      c.rpc === "prepare_registration_session"
+    )!.args;
+    assertEquals(prepared.p_user, actor);
+    assertEquals(prepared.p_session, "13300000-0000-4000-8000-000000000002");
+    // During Edge-first rollout these RPCs are not installed yet. They must
+    // fail closed rather than fall back to the unbound legacy redemption.
+    registrationProblem = "new admission RPC not installed";
+    for (const action of ["prepare", "redeem"]) {
+      result = await send({
+        action,
+        credential: "c".repeat(64),
+        profile: base,
+      });
+      assertEquals(result.status, 503);
+      assertEquals(await result.json(), { code: "server_unavailable" });
+    }
+    assertEquals(
+      calls.some((c) => c.rpc === "redeem_registration_invitation"),
+      false,
+    );
+    registrationProblem = undefined;
+    admissionProblem = "invitation_required";
+    const priorNetworkCalls =
+      calls.filter((c) => c.rpc === "member_network").length;
+    const priorIssueCalls =
+      calls.filter((c) => c.rpc === "issue_invitation").length;
+    for (
+      const body of [{ action: "network" }, {
+        action: "issue",
+        token: "d".repeat(64),
+      }]
+    ) {
+      result = await send(body);
+      assertEquals(result.status, 403);
+      assertEquals(await result.json(), { code: "invitation_required" });
+    }
+    assertEquals(
+      calls.filter((c) => c.rpc === "member_network").length,
+      priorNetworkCalls,
+    );
+    assertEquals(
+      calls.filter((c) => c.rpc === "issue_invitation").length,
+      priorIssueCalls,
     );
   } finally {
     Deno.serve = originalServe;
