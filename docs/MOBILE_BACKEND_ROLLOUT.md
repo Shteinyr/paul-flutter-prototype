@@ -125,6 +125,56 @@ physical-device delivery/tap acceptance. The transport uses FID in `message.fid`
   mocks, synthetic notifications and a successful FCM response do not prove
   receipt or a real tap on a phone.
 
+## Verified provider configuration · 16 November 2026
+
+The existing Firebase project `e-minutia-514216-h2` now has test apps for Android
+`app.paul.paul_demo` and iOS `app.paul.paulDemo`. Their matching native SDK files
+are downloaded locally and ignored by Git. Both platform builds passed using
+matching public Firebase Dart defines. The iOS Simulator build uses those defines;
+its ignored plist is not part of Xcode Resources. A default build without provider
+configuration remains a development build without established push readiness.
+These test identifiers are not the client store identifiers.
+
+The dedicated service account has one custom permission,
+`cloudmessaging.messages.create`. FCM/Installations APIs are enabled. Its credential
+successfully minted a provider access token; an intentional validation-only request
+for an unregistered technical FID returned `NotRegistered`, not an authorization
+error. This is credential validation, not device delivery.
+
+All five native worker settings are installed in the existing Supabase project;
+their digests were compared with the private setup values. Unauthorized worker
+requests returned 401, provider-disabled requests returned 503, and a temporary
+provider-enabled call read the empty queue and returned 200 with all counts zero.
+The provider flag was then restored to false. No notification was delivered.
+
+Apply `20261116040916_native_push_worker_scheduler.sql` to install the service-only
+`native_push_configure_scheduler(text,boolean)` RPC. Applying it creates no job.
+Call it only from a trusted server setup process, passing the worker bearer as a
+bound RPC value and an explicit boolean. It stores the bearer in the separate
+`paul_native_push_runtime` Vault record and configures only
+`paul-native-push-worker`. The cron command reads Vault at execution; it contains
+no bearer or provider private key. False keeps the job inactive; true activates
+it. Repeated/concurrent configuration creates one canonical job and Vault entry.
+Existing Web Push and maintenance jobs are preserved.
+
+The current hosted native scheduler and provider are disabled pending device
+acceptance. Before activating them, verify current queue/recipients, the matching
+provider credentials and device builds. Both the server flag and scheduler must
+be explicitly enabled for automatic delivery. Disabling both stops automatic
+sending without deleting messages, bindings, delivery history or other jobs.
+
+The configured iOS Simulator launches to Join; the unsigned build reports a
+Firebase unregister Keychain warning (`SecItemCopyMatching -34018`). It does not
+prove signed iPhone registration. APNs key/Team/signing, a real Android device,
+and foreground/background/terminated receipt and tap remain unverified. Do not
+mark #39/#40 or client acceptance complete on this configuration evidence.
+
+Run `python3 scripts/test_native_push_scheduler.py` for the isolated scheduler
+contract gate: service-only access, invalid input rollback, concurrent retries,
+rotation/enable/disable, dependency failure and preservation of other workers.
+Its disposable PostgreSQL container stubs pg_cron/pg_net and is removed afterward;
+its requests are not real provider delivery.
+
 ## Post-cutover checks
 
 - An existing active saved session still reads its profile and history; a new
