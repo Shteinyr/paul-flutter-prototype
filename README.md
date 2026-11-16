@@ -127,6 +127,16 @@ to the worker environment and upload the client's APNs key to Firebase, never
 to Dart defines or source. Both main and background isolates use the same public
 configuration. A system permission request occurs only after server admission.
 
+Both native hosts enable Firebase Installation ID registration, matching
+`register()`/`onRegistered` and the worker's `message.fid`. On Android, place the
+downloaded matching SDK config at `android/app/google-services.json`: the Google
+services Gradle plugin then generates native resources before Dart starts, which
+is required for delivery when the process is not running. A build without that
+file remains available for development and does not establish push readiness.
+On iOS, the notification-center delegate is installed before UIScene completes
+launch; Background fetch and Remote notifications are enabled. The ignored
+provider files and service-account/APNs keys must not be committed.
+
 The new session-admission and native-push migrations/functions must be installed
 together with their matching server handlers before full mobile acceptance.
 Follow [the coordinated backend rollout](docs/MOBILE_BACKEND_ROLLOUT.md): the

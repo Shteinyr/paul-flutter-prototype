@@ -98,6 +98,33 @@ Actual activation separately requires the matching Firebase/APNs app setup,
 FCM service account configuration and approved worker scheduling, followed by
 physical-device delivery/tap acceptance. The transport uses FID in `message.fid`.
 
+### Provider activation preflight
+
+- Register Android/iOS apps for the exact test or approved delivery identifiers.
+  Download their SDK configs through the official Firebase tools. Android must
+  generate native resources from its matching `google-services.json`; Dart-only
+  configuration does not establish terminated-process delivery. Both hosts must
+  enable FID registration. iOS also needs its early UIScene notification delegate,
+  background modes and a signed push entitlement matching the APNs setup.
+- Use a dedicated sender service account in the target project. A custom role
+  containing only `cloudmessaging.messages.create` is sufficient for sending;
+  do not grant project Owner/Editor. Enable the FCM HTTP v1 API. The worker signs
+  OAuth JWTs with its own account key and needs no Token Creator delegation.
+- Set `PAUL_FCM_PROJECT_ID`, `PAUL_FCM_CLIENT_EMAIL`, `PAUL_FCM_PRIVATE_KEY` and
+  an independent `PAUL_NATIVE_PUSH_WORKER_SECRET` of at least 32 characters only
+  in the server environment. Keep `PAUL_NATIVE_PUSH_ENABLED=false` until the
+  configured client and provider have been verified. APNs key/Key ID/Team ID
+  belong in Firebase, never in Dart or Supabase client configuration.
+- Keep the native worker schedule separate from the existing Web Push and
+  maintenance jobs. Store its bearer in Vault and verify that unauthenticated
+  calls still fail. Do not enable a schedule or announce delivery merely because
+  the Firebase project exists or the app compiles.
+- Use only designated QA recipients for actual provider delivery and tap checks.
+  Cover both fixed notification types, foreground/background/ordinary terminated
+  launch, and rejected navigation after logout or loss of access. Local provider
+  mocks, synthetic notifications and a successful FCM response do not prove
+  receipt or a real tap on a phone.
+
 ## Post-cutover checks
 
 - An existing active saved session still reads its profile and history; a new
