@@ -165,7 +165,8 @@ sending without deleting messages, bindings, delivery history or other jobs.
 
 The configured iOS Simulator launches to Join; the unsigned build reports a
 Firebase unregister Keychain warning (`SecItemCopyMatching -34018`). It does not
-prove signed iPhone registration. APNs key/Team/signing, a real Android device,
+prove signed iPhone registration. The current Apple account was checked live and offers enrollment rather than an
+active Developer Program membership. APNs key/Team/signing, a real Android device,
 and foreground/background/terminated receipt and tap remain unverified. Do not
 mark #39/#40 or client acceptance complete on this configuration evidence.
 
