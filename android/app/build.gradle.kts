@@ -5,6 +5,13 @@ plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+    id("com.google.gms.google-services") apply false
+}
+
+// Native Firebase must be configured before Dart starts for terminated-state
+// delivery. Keep source-only builds available before client setup is supplied.
+if (file("google-services.json").isFile) {
+    pluginManager.apply("com.google.gms.google-services")
 }
 
 val clientSigning = Properties()
