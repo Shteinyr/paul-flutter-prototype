@@ -257,18 +257,23 @@ class LiveApi implements InvitationIssuer {
 
   Future<MemberNetwork> network() async {
     _checkMediaScope();
+    final epochs = Map<String, int>.of(_memberEpochs);
     final data = await call('network');
     final own = data['profile'];
+    MemberProfile? read(Map<String, dynamic> value) {
+      final member = MemberProfile.fromJson(value);
+      // A deletion may commit while this earlier network snapshot is in flight.
+      if ((_memberEpochs[member.id] ?? 0) != (epochs[member.id] ?? 0)) {
+        return null;
+      }
+      return _rememberMember(member);
+    }
+
     return MemberNetwork(
-      own: own is Map<String, dynamic>
-          ? _rememberMember(MemberProfile.fromJson(own))
-          : null,
+      own: own is Map<String, dynamic> ? read(own) : null,
       contacts: (data['contacts'] as List)
-          .map(
-            (value) => _rememberMember(
-              MemberProfile.fromJson(Map<String, dynamic>.from(value as Map)),
-            ),
-          )
+          .map((value) => read(Map<String, dynamic>.from(value as Map)))
+          .whereType<MemberProfile>()
           .toList(),
     );
   }

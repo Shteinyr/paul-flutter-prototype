@@ -990,6 +990,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
       key: ValueKey('peer-avatar-$_identity-${peer.id}'),
       api: _api,
       profileId: peer.id,
+      refreshKey: _network,
       path: peer.deletedAt != null
           ? null
           : member != null
@@ -1457,6 +1458,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
       api: _api,
       profileId: hit.id,
       resolveProfile: true,
+      refreshKey: _network,
     );
   }
 
@@ -1475,7 +1477,8 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
             : MemberAvatar(
                 api: _api,
                 profileId: member.id,
-                path: member.avatarPath,
+                resolveProfile: true,
+                refreshKey: _network,
                 size: 144,
               ),
         contactCount: own ? _network.contacts.length : member.contactCount,

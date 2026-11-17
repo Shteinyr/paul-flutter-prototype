@@ -175,6 +175,7 @@ class _PublicGuestPreviewState extends State<PublicGuestPreview> {
                 repository: widget.repository,
                 id: id,
                 onMessage: _requireSignIn,
+                limited: widget.limited,
               ),
             ),
           )
@@ -511,10 +512,12 @@ class _PublicProfilePage extends StatefulWidget {
     required this.repository,
     required this.id,
     required this.onMessage,
+    this.limited = false,
   });
   final PublicPreviewRepository repository;
   final String id;
   final VoidCallback onMessage;
+  final bool limited;
   @override
   State<_PublicProfilePage> createState() => _PublicProfilePageState();
 }
@@ -552,6 +555,14 @@ class _PublicProfilePageState extends State<_PublicProfilePage> {
       }
       return PublicProfileView(
         profile: p.profile,
+        // P16 source 61724:6822; native profile typography is unchanged.
+        nameStyle: widget.limited
+            ? const TextStyle(
+                fontSize: 16,
+                height: 20 / 16,
+                fontWeight: FontWeight.w500,
+              )
+            : null,
         avatar: PublicProfileAvatar(profile: p, size: 144),
         contactCount: p.contactCount,
         onChat: widget.onMessage,

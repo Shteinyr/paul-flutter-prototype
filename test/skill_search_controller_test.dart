@@ -194,6 +194,23 @@ void main() {
     },
   );
 
+  test(
+    'background refresh replaces the whole loaded range and preserves its cursor',
+    () async {
+      repository.searching = (q, k, c) async => c == null
+          ? page(q, k, ['1'], cursor: {'after': '1'})
+          : page(q, k, ['2'], cursor: {'after': '2'});
+      await controller.select(marketing);
+      await controller.loadMore();
+      final before = repository.searches.length;
+      await controller.retry(keepResults: true);
+      expect(repository.searches.length, before + 2);
+      expect(controller.results.map((h) => h.id), ['1', '2']);
+      expect(controller.hasMore, isTrue);
+      expect(controller.loading, isFalse);
+    },
+  );
+
   test('filter also applies to suggestions', () async {
     controller.setQuery('mar');
     await settle();

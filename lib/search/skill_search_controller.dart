@@ -191,12 +191,39 @@ class SkillSearchController extends ChangeNotifier {
       if (page.kind != (searchingNames ? SkillSearchKind.all : kind)) {
         throw const SkillSearchException('server_unavailable');
       }
+      final refreshed = [...page.results];
+      var cursor = page.nextCursor;
+      final ids = refreshed.map((hit) => hit.id).toSet();
+      // Revalidate the already loaded range, not only its first page. Keep the
+      // old range visible until the complete replacement is ready.
+      while (keepResults &&
+          refreshed.length < results.length &&
+          cursor != null) {
+        final next = await repository.search(page.query, kind, cursor: cursor);
+        if (!_current(revision)) return;
+        if (next.query != page.query ||
+            next.kind != page.kind ||
+            mapEquals(next.nextCursor, cursor)) {
+          throw const SkillSearchException('server_unavailable');
+        }
+        refreshed.addAll(next.results.where((hit) => ids.add(hit.id)));
+        cursor = next.nextCursor;
+      }
       _canonicalQuery = page.query;
-      results = List.unmodifiable(page.results);
-      _nextCursor = page.nextCursor;
+      results = List.unmodifiable(refreshed);
+      _nextCursor = cursor;
       _savePage();
     } catch (failure) {
       if (!_current(revision)) return;
+      if (failure is SkillSearchException &&
+          const {
+            'sign_in_required',
+            'session_revoked',
+            'membership_required',
+          }.contains(failure.code)) {
+        _invalidate();
+        return;
+      }
       if (keepResults && results.isNotEmpty) {
         pageError = _message(failure);
       } else {

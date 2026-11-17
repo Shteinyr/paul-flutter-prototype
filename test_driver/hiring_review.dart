@@ -54,11 +54,24 @@ Future<void> main() async {
     // A plain client keeps Auth in memory. Do not call Supabase.initialize:
     // its Flutter persistence would share the normal app's saved login.
     client = SupabaseClient(url, key);
-    await client.auth.setSession(refreshToken);
+    final preferences = _ReviewPreferences();
+    final savedRefresh = await preferences.getString('auth.refresh');
+    // Refresh tokens rotate. Persist only this local QA session under its own
+    // prefix so an ordinary second launch remains usable after the reuse window.
+    client.auth.onAuthStateChange.listen((event) {
+      final refresh = event.session?.refreshToken;
+      if (refresh != null) {
+        preferences.setString('auth.refresh', refresh).ignore();
+      }
+    });
+    await client.auth.setSession(savedRefresh ?? refreshToken);
     if (client.auth.currentSession == null) {
       throw StateError('Local QA session unavailable');
     }
-    final preferences = _ReviewPreferences();
+    await preferences.setString(
+      'auth.refresh',
+      client.auth.currentSession!.refreshToken!,
+    );
     runApp(
       PaulLiveApp(
         client: client,
