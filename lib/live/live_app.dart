@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -39,6 +38,7 @@ import 'browser_storage.dart';
 import 'auth_callback.dart';
 import 'live_api.dart';
 import 'member_capabilities.dart';
+import 'member_avatar.dart';
 import 'continue_setup_dialog.dart';
 import 'live_qr_view.dart';
 import 'guest_preview.dart';
@@ -142,7 +142,6 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
   ({String? user, String? session})? _loadingScope;
   bool _openingChat = false;
   bool _resumed = true;
-  final _peerPhotos = <String, ({String? path, Future<Uint8List?> photo})>{};
   UserProfile? _draft;
   String? _credential;
   String? _identity;
@@ -258,6 +257,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
   final _purgedAccounts = <String>{};
   void _purgeDeletedLocalData() {
     for (final record in _deletions.records) {
+      if (_deletions.confirmed(record)) _api.forgetMember(record.profileId);
       if (!record.self ||
           !_deletions.confirmed(record) ||
           _purgedAccounts.contains(record.actorId)) {
@@ -347,7 +347,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
       _disposeChat();
       _disposeSearch();
       _networkRefresh = null;
-      _peerPhotos.clear();
+      _api.clearMedia();
       _openingChat = false;
       _profile?.dispose();
       _profile = null;
@@ -515,7 +515,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
         _network = const MemberNetwork();
         _pendingPushClick = null;
         unawaited(_syncNativePush(admitted: false));
-        _peerPhotos.clear();
+        _api.clearMedia();
         _entering = widget.purpose == AppPurpose.app;
         try {
           await widget.client.auth.signOut(scope: SignOutScope.local);
@@ -957,7 +957,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
           previous.any(
             (id) => !next.contacts.any((member) => member.id == id),
           )) {
-        unawaited(_search?.retry());
+        unawaited(_search?.retry(keepResults: true));
       }
       final active = chat.conversations
           .where((thread) => thread.id == chat.activeConversationId)
@@ -986,23 +986,17 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
     final member = _network.contacts
         .where((member) => member.id == peer.id)
         .firstOrNull;
-    final path = member != null ? member.avatarPath : peer.avatarPath;
-    if (path == null || peer.deletedAt != null) {
-      _peerPhotos.remove(peer.id);
-      return ProfileAvatar(size: size);
-    }
-    var cached = _peerPhotos[peer.id];
-    if (cached == null || cached.path != path) {
-      cached = (
-        path: path,
-        photo: widget.client.storage.from('avatars').download(path),
-      );
-      _peerPhotos[peer.id] = cached;
-    }
-    return FutureBuilder<Uint8List?>(
-      key: ValueKey('peer-avatar-$_identity-${peer.id}-$path'),
-      future: cached.photo,
-      builder: (_, snapshot) => ProfileAvatar(photo: snapshot.data, size: size),
+    return MemberAvatar(
+      key: ValueKey('peer-avatar-$_identity-${peer.id}'),
+      api: _api,
+      profileId: peer.id,
+      refreshKey: _network,
+      path: peer.deletedAt != null
+          ? null
+          : member != null
+          ? member.avatarPath
+          : peer.avatarPath,
+      size: size,
     );
   }
 
@@ -1412,107 +1406,118 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
   }
 
   Future<void> _openSearchProfile(SkillSearchHit hit) async {
-    final search = _search;
     final identity = _identity;
-    final generation = _loadGeneration;
-    MemberProfile member;
-    try {
-      member = await _api.member(hit.id);
-    } catch (_) {
-      if (mounted && identity == _identity && generation == _loadGeneration) {
-        _showMessage(
-          'Could not open this profile. It may no longer be available.',
-        );
-      }
-      return;
-    }
-    if (!mounted ||
-        identity != _identity ||
-        generation != _loadGeneration ||
-        !identical(search, _search) ||
-        widget.client.auth.currentUser?.id != identity) {
-      return;
-    }
-    await _openProfile(member);
-    if (mounted && identity == _identity && generation == _loadGeneration) {
-      await search?.retry();
-    }
+    final session = _authSession;
+    final controller = _profile;
+    if (identity == null || controller == null) return;
+    // Navigate on the original tap. Server authorization and portrait loading
+    // run inside the route, never as a serial prerequisite to navigation.
+    final request = _api.member(hit.id);
+    // The route is built on the next frame; handle an immediate server failure
+    // now as well, while FutureBuilder still receives the original result.
+    request.ignore();
+    await _navigator.currentState!.push(
+      MaterialPageRoute<void>(
+        builder: (_) => FutureBuilder<MemberProfile>(
+          future: request,
+          builder: (context, snapshot) {
+            final current =
+                _identity == identity &&
+                _authSession == session &&
+                identical(controller, _profile);
+            if (snapshot.hasError || !current) {
+              return const ProfilePage(
+                title: 'Public Profile',
+                child: Center(
+                  child: Text(
+                    'Could not open this profile. It may no longer be available.',
+                  ),
+                ),
+              );
+            }
+            if (!snapshot.hasData) {
+              return const ProfilePage(
+                title: 'Public Profile',
+                child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+              );
+            }
+            return _publicProfile(snapshot.data!, controller, identity);
+          },
+        ),
+      ),
+    );
+    // The controller and its filter/loaded pages remain intact after Back.
   }
 
   Widget _searchAvatar(SkillSearchHit hit) {
     if (hit.id == _identity) {
       return ProfileAvatar(photo: _profile?.profile.photo, size: 65);
     }
-    return _SearchProfileAvatar(
+    return MemberAvatar(
       key: ValueKey('search-avatar-$_identity-${hit.id}'),
       api: _api,
       profileId: hit.id,
+      resolveProfile: true,
+      refreshKey: _network,
+    );
+  }
+
+  Widget _publicProfile(
+    MemberProfile member,
+    ProfileController controller,
+    String identity,
+  ) {
+    final own = member.id == identity;
+    return ListenableBuilder(
+      listenable: Listenable.merge([controller, _networkUpdates]),
+      builder: (context, _) => PublicProfileView(
+        profile: own ? controller.profile : member.profile,
+        avatar: own
+            ? ProfileAvatar(photo: controller.profile.photo, size: 144)
+            : MemberAvatar(
+                api: _api,
+                profileId: member.id,
+                resolveProfile: true,
+                refreshKey: _network,
+                size: 144,
+              ),
+        contactCount: own ? _network.contacts.length : member.contactCount,
+        onChat: own
+            ? null
+            : () => unawaited(
+                _openChat(
+                  context,
+                  ChatPeer(
+                    id: member.id,
+                    name: member.profile.name,
+                    occupation: member.profile.occupation,
+                    avatarPath: member.avatarPath,
+                  ),
+                ),
+              ),
+        onDisconnect:
+            !own && _network.contacts.any((peer) => peer.id == member.id)
+            ? () => unawaited(_disconnect(context, member))
+            : null,
+        onEdit: own
+            ? () {
+                Navigator.of(context).pop();
+                unawaited(_editProfile());
+              }
+            : null,
+      ),
     );
   }
 
   Future<void> _openProfile(MemberProfile member) async {
     final identity = _identity;
-    final generation = _loadGeneration;
     final controller = _profile;
     if (identity == null || controller == null) return;
-    try {
-      final photo = await _api.photo(member);
-      if (!mounted ||
-          identity != _identity ||
-          generation != _loadGeneration ||
-          widget.client.auth.currentUser?.id != identity ||
-          !identical(controller, _profile)) {
-        return;
-      }
-      final own = member.id == identity;
-      await _navigator.currentState!.push(
-        MaterialPageRoute<void>(
-          builder: (_) => ListenableBuilder(
-            listenable: Listenable.merge([controller, _networkUpdates]),
-            builder: (context, _) => PublicProfileView(
-              profile: own ? controller.profile : member.profile,
-              avatar: ProfileAvatar(
-                photo: own ? controller.profile.photo : photo,
-                size: 144,
-              ),
-              contactCount: own
-                  ? _network.contacts.length
-                  : member.contactCount,
-              onChat: own
-                  ? null
-                  : () => unawaited(
-                      _openChat(
-                        context,
-                        ChatPeer(
-                          id: member.id,
-                          name: member.profile.name,
-                          occupation: member.profile.occupation,
-                          avatarPath: member.avatarPath,
-                        ),
-                      ),
-                    ),
-              onDisconnect:
-                  !own && _network.contacts.any((peer) => peer.id == member.id)
-                  ? () => unawaited(_disconnect(context, member))
-                  : null,
-              onEdit: own
-                  ? () {
-                      Navigator.of(context).pop();
-                      unawaited(_editProfile());
-                    }
-                  : null,
-            ),
-          ),
-        ),
-      );
-    } catch (_) {
-      if (mounted && identity == _identity && generation == _loadGeneration) {
-        setState(
-          () => _error =
-              'Could not open this profile. Check your connection and retry.',
-        );
-      }
-    }
+    await _navigator.currentState!.push(
+      MaterialPageRoute<void>(
+        builder: (_) => _publicProfile(member, controller, identity),
+      ),
+    );
   }
 
   Future<void> _editProfile() async {
@@ -1844,6 +1849,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _api.clearMedia();
     _loadGeneration++;
     _deletions.removeListener(_purgeDeletedLocalData);
     _deletions.dispose();
@@ -2066,6 +2072,7 @@ class _LiveContacts extends StatelessWidget {
                   contacts: RefreshIndicator(
                     onRefresh: onRefresh,
                     child: ListView(
+                      key: PageStorageKey(('contacts', profile)),
                       physics: const AlwaysScrollableScrollPhysics(),
                       padding: const EdgeInsets.fromLTRB(37.5, 26, 37.5, 80),
                       children: [
@@ -2136,28 +2143,5 @@ class _LiveContacts extends StatelessWidget {
           ),
       ],
     ),
-  );
-}
-
-class _SearchProfileAvatar extends StatefulWidget {
-  const _SearchProfileAvatar({
-    super.key,
-    required this.api,
-    required this.profileId,
-  });
-  final LiveApi api;
-  final String profileId;
-  @override
-  State<_SearchProfileAvatar> createState() => _SearchProfileAvatarState();
-}
-
-class _SearchProfileAvatarState extends State<_SearchProfileAvatar> {
-  late final _photo = _load();
-  Future<Uint8List?> _load() async =>
-      widget.api.photo(await widget.api.member(widget.profileId));
-  @override
-  Widget build(BuildContext context) => FutureBuilder<Uint8List?>(
-    future: _photo,
-    builder: (_, snapshot) => ProfileAvatar(photo: snapshot.data, size: 65),
   );
 }

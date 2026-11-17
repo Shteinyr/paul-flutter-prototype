@@ -15,6 +15,7 @@ class PublicProfileView extends StatelessWidget {
     this.onEdit,
     this.onChat,
     this.onDisconnect,
+    this.nameStyle,
   });
 
   final UserProfile profile;
@@ -23,6 +24,7 @@ class PublicProfileView extends StatelessWidget {
   final VoidCallback? onEdit;
   final VoidCallback? onChat;
   final VoidCallback? onDisconnect;
+  final TextStyle? nameStyle;
 
   @override
   Widget build(BuildContext context) => ProfilePage(
@@ -60,7 +62,7 @@ class PublicProfileView extends StatelessWidget {
               height: 22 / 15,
               fontWeight: FontWeight.w400,
               letterSpacing: .5,
-            ),
+            ).merge(nameStyle),
           ),
           const SizedBox(height: 8),
           Text(

@@ -215,138 +215,138 @@ class _SkillSearchViewState extends State<SkillSearchView> {
               ),
       );
     }
-    return ListView(
-      key: const Key('skill-search-results'),
-      padding: const EdgeInsets.fromLTRB(37.5, 18, 37.5, 85),
-      children: [
-        for (final hit in search.results)
-          Semantics(
-            button: true,
-            child: InkWell(
-              key: ValueKey('skill-result-${hit.id}'),
-              onTap: _opening == null ? () => unawaited(_open(hit)) : null,
-              child: Padding(
-                padding: const EdgeInsets.only(bottom: 17),
-                child: Column(
-                  children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        widget.avatarFor(hit),
-                        const SizedBox(width: 21),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                hit.name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                              if (search.searchingNames)
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 4),
-                                  child: Text(
-                                    hit.occupation,
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w300,
-                                    ),
+    return KeyedSubtree(
+      key: PageStorageKey((
+        'skill-search-results',
+        widget.controller,
+        search.query,
+        search.kind,
+        search.searchingNames,
+      )),
+      child: ListView(
+        key: const Key('skill-search-results'),
+        padding: const EdgeInsets.fromLTRB(37.5, 18, 37.5, 85),
+        children: [
+          for (final hit in search.results)
+            Semantics(
+              button: true,
+              child: InkWell(
+                key: ValueKey('skill-result-${hit.id}'),
+                onTap: _opening == null ? () => unawaited(_open(hit)) : null,
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 17),
+                  child: Column(
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          widget.avatarFor(hit),
+                          const SizedBox(width: 21),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  hit.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w500,
                                   ),
-                                )
-                              else
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 4),
-                                  child: Row(
-                                    children: [
-                                      if (search.kind != SkillSearchKind.all)
-                                        Text(
-                                          '${_label(search.kind)}: ',
-                                          style: const TextStyle(fontSize: 12),
-                                        ),
-                                      Flexible(
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 5,
-                                            vertical: 2,
-                                          ),
-                                          color: const Color(0xFFFFBFBC),
-                                          child: Text(
-                                            search.selected!.label,
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
+                                ),
+                                if (search.searchingNames)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 4),
+                                    child: Text(
+                                      hit.occupation,
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w300,
+                                      ),
+                                    ),
+                                  )
+                                else
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 4),
+                                    child: Row(
+                                      children: [
+                                        if (search.kind != SkillSearchKind.all)
+                                          Text(
+                                            '${_label(search.kind)}: ',
                                             style: const TextStyle(
                                               fontSize: 12,
-                                              fontWeight: FontWeight.w300,
+                                            ),
+                                          ),
+                                        Flexible(
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 5,
+                                              vertical: 2,
+                                            ),
+                                            color: const Color(0xFFFFBFBC),
+                                            child: Text(
+                                              search.selected!.label,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: const TextStyle(
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w300,
+                                              ),
                                             ),
                                           ),
                                         ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              if (hit.mutualContacts.isNotEmpty &&
-                                  hit.mutualContactCount > 0)
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 4),
-                                  child: Align(
-                                    alignment: Alignment.centerRight,
-                                    child: MutualContactAttribution(hit: hit),
-                                  ),
-                                ),
-                              if (_opening == hit.id)
-                                const Padding(
-                                  padding: EdgeInsets.only(top: 4),
-                                  child: Text(
-                                    'Opening profile…',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: _blue,
+                                      ],
                                     ),
                                   ),
-                                ),
-                            ],
+                                if (hit.mutualContacts.isNotEmpty &&
+                                    hit.mutualContactCount > 0)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 4),
+                                    child: Align(
+                                      alignment: Alignment.centerRight,
+                                      child: MutualContactAttribution(hit: hit),
+                                    ),
+                                  ),
+                              ],
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 17),
-                    const Divider(height: 1, color: Color(0xFFCDDEE8)),
-                  ],
+                        ],
+                      ),
+                      const SizedBox(height: 17),
+                      const Divider(height: 1, color: Color(0xFFCDDEE8)),
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
-        if (search.pageError != null)
-          Text(
-            search.pageError!,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 12,
-              color: Theme.of(context).colorScheme.error,
+          if (search.pageError != null)
+            Text(
+              search.pageError!,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 12,
+                color: Theme.of(context).colorScheme.error,
+              ),
             ),
-          ),
-        if (search.hasMore)
-          Center(
-            child: search.loadingMore
-                ? const Padding(
-                    padding: EdgeInsets.all(12),
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : TextButton(
-                    onPressed: search.loadMore,
-                    child: Text(
-                      search.pageError == null
-                          ? 'Load more'
-                          : 'Retry loading more',
+          if (search.hasMore)
+            Center(
+              child: search.loadingMore
+                  ? const Padding(
+                      padding: EdgeInsets.all(12),
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : TextButton(
+                      onPressed: search.loadMore,
+                      child: Text(
+                        search.pageError == null
+                            ? 'Load more'
+                            : 'Retry loading more',
+                      ),
                     ),
-                  ),
-          ),
-      ],
+            ),
+        ],
+      ),
     );
   }
 

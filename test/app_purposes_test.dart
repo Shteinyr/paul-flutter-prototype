@@ -87,7 +87,8 @@ void main() {
       expect(find.text(person.profile.name), findsOneWidget);
       await tester.tap(find.byKey(const Key('tab-3')));
       await tester.pumpAndSettle();
-      expect(find.byKey(const Key('invite-code-input')), findsOneWidget);
+      expect(find.byKey(const Key('guest-app-handoff')), findsOneWidget);
+      expect(find.byKey(const Key('invite-code-input')), findsNothing);
       expect(find.byKey(const Key('name-field')), findsNothing);
       expect(requests, isEmpty);
       await tester.pumpWidget(const SizedBox.shrink());

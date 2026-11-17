@@ -64,6 +64,8 @@ void main() {
         var available = true;
         var networkReads = 0;
         var profileReads = 0;
+        var avatarName = 'avatar.png';
+        Completer<http.Response>? nextPhoto;
         Completer<void>? nextNetwork;
         Completer<void>? nextProfile;
         Map<String, dynamic> profile(String id, String name) => {
@@ -75,11 +77,14 @@ void main() {
           'skills': ['Marketing'],
           'searching_skills': [],
           'contact_count': 1,
-          'avatar_path': id == peer ? '$peer/avatar.png' : null,
+          'avatar_path': id == peer ? '$peer/$avatarName' : null,
         };
         final transport = MockClient((request) async {
           if (request.url.path.startsWith('/storage/')) {
             photoDownloads++;
+            final deferred = nextPhoto;
+            nextPhoto = null;
+            if (deferred != null) return deferred.future;
             return http.Response.bytes(
               photo,
               200,
@@ -220,11 +225,20 @@ void main() {
           }
           connected = false;
           if (unavailableBeforeOpen) available = false;
+          final slowPhoto = unavailableBeforeOpen
+              ? null
+              : Completer<http.Response>();
+          if (slowPhoto != null) {
+            avatarName = 'replacement.png';
+            nextPhoto = slowPhoto;
+          }
           await tester.tap(find.byKey(const ValueKey('skill-result-$peer')));
           if (delayedRead) {
             await tester.pump();
+            await tester.pump(const Duration(milliseconds: 350));
             if (!backgroundRead) {
-              expect(find.text('Opening profile…'), findsOneWidget);
+              expect(find.text('Public Profile'), findsOneWidget);
+              expect(find.byType(CircularProgressIndicator), findsOneWidget);
             }
             expect(find.byType(PublicProfileView), findsNothing);
             gate!.complete();
@@ -243,6 +257,28 @@ void main() {
               findsOneWidget,
             );
           } else {
+            // The actual profile is usable while its replacement photo is still downloading.
+            expect(slowPhoto!.isCompleted, isFalse);
+            slowPhoto.complete(
+              http.Response.bytes(
+                photo,
+                200,
+                headers: {'content-type': 'image/png'},
+              ),
+            );
+            await tester.pumpAndSettle();
+            final warmedPhotos = photoDownloads;
+            await tester.pageBack();
+            await tester.pumpAndSettle();
+            expect(find.text('Marketing'), findsWidgets);
+            expect(
+              find.byKey(const ValueKey('skill-result-$peer')),
+              findsOneWidget,
+            );
+            expect(photoDownloads, warmedPhotos);
+            await tester.tap(find.byKey(const ValueKey('skill-result-$peer')));
+            await tester.pumpAndSettle();
+            expect(photoDownloads, warmedPhotos);
             await tester.tap(find.byTooltip('Chat'));
             await tester.pumpAndSettle();
             expect(find.byType(LiveChatView), findsOneWidget);

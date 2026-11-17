@@ -1,18 +1,17 @@
-import 'dart:io';
-
 import 'package:flutter/services.dart';
-import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../live/invitation_actions_types.dart';
+import 'native_contact_source.dart';
 
-/// Platform operations stay behind the existing P05 interface. Selected
-/// contacts never leave this adapter except as one local selection.
+/// Platform operations stay behind the P05 interface. Contact data stays local;
+/// production reads use only read permission and the accessible address book.
 class NativeInvitationActions implements InvitationActions {
   NativeInvitationActions({
     Future<ShareResult> Function(String)? shareText,
     Future<InvitationContact?> Function()? selectContact,
+    InvitationContactSource? contactSource,
     Future<bool> Function(Uri)? launchSms,
     Future<void> Function(String)? copyText,
     Rect? Function()? shareOrigin,
@@ -25,7 +24,8 @@ class NativeInvitationActions implements InvitationActions {
                sharePositionOrigin: shareOrigin?.call(),
              ),
            )),
-       _select = selectContact ?? _selectOne,
+       _select = selectContact,
+       _contacts = contactSource ?? NativeInvitationContactSource(),
        _launch =
            launchSms ??
            ((uri) => launchUrl(uri, mode: LaunchMode.externalApplication)),
@@ -33,7 +33,8 @@ class NativeInvitationActions implements InvitationActions {
            copyText ?? ((text) => Clipboard.setData(ClipboardData(text: text)));
 
   final Future<ShareResult> Function(String) _share;
-  final Future<InvitationContact?> Function() _select;
+  final Future<InvitationContact?> Function()? _select;
+  final InvitationContactSource _contacts;
   final Future<bool> Function(Uri) _launch;
   final Future<void> Function(String) _copy;
   bool _selecting = false;
@@ -43,28 +44,6 @@ class NativeInvitationActions implements InvitationActions {
   @override
   bool get canPickContacts => true;
 
-  static Future<InvitationContact?> _selectOne() async {
-    // Android requires read permission when asking its picker for phone fields.
-    // Never request write access or enumerate the address book.
-    if (Platform.isAndroid) {
-      final status = await FlutterContacts.permissions.request(
-        PermissionType.read,
-      );
-      if (status != PermissionStatus.granted &&
-          status != PermissionStatus.limited) {
-        throw PlatformException(code: 'permission_denied');
-      }
-    }
-    final contact = await FlutterContacts.native.showPicker(
-      properties: {ContactProperty.phone},
-    );
-    if (contact == null) return null;
-    return InvitationContact(
-      name: contact.displayName ?? '',
-      phones: List.unmodifiable(contact.phones.map((phone) => phone.number)),
-    );
-  }
-
   @override
   Future<InvitationContactSelection> pickContacts() async {
     if (_selecting) {
@@ -72,12 +51,24 @@ class NativeInvitationActions implements InvitationActions {
     }
     _selecting = true;
     try {
-      final contact = await _select();
-      return contact == null
-          ? const InvitationContactSelection(InvitationActionResult.cancelled)
-          : InvitationContactSelection(InvitationActionResult.completed, [
-              contact,
-            ]);
+      final select = _select;
+      if (select != null) {
+        final contact = await select();
+        return contact == null
+            ? const InvitationContactSelection(InvitationActionResult.cancelled)
+            : InvitationContactSelection(InvitationActionResult.completed, [
+                contact,
+              ]);
+      }
+      final result = await _contacts.load(requestPermission: true);
+      return InvitationContactSelection(switch (result.access) {
+        InvitationContactAccess.granted ||
+        InvitationContactAccess.limited => InvitationActionResult.completed,
+        InvitationContactAccess.unavailable =>
+          InvitationActionResult.unavailable,
+        InvitationContactAccess.failed => InvitationActionResult.failed,
+        _ => InvitationActionResult.denied,
+      }, result.contacts);
     } catch (error) {
       return InvitationContactSelection(_failure(error));
     } finally {

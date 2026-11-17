@@ -139,6 +139,78 @@ void main() {
     },
   );
 
+  test(
+    'returning to a loaded filter restores its pages without another request',
+    () async {
+      repository.searching = (q, k, c) async => page(
+        q,
+        k,
+        c == null ? ['1'] : ['2'],
+        cursor: c == null ? {'after': '1'} : null,
+      );
+      await controller.select(marketing);
+      await controller.loadMore();
+      controller.setKind(SkillSearchKind.offering);
+      await settle();
+      final requests = repository.searches.length;
+      controller.setKind(SkillSearchKind.all);
+      expect(controller.loading, isFalse);
+      expect(controller.results.map((h) => h.id), ['1', '2']);
+      await settle();
+      expect(repository.searches.length, requests);
+      expect(controller.hasMore, isFalse);
+    },
+  );
+
+  test(
+    'background retry keeps displayed results until fresh data arrives',
+    () async {
+      await controller.select(marketing);
+      final pending = Completer<SkillSearchPage>();
+      repository.searching = (q, k, c) => pending.future;
+      final refresh = controller.retry(keepResults: true);
+      expect(controller.loading, isFalse);
+      expect(controller.results.single.id, '1');
+      pending.complete(page('marketing', SkillSearchKind.all, ['updated']));
+      await refresh;
+      expect(controller.results.single.id, 'updated');
+    },
+  );
+
+  test(
+    'expired filter snapshots are refreshed rather than served indefinitely',
+    () async {
+      var now = DateTime(2026, 11, 17);
+      final scoped = SkillSearchController(repository, now: () => now);
+      await scoped.select(marketing);
+      scoped.setKind(SkillSearchKind.offering);
+      await settle();
+      final requests = repository.searches.length;
+      now = now.add(const Duration(minutes: 2));
+      scoped.setKind(SkillSearchKind.all);
+      await settle();
+      expect(repository.searches.length, requests + 1);
+      scoped.dispose();
+    },
+  );
+
+  test(
+    'background refresh replaces the whole loaded range and preserves its cursor',
+    () async {
+      repository.searching = (q, k, c) async => c == null
+          ? page(q, k, ['1'], cursor: {'after': '1'})
+          : page(q, k, ['2'], cursor: {'after': '2'});
+      await controller.select(marketing);
+      await controller.loadMore();
+      final before = repository.searches.length;
+      await controller.retry(keepResults: true);
+      expect(repository.searches.length, before + 2);
+      expect(controller.results.map((h) => h.id), ['1', '2']);
+      expect(controller.hasMore, isTrue);
+      expect(controller.loading, isFalse);
+    },
+  );
+
   test('filter also applies to suggestions', () async {
     controller.setQuery('mar');
     await settle();

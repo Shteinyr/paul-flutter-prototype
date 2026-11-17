@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../app.dart';
 import '../community/community_controller.dart';
+import '../community/community_api.dart';
 import '../community/community_views.dart';
 import '../profile/public_profile_view.dart';
 import '../search/skill_search_controller.dart';
@@ -11,6 +12,7 @@ import 'public_preview_api.dart';
 import 'guest_invitation_prompt.dart';
 import 'public_avatar_image.dart';
 import 'chat_controller.dart';
+import 'chat_api.dart';
 
 class _PublicDraftStore implements ChatStateStore {
   @override
@@ -40,11 +42,13 @@ class PublicGuestPreview extends StatefulWidget {
     required this.onRequireSignIn,
     required this.onEditProfile,
     this.browsingState,
+    this.limited = false,
   });
   final PublicPreviewRepository repository;
   final VoidCallback onRequireSignIn;
   final VoidCallback onEditProfile;
   final PublicGuestBrowsingState? browsingState;
+  final bool limited;
   @override
   State<PublicGuestPreview> createState() => _PublicGuestPreviewState();
 }
@@ -65,11 +69,13 @@ class _PublicGuestPreviewState extends State<PublicGuestPreview> {
   bool _loading = true, _loadingMore = false;
   String? _error;
   int _tab = 0, _generation = 0;
+  bool _openedHiring = false;
   @override
   void initState() {
     super.initState();
     final epoch = ++_browse.epoch;
     _tab = _browse.tab;
+    _openedHiring = _tab == 1;
     _browse.leavingForEntry = false;
     final restore = _browse.restoreOrigin;
     _browse.restoreOrigin = false;
@@ -88,6 +94,10 @@ class _PublicGuestPreviewState extends State<PublicGuestPreview> {
 
   void _requireSignIn() {
     _browse.tab = _tab;
+    if (widget.limited) {
+      widget.onRequireSignIn();
+      return;
+    }
     _browse.restoreOrigin = true;
     _browse.leavingForEntry = true;
     widget.onRequireSignIn();
@@ -165,6 +175,7 @@ class _PublicGuestPreviewState extends State<PublicGuestPreview> {
                 repository: widget.repository,
                 id: id,
                 onMessage: _requireSignIn,
+                limited: widget.limited,
               ),
             ),
           )
@@ -210,7 +221,13 @@ class _PublicGuestPreviewState extends State<PublicGuestPreview> {
               if (_cursor != null)
                 TextButton(
                   onPressed: _loadingMore ? null : () => _load(more: true),
-                  child: Text(_loadingMore ? 'Loading…' : 'Load more'),
+                  child: Text(
+                    _loadingMore
+                        ? 'Loading…'
+                        : widget.limited
+                        ? 'more Contacts'
+                        : 'Load more',
+                  ),
                 ),
             ],
           ),
@@ -229,6 +246,24 @@ class _PublicGuestPreviewState extends State<PublicGuestPreview> {
       ),
     ],
   );
+
+  Widget _hiring() => widget.limited
+      ? _PublicHiringFeed(
+          controller: _community,
+          active: _tab == 1,
+          avatarFor: (peer) => _avatar(peer.id, 65),
+          onOpen: (request) => _restoreRequest(request.id),
+        )
+      : CommunityFeedView(
+          controller: _community,
+          embedded: true,
+          onInvite: _requireSignIn,
+          onMessage: (_, _) async => _requireSignIn(),
+          avatarFor: (peer) => _avatar(peer.id, 65),
+        );
+
+  Widget _chat() => Center(child: GuestChatPrompt(onSignUp: _requireSignIn));
+
   @override
   Widget build(BuildContext context) => Scaffold(
     body: SafeArea(
@@ -251,25 +286,32 @@ class _PublicGuestPreviewState extends State<PublicGuestPreview> {
                         _browse.tab = tab;
                         _browse.profileId = null;
                         _browse.requestId = null;
-                        setState(() => _tab = tab);
+                        setState(() {
+                          _tab = tab;
+                          if (tab == 1) _openedHiring = true;
+                        });
                       }
                     },
                   ),
                 ),
                 Expanded(
-                  child: switch (_tab) {
-                    1 => CommunityFeedView(
-                      controller: _community,
-                      embedded: true,
-                      onInvite: _requireSignIn,
-                      onMessage: (_, _) async => _requireSignIn(),
-                      avatarFor: (peer) => _avatar(peer.id, 65),
-                    ),
-                    2 => Center(
-                      child: GuestChatPrompt(onSignUp: _requireSignIn),
-                    ),
-                    _ => _contacts(),
-                  },
+                  child: widget.limited
+                      ? IndexedStack(
+                          index: _tab,
+                          children: [
+                            _contacts(),
+                            if (_openedHiring || _tab == 1)
+                              _hiring()
+                            else
+                              const SizedBox.shrink(),
+                            _chat(),
+                          ],
+                        )
+                      : switch (_tab) {
+                          1 => _hiring(),
+                          2 => _chat(),
+                          _ => _contacts(),
+                        },
                 ),
               ],
             ),
@@ -283,6 +325,155 @@ class _PublicGuestPreviewState extends State<PublicGuestPreview> {
     _generation++;
     _search.dispose();
     _community.dispose();
+    super.dispose();
+  }
+}
+
+/// P16 61988:1772/1796/1797/1799/1864. The public feed shares the data
+/// controller and source row, but never adds the member compose controls.
+class _PublicHiringFeed extends StatefulWidget {
+  const _PublicHiringFeed({
+    required this.controller,
+    required this.avatarFor,
+    required this.onOpen,
+    this.active = true,
+  });
+  final CommunityController controller;
+  final Widget Function(ChatPeer) avatarFor;
+  final ValueChanged<CommunityRequest> onOpen;
+  final bool active;
+  @override
+  State<_PublicHiringFeed> createState() => _PublicHiringFeedState();
+}
+
+class _PublicHiringFeedState extends State<_PublicHiringFeed>
+    with WidgetsBindingObserver {
+  final _scroll = ScrollController();
+  Timer? _refresh;
+  bool _resumed = true;
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    unawaited(widget.controller.refresh());
+    _refresh = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (_resumed &&
+          widget.active &&
+          ModalRoute.of(context)?.isCurrent == true) {
+        unawaited(widget.controller.refresh());
+      }
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _resumed = state == AppLifecycleState.resumed;
+    if (_resumed && widget.active) unawaited(widget.controller.refresh());
+  }
+
+  String? _group(CommunityRequest request) {
+    final age = widget.controller.serverNow.difference(request.createdAt);
+    if (age < const Duration(days: 1)) return 'Today';
+    if (age < const Duration(days: 7)) return 'Last week';
+    return null;
+  }
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: widget.controller,
+    builder: (context, _) {
+      final controller = widget.controller;
+      final requests = controller.requests
+          .where((item) => item.expiresAt.isAfter(controller.serverNow))
+          .toList();
+      return RefreshIndicator(
+        onRefresh: controller.refresh,
+        child: ListView(
+          key: const Key('community-feed'),
+          controller: _scroll,
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(34, 70, 34, 40),
+          children: [
+            if (controller.loading && requests.isEmpty)
+              const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+            if (controller.error != null) ...[
+              Text(controller.error!),
+              TextButton(
+                onPressed: controller.refresh,
+                child: const Text('Retry'),
+              ),
+            ],
+            if (!controller.loading &&
+                controller.error == null &&
+                requests.isEmpty)
+              const Text('No active requests yet', textAlign: TextAlign.center),
+            for (var index = 0; index < requests.length; index++) ...[
+              if (index == 0 ||
+                  _group(requests[index]) != _group(requests[index - 1])) ...[
+                if (index > 0) const SizedBox(height: 56),
+                if (_group(requests[index]) case final String group) ...[
+                  Text(
+                    group,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      height: 20 / 12,
+                      fontWeight: FontWeight.w300,
+                    ),
+                  ),
+                  const SizedBox(height: 33),
+                ],
+              ],
+              Padding(
+                padding: const EdgeInsets.only(bottom: 13),
+                child: Column(
+                  children: [
+                    Semantics(
+                      button: true,
+                      child: InkWell(
+                        key: ValueKey('community-${requests[index].id}'),
+                        onTap: () => widget.onOpen(requests[index]),
+                        child: SizedBox(
+                          height: 82,
+                          child: HiringRequestRow(
+                            name: requests[index].author.name,
+                            skill: requests[index].skill,
+                            avatar: widget.avatarFor(requests[index].author),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const Divider(height: 1, color: Color(0xFFCDDEE8)),
+                  ],
+                ),
+              ),
+            ],
+            if (controller.pageError != null) Text(controller.pageError!),
+            if (controller.hasMore)
+              TextButton(
+                key: const Key('public-more-hiring'),
+                onPressed: controller.loadingMore ? null : controller.loadMore,
+                style: TextButton.styleFrom(
+                  foregroundColor: const Color(0xFF14679E),
+                  textStyle: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w300,
+                  ),
+                ),
+                child: Text(
+                  controller.loadingMore ? 'Loading…' : 'More hiring',
+                ),
+              ),
+          ],
+        ),
+      );
+    },
+  );
+
+  @override
+  void dispose() {
+    _refresh?.cancel();
+    _scroll.dispose();
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 }
@@ -321,10 +512,12 @@ class _PublicProfilePage extends StatefulWidget {
     required this.repository,
     required this.id,
     required this.onMessage,
+    this.limited = false,
   });
   final PublicPreviewRepository repository;
   final String id;
   final VoidCallback onMessage;
+  final bool limited;
   @override
   State<_PublicProfilePage> createState() => _PublicProfilePageState();
 }
@@ -362,6 +555,14 @@ class _PublicProfilePageState extends State<_PublicProfilePage> {
       }
       return PublicProfileView(
         profile: p.profile,
+        // P16 source 61724:6822; native profile typography is unchanged.
+        nameStyle: widget.limited
+            ? const TextStyle(
+                fontSize: 16,
+                height: 20 / 16,
+                fontWeight: FontWeight.w500,
+              )
+            : null,
         avatar: PublicProfileAvatar(profile: p, size: 144),
         contactCount: p.contactCount,
         onChat: widget.onMessage,
