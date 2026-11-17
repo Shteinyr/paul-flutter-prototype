@@ -67,8 +67,33 @@ class GuestInvitationPrompt extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (!validCode(invitationCode)) return const SizedBox.shrink();
+    return GuestAppPrompt(
+      invitationCode: invitationCode,
+      onGetApp: onGetApp,
+      onCopyCode: onCopyCode,
+    );
+  }
+}
+
+/// The same P16 handoff when there is no incoming manual invitation. Only the
+/// source title/Get app action are shown; no example code or copy claim is made.
+class GuestAppPrompt extends StatelessWidget {
+  const GuestAppPrompt({
+    super.key,
+    this.invitationCode,
+    this.onGetApp,
+    this.onCopyCode,
+  });
+  final String? invitationCode;
+  final VoidCallback? onGetApp, onCopyCode;
+  @override
+  Widget build(BuildContext context) {
+    final code = invitationCode;
+    final hasCode = code != null && GuestInvitationPrompt.validCode(code);
     return SizedBox(
-      key: const Key('guest-invitation-prompt'),
+      key: hasCode
+          ? const Key('guest-invitation-prompt')
+          : const Key('guest-app-handoff'),
       width: 314,
       height: 216,
       child: DecoratedBox(
@@ -95,47 +120,49 @@ class GuestInvitationPrompt extends StatelessWidget {
                 ),
               ),
             ),
-            const Positioned(
-              left: 13,
-              top: 60,
-              width: 288,
-              height: 27,
-              child: Text(
-                'Copy, paste code in App to connect',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontFamily: 'NotoSans',
-                  fontSize: 12,
-                  height: 20 / 12,
-                  fontWeight: FontWeight.w300,
-                  color: Colors.black,
-                ),
-              ),
-            ),
-            Positioned(
-              left: 104,
-              top: 85,
-              width: 106,
-              height: 42.167598724365234,
-              child: TextButton(
-                key: const Key('guest-invitation-code'),
-                onPressed: onCopyCode,
-                style: TextButton.styleFrom(
-                  padding: EdgeInsets.zero,
-                  minimumSize: Size.zero,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  foregroundColor: Colors.black,
-                  disabledForegroundColor: Colors.black,
-                  textStyle: const TextStyle(
+            if (hasCode)
+              const Positioned(
+                left: 13,
+                top: 60,
+                width: 288,
+                height: 27,
+                child: Text(
+                  'Copy, paste code in App to connect',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
                     fontFamily: 'NotoSans',
-                    fontSize: 15,
-                    height: 20 / 15,
-                    fontWeight: FontWeight.w400,
+                    fontSize: 12,
+                    height: 20 / 12,
+                    fontWeight: FontWeight.w300,
+                    color: Colors.black,
                   ),
                 ),
-                child: Text(invitationCode, textAlign: TextAlign.center),
               ),
-            ),
+            if (hasCode)
+              Positioned(
+                left: 104,
+                top: 85,
+                width: 106,
+                height: 42.167598724365234,
+                child: TextButton(
+                  key: const Key('guest-invitation-code'),
+                  onPressed: onCopyCode,
+                  style: TextButton.styleFrom(
+                    padding: EdgeInsets.zero,
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    foregroundColor: Colors.black,
+                    disabledForegroundColor: Colors.black,
+                    textStyle: const TextStyle(
+                      fontFamily: 'NotoSans',
+                      fontSize: 15,
+                      height: 20 / 15,
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                  child: Text(code, textAlign: TextAlign.center),
+                ),
+              ),
             Positioned(
               left: 87,
               top: 139,
