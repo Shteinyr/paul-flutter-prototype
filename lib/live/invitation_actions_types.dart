@@ -16,10 +16,49 @@ abstract interface class InvitationActions {
 }
 
 class InvitationContact {
-  const InvitationContact({required this.name, required this.phones});
+  const InvitationContact({
+    this.id = '',
+    required this.name,
+    required this.phones,
+  });
+  final String id;
   final String name;
   final List<String> phones;
 }
+
+enum InvitationContactAccess {
+  notDetermined,
+  granted,
+  limited,
+  denied,
+  permanentlyDenied,
+  restricted,
+  unavailable,
+  failed,
+}
+
+class InvitationContacts {
+  const InvitationContacts(this.access, [this.contacts = const []]);
+  final InvitationContactAccess access;
+  final List<InvitationContact> contacts;
+  bool get readable =>
+      access == InvitationContactAccess.granted ||
+      access == InvitationContactAccess.limited;
+}
+
+/// Read-only, device-local contacts. No account matching or server transport.
+abstract interface class InvitationContactSource {
+  Stream<void> get changes;
+  Future<InvitationContacts> load({bool requestPermission = false});
+  Future<void> openSettings();
+}
+
+List<String> invitationContactNumbers(InvitationContact contact) => [
+  ...{
+    for (final phone in contact.phones)
+      if (invitationSmsNumber(phone) case final String number) number,
+  },
+];
 
 class InvitationContactSelection {
   const InvitationContactSelection(this.result, [this.contacts = const []]);
