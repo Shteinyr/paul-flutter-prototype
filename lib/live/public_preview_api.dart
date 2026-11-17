@@ -71,6 +71,7 @@ class PublicPreviewApi implements PublicPreviewRepository {
   final Future<String?> Function(Uri url, String key) _bootstrap;
   bool _bootstrapChecked = false;
   final _profiles = <String, PublicProfile>{};
+  final _profileReads = <String, Future<PublicProfile?>>{};
   Future<Map<String, dynamic>> _call(
     String action, [
     Map<String, dynamic> fields = const {},
@@ -161,7 +162,20 @@ class PublicPreviewApi implements PublicPreviewRepository {
   }
 
   @override
-  Future<PublicProfile?> profile(String id) async {
+  Future<PublicProfile?> profile(String id) {
+    final pending = _profileReads[id];
+    if (pending != null) return pending;
+    // List/search/profile may recover the same portrait together. Share only
+    // the in-flight read; a later call must be able to renew its signature.
+    late final Future<PublicProfile?> read;
+    read = _readProfile(id).whenComplete(() {
+      if (identical(_profileReads[id], read)) _profileReads.remove(id);
+    });
+    _profileReads[id] = read;
+    return read;
+  }
+
+  Future<PublicProfile?> _readProfile(String id) async {
     final data = await _call('profile', {'profile_id': id});
     if (data['profile'] == null) {
       _profiles.remove(id);

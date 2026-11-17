@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -122,6 +123,38 @@ void main() {
       ..addFont(rootBundle.load('assets/fonts/NotoSans.ttf'));
     await font.load();
   });
+  test(
+    'concurrent public card reads share a request but later renewal stays fresh',
+    () async {
+      final pending = Completer<http.Response>();
+      var requests = 0;
+      final client = MockClient((request) {
+        requests++;
+        expect((jsonDecode(request.body) as Map)['profile_id'], person.id);
+        if (requests == 1) return pending.future;
+        return Future.value(
+          http.Response(jsonEncode({'profile': wireProfile()}), 200),
+        );
+      });
+      final api = PublicPreviewApi(
+        url: Uri.parse('https://public.invalid'),
+        publishableKey: 'public-key',
+        transport: client,
+      );
+      final first = api.profile(person.id);
+      final second = api.profile(person.id);
+      expect(identical(first, second), isTrue);
+      pending.complete(
+        http.Response(jsonEncode({'profile': wireProfile()}), 200),
+      );
+      expect((await first)!.id, person.id);
+      expect((await second)!.id, person.id);
+      expect(requests, 1);
+      await api.profile(person.id);
+      expect(requests, 2);
+      client.close();
+    },
+  );
   test(
     'public transport avoids preflight headers and never sends a user token or private function',
     () async {
