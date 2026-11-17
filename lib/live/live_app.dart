@@ -257,6 +257,7 @@ class _PaulLiveAppState extends State<PaulLiveApp> with WidgetsBindingObserver {
   final _purgedAccounts = <String>{};
   void _purgeDeletedLocalData() {
     for (final record in _deletions.records) {
+      if (_deletions.confirmed(record)) _api.forgetMember(record.profileId);
       if (!record.self ||
           !_deletions.confirmed(record) ||
           _purgedAccounts.contains(record.actorId)) {

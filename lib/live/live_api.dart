@@ -79,6 +79,7 @@ class LiveApi implements InvitationIssuer {
   final _avatars = SessionAvatarCache();
   final _members = <String, MemberProfile>{};
   final _memberReads = <String, Future<MemberProfile>>{};
+  final _memberEpochs = <String, int>{};
   String? _mediaScope;
 
   String? get _currentScope {
@@ -92,6 +93,7 @@ class LiveApi implements InvitationIssuer {
     _avatars.clear();
     _members.clear();
     _memberReads.clear();
+    _memberEpochs.clear();
     _mediaScope = _currentScope;
   }
 
@@ -104,6 +106,13 @@ class LiveApi implements InvitationIssuer {
   MemberProfile? cachedMember(String id) {
     if (_checkMediaScope() == null) return null;
     return _members[id];
+  }
+
+  void forgetMember(String id) {
+    _members.remove(id);
+    _memberReads.remove(id);
+    _avatars.evict(id);
+    _memberEpochs[id] = (_memberEpochs[id] ?? 0) + 1;
   }
 
   MemberProfile _rememberMember(MemberProfile member) {
@@ -272,16 +281,21 @@ class LiveApi implements InvitationIssuer {
     final pending = _memberReads[profileId];
     if (pending != null) return pending;
     late final Future<MemberProfile> operation;
-    operation = _readMember(profileId, scope).whenComplete(() {
-      if (identical(_memberReads[profileId], operation)) {
-        _memberReads.remove(profileId);
-      }
-    });
+    operation = _readMember(profileId, scope, _memberEpochs[profileId] ?? 0)
+        .whenComplete(() {
+          if (identical(_memberReads[profileId], operation)) {
+            _memberReads.remove(profileId);
+          }
+        });
     _memberReads[profileId] = operation;
     return operation;
   }
 
-  Future<MemberProfile> _readMember(String profileId, String scope) async {
+  Future<MemberProfile> _readMember(
+    String profileId,
+    String scope,
+    int epoch,
+  ) async {
     final userId = client.auth.currentUser?.id;
     final token = client.auth.currentSession?.accessToken;
     if (userId == null || token == null) {
@@ -295,7 +309,7 @@ class LiveApi implements InvitationIssuer {
             body: {'action': 'profile', 'profile_id': profileId},
           )
           .timeout(const Duration(seconds: 25));
-      if (_currentScope != scope) {
+      if (_currentScope != scope || (_memberEpochs[profileId] ?? 0) != epoch) {
         throw const LiveApiException('sign_in_required');
       }
       final profile = (response.data as Map)['profile'];
@@ -303,7 +317,7 @@ class LiveApi implements InvitationIssuer {
         MemberProfile.fromJson(Map<String, dynamic>.from(profile as Map)),
       );
     } on FunctionException catch (error) {
-      if (_currentScope == scope) {
+      if (_currentScope == scope && (_memberEpochs[profileId] ?? 0) == epoch) {
         _members.remove(profileId);
         _avatars.evict(profileId);
       }
