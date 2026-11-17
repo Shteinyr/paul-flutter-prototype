@@ -9,14 +9,35 @@ class SkillSearchController extends ChangeNotifier {
   SkillSearchController(
     this.repository, {
     this.debounce = const Duration(milliseconds: 250),
+    DateTime Function()? now,
     Future<List<SkillSuggestion>> Function(String)? localSuggest,
-  }) : _localSuggest = localSuggest ?? SkillCatalogue.shared.suggest {
+  }) : _now = now ?? DateTime.now,
+       _localSuggest = localSuggest ?? SkillCatalogue.shared.suggest {
     _identity = repository.identityChanges.listen((userId) {
       if (userId != repository.userId) _invalidate();
     }, onError: (Object _) => _identityError());
   }
   final SkillSearchRepository repository;
   final Duration debounce;
+  final DateTime Function() _now;
+  final _pages = <(String, SkillSearchKind), _SearchSnapshot>{};
+  (String, SkillSearchKind)? _activePage;
+
+  void _savePage() {
+    final key = _activePage;
+    if (key == null || results.length > 500) return;
+    _pages.remove(key);
+    _pages[key] = _SearchSnapshot(
+      _now(),
+      results,
+      _canonicalQuery,
+      _nextCursor,
+    );
+    while (_pages.length > 16) {
+      _pages.remove(_pages.keys.first);
+    }
+  }
+
   final Future<List<SkillSuggestion>> Function(String) _localSuggest;
   List<SkillSuggestion> _local = const [];
   List<SkillSuggestion> _remote = const [];
@@ -53,6 +74,7 @@ class SkillSearchController extends ChangeNotifier {
   void _invalidate() {
     if (_disposed) return;
     _authorized = false;
+    _pages.clear();
     _reset();
     query = '';
     error = const SkillSearchException('sign_in_required').toString();
@@ -61,6 +83,7 @@ class SkillSearchController extends ChangeNotifier {
 
   void _reset() {
     _timer?.cancel();
+    _activePage = null;
     _revision++;
     suggestions = const [];
     _local = const [];
@@ -138,14 +161,30 @@ class SkillSearchController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> select(SkillSuggestion skill) async {
+  Future<void> select(
+    SkillSuggestion skill, {
+    bool refresh = false,
+    bool keepResults = false,
+  }) async {
     if (!_authorized || _disposed || skill.key.trim().isEmpty) return;
+    final key = (skill.key.trim().toLowerCase(), kind);
+    final saved = (!refresh || keepResults) ? _pages[key] : null;
+    final fresh =
+        saved != null &&
+        _now().difference(saved.at) < const Duration(minutes: 1);
     _reset();
+    _activePage = key;
     selected = skill;
     query = skill.label;
-    loading = true;
+    if (saved != null && (fresh || keepResults)) {
+      results = saved.results;
+      _canonicalQuery = saved.query;
+      _nextCursor = saved.cursor;
+    }
+    loading = results.isEmpty && !(fresh && !refresh);
     final revision = _revision;
     notifyListeners();
+    if (fresh && !refresh) return;
     try {
       final page = await repository.search(skill.key, kind);
       if (!_current(revision)) return;
@@ -155,9 +194,14 @@ class SkillSearchController extends ChangeNotifier {
       _canonicalQuery = page.query;
       results = List.unmodifiable(page.results);
       _nextCursor = page.nextCursor;
+      _savePage();
     } catch (failure) {
       if (!_current(revision)) return;
-      error = _message(failure);
+      if (keepResults && results.isNotEmpty) {
+        pageError = _message(failure);
+      } else {
+        error = _message(failure);
+      }
     }
     if (!_current(revision)) return;
     loading = false;
@@ -189,6 +233,7 @@ class SkillSearchController extends ChangeNotifier {
       _canonicalQuery = page.query;
       results = List.unmodifiable(page.results);
       _nextCursor = page.nextCursor;
+      _savePage();
     } catch (failure) {
       if (!_current(revision)) return;
       error = _message(failure);
@@ -211,12 +256,17 @@ class SkillSearchController extends ChangeNotifier {
     }
   }
 
-  Future<void> retry() async {
+  Future<void> retry({bool keepResults = false}) async {
     final skill = selected;
+    final active = _activePage == null ? null : _pages[_activePage];
+    _pages.clear();
+    if (keepResults && active != null && _activePage != null) {
+      _pages[_activePage!] = active;
+    }
     if (searchingNames) {
       await selectName(query);
     } else if (skill != null) {
-      await select(skill);
+      await select(skill, refresh: true, keepResults: keepResults);
     } else if (!idle && _authorized && !_disposed) {
       _timer?.cancel();
       error = null;
@@ -260,6 +310,7 @@ class SkillSearchController extends ChangeNotifier {
         ...page.results.where((hit) => ids.add(hit.id)),
       ]);
       _nextCursor = page.nextCursor;
+      _savePage();
     } catch (failure) {
       if (!_current(revision)) return;
       pageError = _message(failure);
@@ -276,9 +327,18 @@ class SkillSearchController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _pages.clear();
     _revision++;
     _timer?.cancel();
     unawaited(_identity.cancel());
     super.dispose();
   }
+}
+
+class _SearchSnapshot {
+  const _SearchSnapshot(this.at, this.results, this.query, this.cursor);
+  final DateTime at;
+  final List<SkillSearchHit> results;
+  final String? query;
+  final Map<String, dynamic>? cursor;
 }

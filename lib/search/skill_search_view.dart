@@ -216,7 +216,13 @@ class _SkillSearchViewState extends State<SkillSearchView> {
       );
     }
     return ListView(
-      key: const Key('skill-search-results'),
+      key: PageStorageKey((
+        'skill-search-results',
+        widget.controller,
+        search.query,
+        search.kind,
+        search.searchingNames,
+      )),
       padding: const EdgeInsets.fromLTRB(37.5, 18, 37.5, 85),
       children: [
         for (final hit in search.results)
@@ -296,17 +302,6 @@ class _SkillSearchViewState extends State<SkillSearchView> {
                                   child: Align(
                                     alignment: Alignment.centerRight,
                                     child: MutualContactAttribution(hit: hit),
-                                  ),
-                                ),
-                              if (_opening == hit.id)
-                                const Padding(
-                                  padding: EdgeInsets.only(top: 4),
-                                  child: Text(
-                                    'Opening profile…',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: _blue,
-                                    ),
                                   ),
                                 ),
                             ],

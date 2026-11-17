@@ -13,6 +13,7 @@ import 'avatar_upload.dart';
 import 'browser_storage.dart';
 import 'invitation_controller.dart';
 import 'member_capabilities.dart';
+import 'session_avatar_cache.dart';
 import '../platform/storage/profile_write_journal.dart';
 import '../platform/storage/profile_write_journal_factory.dart';
 
@@ -75,6 +76,67 @@ class MemberNetwork {
 class LiveApi implements InvitationIssuer {
   LiveApi(this.client);
   final SupabaseClient client;
+  final _avatars = SessionAvatarCache();
+  final _members = <String, MemberProfile>{};
+  final _memberReads = <String, Future<MemberProfile>>{};
+  String? _mediaScope;
+
+  String? get _currentScope {
+    final user = client.auth.currentUser?.id;
+    final session =
+        pushSessionId(client) ?? client.auth.currentSession?.accessToken;
+    return user == null || session == null ? null : '$user:$session';
+  }
+
+  void clearMedia() {
+    _avatars.clear();
+    _members.clear();
+    _memberReads.clear();
+    _mediaScope = _currentScope;
+  }
+
+  String? _checkMediaScope() {
+    final scope = _currentScope;
+    if (scope != _mediaScope) clearMedia();
+    return scope;
+  }
+
+  MemberProfile? cachedMember(String id) {
+    if (_checkMediaScope() == null) return null;
+    return _members[id];
+  }
+
+  MemberProfile _rememberMember(MemberProfile member) {
+    final previous = _members.remove(member.id);
+    if (previous != null && previous.avatarPath != member.avatarPath) {
+      _avatars.evict(member.id);
+    }
+    _members[member.id] = member;
+    while (_members.length > 128) {
+      _members.remove(_members.keys.first);
+    }
+    return member;
+  }
+
+  Uint8List? cachedPhoto(String id, String? path) =>
+      _checkMediaScope() == null ? null : _avatars.peek(id, path);
+
+  Future<Uint8List?> photoAt(String id, String? path) {
+    if (_checkMediaScope() == null) return Future.value(null);
+    return _avatars.read(
+      id,
+      path,
+      () => client.storage.from('avatars').download(path!),
+    );
+  }
+
+  Future<Uint8List?> photoForProfile(String id) async {
+    final scope = _checkMediaScope();
+    if (scope == null) return null;
+    final profile = cachedMember(id) ?? await member(id);
+    if (_currentScope != scope) return null;
+    return photo(profile);
+  }
 
   Future<MemberCapabilities> capabilities() async {
     final userId = client.auth.currentUser?.id;
@@ -185,20 +247,41 @@ class LiveApi implements InvitationIssuer {
   }
 
   Future<MemberNetwork> network() async {
+    _checkMediaScope();
     final data = await call('network');
     final own = data['profile'];
     return MemberNetwork(
-      own: own is Map<String, dynamic> ? MemberProfile.fromJson(own) : null,
+      own: own is Map<String, dynamic>
+          ? _rememberMember(MemberProfile.fromJson(own))
+          : null,
       contacts: (data['contacts'] as List)
           .map(
-            (value) =>
-                MemberProfile.fromJson(Map<String, dynamic>.from(value as Map)),
+            (value) => _rememberMember(
+              MemberProfile.fromJson(Map<String, dynamic>.from(value as Map)),
+            ),
           )
           .toList(),
     );
   }
 
-  Future<MemberProfile> member(String profileId) async {
+  Future<MemberProfile> member(String profileId) {
+    final scope = _checkMediaScope();
+    if (scope == null) {
+      return Future.error(const LiveApiException('sign_in_required'));
+    }
+    final pending = _memberReads[profileId];
+    if (pending != null) return pending;
+    late final Future<MemberProfile> operation;
+    operation = _readMember(profileId, scope).whenComplete(() {
+      if (identical(_memberReads[profileId], operation)) {
+        _memberReads.remove(profileId);
+      }
+    });
+    _memberReads[profileId] = operation;
+    return operation;
+  }
+
+  Future<MemberProfile> _readMember(String profileId, String scope) async {
     final userId = client.auth.currentUser?.id;
     final token = client.auth.currentSession?.accessToken;
     if (userId == null || token == null) {
@@ -212,12 +295,18 @@ class LiveApi implements InvitationIssuer {
             body: {'action': 'profile', 'profile_id': profileId},
           )
           .timeout(const Duration(seconds: 25));
-      if (client.auth.currentUser?.id != userId) {
+      if (_currentScope != scope) {
         throw const LiveApiException('sign_in_required');
       }
       final profile = (response.data as Map)['profile'];
-      return MemberProfile.fromJson(Map<String, dynamic>.from(profile as Map));
+      return _rememberMember(
+        MemberProfile.fromJson(Map<String, dynamic>.from(profile as Map)),
+      );
     } on FunctionException catch (error) {
+      if (_currentScope == scope) {
+        _members.remove(profileId);
+        _avatars.evict(profileId);
+      }
       final details = error.details;
       throw LiveApiException(
         details is Map
@@ -309,8 +398,7 @@ class LiveApi implements InvitationIssuer {
   }
 
   Future<Uint8List?> photo(MemberProfile member) async {
-    final path = member.avatarPath;
-    return path == null ? null : client.storage.from('avatars').download(path);
+    return photoAt(member.id, member.avatarPath);
   }
 }
 

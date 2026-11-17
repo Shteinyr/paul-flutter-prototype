@@ -487,7 +487,8 @@ void main() {
         expect(find.byKey(const Key('tab-3')), findsOneWidget);
         await tester.tap(find.text('Contact B'));
         await tester.pump();
-        expect(downloads, greaterThanOrEqualTo(2));
+        // List and profile join one pending portrait download.
+        expect(downloads, 1);
         if (changeAccount) {
           await client.auth.signInWithPassword(
             email: 'c@example.invalid',
