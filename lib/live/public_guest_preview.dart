@@ -161,6 +161,7 @@ class _PublicGuestPreviewState extends State<PublicGuestPreview> {
 
   Widget _avatar(String id, double size) => PublicProfileAvatar(
     profile: widget.repository.cachedProfile(id) ?? _repository.saved[id],
+    repository: widget.repository,
     size: size,
   );
   void _open(String id) {
@@ -215,7 +216,11 @@ class _PublicGuestPreviewState extends State<PublicGuestPreview> {
                 ContactRow(
                   name: p.profile.name,
                   occupation: p.profile.occupation,
-                  avatar: PublicProfileAvatar(profile: p, size: 65),
+                  avatar: PublicProfileAvatar(
+                    profile: p,
+                    repository: widget.repository,
+                    size: 65,
+                  ),
                   onOpen: () => _open(p.id),
                 ),
               if (_cursor != null)
@@ -478,32 +483,105 @@ class _PublicHiringFeedState extends State<_PublicHiringFeed>
   }
 }
 
-class PublicProfileAvatar extends StatelessWidget {
+class PublicProfileAvatar extends StatefulWidget {
   const PublicProfileAvatar({
     super.key,
     required this.profile,
+    required this.repository,
     required this.size,
   });
   final PublicProfile? profile;
+  final PublicPreviewRepository repository;
   final double size;
   @override
+  State<PublicProfileAvatar> createState() => _PublicProfileAvatarState();
+}
+
+class _PublicProfileAvatarState extends State<PublicProfileAvatar> {
+  late PublicProfile? _profile = widget.profile;
+  int _generation = 0, _attempt = 0;
+  bool _recoveryUsed = false, _refreshing = false;
+
+  @override
+  void didUpdateWidget(PublicProfileAvatar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.profile?.id != widget.profile?.id ||
+        oldWidget.profile?.avatarUrl != widget.profile?.avatarUrl ||
+        oldWidget.repository != widget.repository) {
+      _generation++;
+      _profile = widget.profile;
+      _attempt = 0;
+      _recoveryUsed = false;
+      _refreshing = false;
+    }
+  }
+
+  // A lower, lazily built row may first fetch its signed URL after expiry.
+  // Renew this card once, without reloading the list or its browsing state.
+  void _recover() {
+    final profile = _profile;
+    if (_recoveryUsed || profile?.avatarUrl == null) return;
+    _recoveryUsed = true;
+    final generation = _generation;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || generation != _generation) return;
+      setState(() => _refreshing = true);
+      unawaited(_refreshProfile(profile!, generation));
+    });
+  }
+
+  Future<void> _refreshProfile(PublicProfile previous, int generation) async {
+    bool current() => mounted && generation == _generation;
+    try {
+      final next = await widget.repository.profile(previous.id);
+      if (!current()) return;
+      // The server may remove a portrait/profile while it is being renewed.
+      // Never replace one person's portrait with a different card's response.
+      final profile = next?.id == previous.id ? next : null;
+      if (profile?.avatarUrl != null &&
+          profile!.avatarUrl == previous.avatarUrl) {
+        // A transient failure can return the same signature. Evict the failed
+        // image key and retry once even when the transport URL is unchanged.
+        await publicAvatarImage(profile.avatarUrl!).evict();
+        if (!current()) return;
+      }
+      setState(() {
+        _profile = profile;
+        _attempt++;
+        _refreshing = false;
+      });
+    } catch (_) {
+      if (current()) setState(() => _refreshing = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final url = profile?.avatarUrl;
-    if (url == null) return ProfileAvatar(size: size);
+    final url = _profile?.avatarUrl;
+    if (url == null) return ProfileAvatar(size: widget.size);
     return ClipOval(
       child: Image(
-        key: ValueKey(url),
+        key: ValueKey((_profile!.id, url, _attempt)),
         image: publicAvatarImage(url),
-        width: size,
-        height: size,
+        width: widget.size,
+        height: widget.size,
         fit: BoxFit.cover,
         frameBuilder: (context, child, frame, wasSynchronouslyLoaded) =>
             frame != null || wasSynchronouslyLoaded
             ? child
-            : ProfileAvatar(size: size, loading: true),
-        errorBuilder: (_, _, _) => ProfileAvatar(size: size),
+            : ProfileAvatar(size: widget.size, loading: true),
+        errorBuilder: (_, _, _) {
+          _recover();
+          return ProfileAvatar(size: widget.size, loading: _refreshing);
+        },
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    _generation++;
+    super.dispose();
   }
 }
 
@@ -563,7 +641,11 @@ class _PublicProfilePageState extends State<_PublicProfilePage> {
                 fontWeight: FontWeight.w500,
               )
             : null,
-        avatar: PublicProfileAvatar(profile: p, size: 144),
+        avatar: PublicProfileAvatar(
+          profile: p,
+          repository: widget.repository,
+          size: 144,
+        ),
         contactCount: p.contactCount,
         onChat: widget.onMessage,
       );
