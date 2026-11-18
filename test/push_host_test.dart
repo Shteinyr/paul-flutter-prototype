@@ -325,7 +325,7 @@ void main() {
             if (kind == 'signed-out') {
               for (
                 var attempt = 0;
-                attempt < 20 && find.text('Paul Galda').evaluate().isEmpty;
+                attempt < 20 && find.text('Alex Morgan').evaluate().isEmpty;
                 attempt++
               ) {
                 await tester.runAsync(
@@ -333,7 +333,7 @@ void main() {
                 );
                 await tester.pump();
               }
-              expect(find.text('Paul Galda'), findsOneWidget);
+              expect(find.text('Alex Morgan'), findsOneWidget);
             }
             await tester.pumpAndSettle();
             if (mode == 'native') {

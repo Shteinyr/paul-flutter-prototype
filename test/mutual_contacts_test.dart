@@ -66,7 +66,7 @@ void main() {
             results: [
               SkillSearchHit(
                 id: 'paul',
-                name: 'Paul Galda',
+                name: 'Alex Morgan',
                 occupation: 'Business Analyst',
                 matchedKinds: {SkillSearchKind.offering},
                 mutualContacts: count == 1

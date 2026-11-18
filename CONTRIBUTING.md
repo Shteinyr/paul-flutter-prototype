@@ -1,27 +1,30 @@
-# Порядок работы с репозиторием
+# Development process
 
-## Задачи
+## Issues and acceptance
 
-Источник требований — [PROJECT_SPEC](docs/PROJECT_SPEC.md). Одна issue содержит один законченный результат или явно обозначенный epic. В описании: ID блока P01–P16, ссылка Figma, проблема, границы, критерии приёмки, зависимости, согласованная оценка и способ проверки. Оценка до согласования — «не оценено».
+Use one issue per independently verifiable outcome, or label a larger item as an epic. State the problem, screen group, intended behaviour, scope, dependencies, acceptance steps and validation evidence.
 
-Статусы: Todo → Ready → In progress → Review → Awaiting acceptance → Accepted. Blocked отмечается отдельно с причиной. Ready означает согласованные требования и доступы. Accepted требует явной клиентской приёмки конкретной версии. Метки type, module, phase и status отражают назначение задачи. Scope и оценки предварительных этапов помечаются scope:draft.
+Statuses: Todo → Ready → In progress → Review → Awaiting acceptance → Accepted. Record blockers explicitly. A merge or successful test is not human acceptance.
 
-## Ветки, commits и PR
+## Branches and pull requests
 
-- main хранит проверяемую базовую версию. Одна задача → короткая ветка feature/<issue>-<topic>, fix/<issue>-<topic>, docs/<issue>-<topic> или chore/<issue>-<topic>.
-- Коммиты небольшие, с конкретным смыслом: feat(profile): persist photo; fix(chat): prevent duplicate connection; docs(scope): map Figma blocks. Не переписывать опубликованную историю main.
-- PR ссылается на issue; содержит проблему, результат, проверку и ограничения. Для UI — скриншот или короткая запись. До явной клиентской приёмки использовать Refs #N. Закрывать issue после принятия указанной версии.
-- До merge: анализ, форматирование, соответствующие тесты и build; проверить diff на секреты и лишние сгенерированные файлы. Для документации — проверить ссылки/полноту и preview.
-- Squash merge для одной задачи; удалить ветку после merge. Изменения scope фиксировать в issue и PROJECT_SPEC, не терять в устной переписке.
+- Keep main reproducible. Use focused feature/, fix/, docs/ or chore/ branches.
+- Make small descriptive commits and preserve published history.
+- Describe the concrete problem and resulting behaviour in each PR.
+- Include relevant checks, runtime screenshots for UI changes and material limitations.
+- Use Refs #N while acceptance is outstanding.
+- Review the diff and run relevant local checks before merging.
 
-## Проверки
+## Validation and configuration
 
-См. .github/workflows/flutter-ci.yml: форматирование, flutter analyze, flutter test, проверки упаковки и web build. Workflow Flutter checks отключён 09.11.2026. Любой GitHub Actions run, включая автоматический при PR/push, требует отдельного текущего разрешения Александра с названием репозитория и workflow. До него выполнять проверки локально. Защиту main и доступные правила проверять по фактическому GitHub API.
+Run formatting checks, analysis, appropriate Flutter tests, packaging checks and target builds locally. SQL/Edge checks use isolated test data.
 
-## Доступ и конфигурация
+The Flutter checks GitHub Actions workflow is intentionally disabled. Do not enable, dispatch or rerun hosted workflows without separate explicit authorisation naming the repository and workflow.
 
-Репозиторий private. Клиента подключать отдельным приглашением после согласования аккаунта. OAuth, APNs, signing и service credentials не коммитить; для конфигурации использовать безопасные примеры без значений. Не добавлять выгрузки реальных адресных книг, пользовательские сообщения и токены.
+Never commit service keys, tokens, signing material, real address books or private conversations. Client keys do not replace server authorisation. The standalone demo uses fictional data; full integrations require your own configuration.
 
-## Релизы и решения
+## Releases
 
-Каждый согласованный этап — release/tag v0.x.y с изменениями, ограничениями и инструкцией проверки. Production-деплой и платные ресурсы согласовываются отдельно. Выбор backend и другие существенные решения записываются в docs/decisions/ с причиной, альтернативами и последствиями. Supabase выбран Александром, действующие конфигурация и границы интеграций описаны в README и PROJECT_SPEC.
+Name the source revision, build target, validation and limitations. Distinguish Android APKs, Simulator builds and signed iPhone distribution.
+
+Original commits and discussions remain intact. New documentation and repository materials use English.

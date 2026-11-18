@@ -5,13 +5,13 @@ import '../photo_picker.dart';
 import 'user_profile.dart';
 
 Future<UserProfile> loadDemoProfile() async {
-  final image = await rootBundle.load('assets/people/paul-galda.png');
+  final image = await rootBundle.load('assets/people/ethan-williams.png');
   final photo = await normalizeProfilePhoto(
     image.buffer.asUint8List(),
     targetWidth: 384,
   );
   return UserProfile(
-    name: 'Paul Galda',
+    name: 'Alex Morgan',
     occupation: 'Business Analyst',
     photo: photo,
     summary:

@@ -23,7 +23,7 @@ class AppConfiguration {
     appUrl: const String.fromEnvironment(
       'PAUL_APP_URL',
       defaultValue:
-          'https://paul-flutter-profile-test.russet-otter-8833.chatgpt.site',
+          'https://shteinyr-community-network.web.app',
     ),
   );
   final AppPurpose purpose;

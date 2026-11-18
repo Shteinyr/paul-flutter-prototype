@@ -67,7 +67,7 @@ void main() {
     final controller = ProfileController(MemoryProfileStore());
     addTearDown(controller.dispose);
     await controller.load();
-    controller.updateName('Paul Galda');
+    controller.updateName('Alex Morgan');
     await controller.flush();
     var attempts = 0;
     String? copied;
@@ -142,7 +142,7 @@ void main() {
       final store = MemoryProfileStore();
       final controller = ProfileController(store);
       await controller.load();
-      controller.updateName('Paul Galda');
+      controller.updateName('Alex Morgan');
       controller.updateOccupation('Business Analyst');
       await controller.flush();
       final original = store.saved;
@@ -166,7 +166,7 @@ void main() {
 
       await tester.tap(find.byKey(const Key('open-demo-qr')));
       await tester.pumpAndSettle();
-      expect(find.text('Paul Galda'), findsOneWidget);
+      expect(find.text('Alex Morgan'), findsOneWidget);
       expect(find.text('Business Analyst'), findsOneWidget);
       expect(find.byKey(const Key('demo-qr-image')), findsOneWidget);
       expect(find.text(demoInviteCode), findsOneWidget);

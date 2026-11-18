@@ -13,7 +13,7 @@ The interface follows the existing mobile Figma screens in Flutter for the brows
 1. Search covers all registered members, including managed profiles. Shared skill suggestions retain free-text entry in profile, onboarding and search.
 2. Invitation levels count completed registrations through a personal invitation. Below two invitees, one new external recipient per day. From two, unrestricted messaging. From ten, expanded offering skills and Community publishing. Search and Hiring readership are available at every level.
 3. Community requests are visible to all registered members. Authors can have any number of active requests. Closing a request or reaching30days deletes its record. Push targets registered members with current notification consent.
-4. Confirmed account/profile deletion immediately removes photo, description, skills and connections. Counterpart conversation history uses the label «Удалённый пользователь».
+4. Confirmed account/profile deletion immediately removes photo, description, skills and connections. Counterpart conversation history uses the label Deleted user.
 5. Updated12November: P05 only invites a friend through copying, system sharing or the user's SMS app, with local contact selection where supported. Own-phone linking, SMS verification, discovery consent and phone matching (#70) are excluded. No external SMS provider is required. Actual phone sharing and client acceptance remain #34/#35/#41.
 6. Company tariffs/limits and optional request statistics remain future tasks #84/#85. Closed and expired Hiring requests are hidden from everyone; do not add a history screen. Real Google/Apple integration is verified against actual owner configuration and service results.
 

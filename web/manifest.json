@@ -1,9 +1,9 @@
 {
-  "name": "Paul",
-  "short_name": "Paul",
+  "name": "Professional Networking Demo",
+  "short_name": "Networking",
   "start_url": ".",
   "display": "standalone",
   "background_color": "#f4f4f4",
   "theme_color": "#f4f4f4",
-  "description": "Your CV looks fine... People just hiring their friends and relatives"
+  "description": "A Flutter professional networking case study with fictional demo data."
 }

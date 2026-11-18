@@ -1,23 +1,18 @@
 ---
-name: Задача
-about: Реализация блока, исправление или документация
-title: "[Pxx] "
+name: Development task
+about: One outcome with clear scope and verification
+title: ""
+labels: "type:task"
 ---
 
-## Источник
-ID блока / ссылка Figma / комментарий:
+## Problem and expected behaviour
 
-## Результат
-Конкретное ожидаемое поведение:
+## Screen group and scope
 
-## Границы
-Что входит; зависимости и нерешённые вопросы:
+## Acceptance steps
 
-## Приёмка
-- [ ] Проверяемый сценарий
+- [ ] Action and expected result
 
-## Оценка
-Не оценено. Согласовать до начала реализации.
+## Dependencies and limitations
 
-## Проверка
-Устройство, шаги, автоматические проверки:
+## Validation evidence

@@ -26,7 +26,7 @@ stage.mkdir(parents=True)
 for folder in ['lib', 'web']:
     shutil.copytree(root / folder, stage / folder)
 shutil.copytree(root / 'assets', stage / 'assets', ignore=shutil.ignore_patterns('people'))
-guest_portraits = ['paul-galda.png', 'julia-robinson.png']
+guest_portraits = ['paul-galda.png', 'julia-robinson.png', 'ethan-williams.png']
 (stage / 'assets/people').mkdir()
 for portrait in guest_portraits:
     shutil.copy2(root / 'assets/people' / portrait, stage / 'assets/people' / portrait)
