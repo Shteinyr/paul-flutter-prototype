@@ -72,7 +72,7 @@ void main() {
     'the real sample includes a small valid photo and every profile section',
     () async {
       final profile = await loadDemoProfile();
-      expect(profile.name, 'Paul Galda');
+      expect(profile.name, 'Alex Morgan');
       expect(profile.occupation, 'Business Analyst');
       expect(profile.photo, isNotEmpty);
       expect(profile.photo!.length, lessThan(1024 * 1024));
@@ -109,12 +109,12 @@ void main() {
       seedProfile: loadDemoProfile,
       migrateProfile: migrateDemoProfile,
     );
-    expect((await store.read()).name, 'Paul Galda');
+    expect((await store.read()).name, 'Alex Morgan');
     expect(
       UserProfile.decode(
         preferences.values[PreferencesProfileStore.storageKey]!,
       ).name,
-      'Paul Galda',
+      'Alex Morgan',
     );
 
     for (final edited in [

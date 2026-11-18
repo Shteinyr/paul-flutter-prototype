@@ -1,0 +1,6 @@
+{
+  "PAUL_TARGET": "app",
+  "SUPABASE_URL": "https://YOUR_PROJECT.supabase.co",
+  "SUPABASE_PUBLISHABLE_KEY": "YOUR_PUBLIC_CLIENT_KEY",
+  "PAUL_APP_URL": "https://YOUR_APP_HOST"
+}

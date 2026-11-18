@@ -32,9 +32,9 @@ Future<void> _previewReady(WidgetTester tester) async {
       () => Future<void>.delayed(const Duration(milliseconds: 50)),
     );
     await tester.pump();
-    if (find.text('Paul Galda').evaluate().isNotEmpty) return;
+    if (find.text('Alex Morgan').evaluate().isNotEmpty) return;
   }
-  expect(find.text('Paul Galda'), findsOneWidget);
+  expect(find.text('Alex Morgan'), findsOneWidget);
 }
 
 void main() {
@@ -149,7 +149,7 @@ void main() {
       expect(find.text('Invalid code'), findsOneWidget);
       await tester.tap(find.byKey(const Key('join-back')));
       await _previewReady(tester);
-      expect(find.text('Paul Galda'), findsOneWidget);
+      expect(find.text('Alex Morgan'), findsOneWidget);
       expect(preferences.values, isEmpty);
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.runAsync(client.dispose);
@@ -280,7 +280,7 @@ void main() {
         await press('tab-3');
         expect(find.text('Getting Started'), findsOneWidget);
         expect(find.text('Join'), findsNothing);
-        expect(find.text('Paul Galda'), findsNothing);
+        expect(find.text('Alex Morgan'), findsNothing);
         await tester.enterText(
           find.byKey(const Key('onboarding-skill-input')),
           'Flutter',
@@ -421,10 +421,10 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Maya Chen'), findsNothing);
     expect(find.text('Julia Robinson'), findsOneWidget);
-    expect(find.text('Paul Galda'), findsOneWidget);
+    expect(find.text('Alex Morgan'), findsOneWidget);
     await tester.tap(find.byKey(const Key('skill-filter-hiring')));
     await tester.pumpAndSettle();
-    expect(find.text('Paul Galda'), findsOneWidget);
+    expect(find.text('Alex Morgan'), findsOneWidget);
     expect(find.text('Julia Robinson'), findsNothing);
     await tester.tap(find.byKey(const Key('skill-filter-offering')));
     await tester.pumpAndSettle();

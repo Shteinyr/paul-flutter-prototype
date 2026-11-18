@@ -79,3 +79,9 @@ android/key.properties
 ios/Flutter/Client.xcconfig
 android/app/google-services.json
 ios/Runner/GoogleService-Info.plist
+
+# Local full-application configuration
+config.local.json
+
+# Hosting cache
+.firebase/

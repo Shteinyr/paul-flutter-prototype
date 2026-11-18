@@ -24,7 +24,7 @@ void main() {
       addTearDown(tester.view.reset);
       final controller = ProfileController(MemoryProfileStore());
       await controller.load();
-      controller.updateName('Paul Galda');
+      controller.updateName('Alex Morgan');
       controller.updateOccupation('Business Analyst');
       await controller.flush();
       final chat = DemoChatController(replyDelay: const Duration(days: 1));

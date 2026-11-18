@@ -204,7 +204,7 @@ void main() {
               child: SizedBox(
                 width: 245,
                 child: HiringRequestRow(
-                  name: 'Paul Galda',
+                  name: 'Alex Morgan',
                   skill: skill,
                   avatar: const SizedBox.square(dimension: 65),
                 ),

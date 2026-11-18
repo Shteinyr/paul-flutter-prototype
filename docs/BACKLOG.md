@@ -1,79 +1,26 @@
-## Исправления приёмки17.11.2026 — реализованы, ожидают приёмки
+# Implementation status and remaining work
 
-Объединённый исполняемый код523afbf. Локально605Flutter tests, analyzer/format,2packaging/9JS checks, iOS Simulator и Android Debug builds прошли. Public limited preview опубликовано Sitesv30 по прежней ссылке; runtime/bootstrap bytes совпали с проверенной сборкой. Два исполнительских чата выполнили Connect и P16, дополнительный read-only review выявил/проверил три гонки, исправления покрыты regression tests.
+The application is retained as a public engineering case study. Development for the original client has stopped. Original issues and pull requests preserve development evidence.
 
-Настоящий Simulator: прежняя hosted QA session сохранена; Contacts/search/profile/Chat/Back проверены. Изолированный local Hiring:4запроса/3автора, открытие чужого запроса и настоящий локальный send_message (одна запись в БД), снимки. Contacts permission first screen и второй системный выбор сняты; кнопки второго системного окна недоступны инструменту, full Contacts выдан через simctl только Simulator. После этого реальная книга6контактов и выбор одного из2номеров отображаются. Это НЕ физическая приёмка SMS/permissions/FCM/APNs. QA backend/volumes удалены после проверки, normal native app возвращён с прежним hosted login.
+## Implemented
 
-Get app ждёт настоящих магазинных ссылок. Веб-cold-start #102 и оставшаяся физическая матрица не закрываются этим выпуском. Пользователь потребовал только обычные исходные скриншоты в одной папке; никаких PDF, надписей или галерей.
+The full source includes profiles, skills, invitations, onboarding, session admission, text chat, managed-profile administration, name/skill search, mutual contacts, Community Hiring, account deletion and durable photo cleanup.
 
+iOS/Android hosts, platform adapters, durable journals and native messaging integration are present. Browser preview and the earlier offline prototype have distinct build targets.
 
-- #94 — общий восьмиблочный checklist и повторная сверка; preview отклонено, клиентских результатов два.
-- #17/#96 — реальные guest карточки/Hiring по P16, Profile без браузерной анкеты, сохранение состояния, публикация limited preview.
-- #34/#35/#41 — локальный адресный список Connect, Invite у каждого, выбор одного номера и настоящая системная отправка.
-- #111 — shared session-scoped avatar cache, быстрый профиль и сохранённый query/filter/pages/scroll; старое browser прохождение не закрывает новую native регрессию.
-- #113 — изолированный native Hiring от нескольких QA авторов без реального fan-out.
+Recent fixes protect profile edits, merge concurrent changes, avoid unchanged-photo uploads, preserve search/Hiring pagination, retry expired avatar links and show accurate chat-loading states.
 
-Реализация, локальная проверка, публикация и клиентское принятие учитываются отдельно. Магазины/APNs/физические телефоны имеют прежние внешние зависимости, не заменяются имитацией. Actions не запускать.
+## Separate delivery criteria
 
-## Активная очередь 15.11.2026
+- Real Google/Apple sign-in and invitation registration on physical phones.
+- Two-user operation, photo/contact permissions and sharing outcomes on target devices.
+- Signed native push delivery and notification-tap navigation.
+- Owner-controlled identifiers, Apple signing/APNs and store distribution.
+- Stable browser cold-start performance.
+- Any outstanding explicit human acceptance for the original delivery.
 
-- #20 — основная iOS/Android сборка и явное разделение app/preview/review/demo.
-- #142 — постоянные SQLite-журналы незавершённых мобильных операций.
-- #143 — серверный invite-bound допуск user+Auth session; сохранить текущие допущенные сессии.
-- #144/#86/#94 — удалить самодельный footer, вернуть P15 и исходный визуал P04–P16.
-- #22–#29/#33–#35 — мобильная регистрация, профиль, Google/Apple на обеих платформах, links/share/contact picker.
-- #39/#40 — FCM/APNs registration, доставка и безопасные tap routes.
-- #31/#41/#49 — объединённые мобильные проверки и отдельная клиентская приёмка.
-- #145/#146/#147 — TestFlight, Google Play testing и магазинный выпуск с конкретными внешними зависимостями.
+## Excluded or deferred
 
-Прежние accepted и browser evidence сохраняются; новая мобильная проверка их не отменяет. SMS/phone matching, тарифы, media chat, передача владения не берутся. История ниже относится к прежним этапам.
+Phone verification/discovery was removed from scope. Company pricing, chat media and Hiring history/statistics were future ideas.
 
-Итоговая сверка16.11.2026: код очереди объединён в PR #148/main e2a2161, сервер и Sites v29 обновлены. iOS Simulator прошёл доступные сценарии; Android APK собран, но на устройстве не запускался. 570 Flutter tests, 64 Deno tests, SQL gates и обе сборки прошли. Исполнительские задачи сохраняют Review до соответствующей проверки и клиентской приёмки. Реальные providers, два телефона, фото/контакты/отправка приглашения и Firebase/FCM/APNs остаются внешними критериями #22/#24/#31/#39/#40/#41/#49. Доставка #145–#147 ждёт клиентские identifiers/signing/домен и утверждённые материалы #71. Первый запуск браузерной версии #102 остаётся отдельной открытой работой; мобильные проверки его не закрывают.
-
-# Backlog по блокам Figma
-
-Каждый пункт открыт до согласования и проверки production-критериев. Локальный прототип не закрывает серверные работы. Все оценки: **не оценено**.
-
-## Коррекция отклонённой v18
-
-[#94](https://github.com/Shteinyr/paul-flutter-prototype/issues/94) объединяет #95 поиск, #96 вторую вкладку Hiring, #97 визуал Admin, #98 гостевые шаги/поля/возврат, #99 данные видимой приёмки, #100 QR/приглашение, #101 качество подсказок и #102 старт/общую проверку. Требования сверены с Figma и встречей до начала исправлений. Ни одна из этих задач не считается принятой по результатам прежних тестов. Реальный Google/Apple вход и аппаратная приёмка уведомлений сохраняют отдельные открытые зависимости.
-
-## Предварительные этапы
-
-- [M1 — Profile, Auth & Onboarding](https://github.com/Shteinyr/paul-flutter-prototype/milestone/1)
-- [M2 — Invites, Contacts, Chat & Push](https://github.com/Shteinyr/paul-flutter-prototype/milestone/2)
-- [M3 — Admin, Search & Community](https://github.com/Shteinyr/paul-flutter-prototype/milestone/3)
-
-Подзадачи G01–G32 связаны с существующими epics. GH01 ведёт настройку и подготовку клиентского доступа отдельно. Статус draft сохраняется до согласования конкретного этапа. Общие знакомые P14 и реальные гостевые карточки/Hiring P16 опубликованы в Sitesv23; клиентская приёмка открыта. Отдельный React-продукт не назначен. Принятые11.11.2026 уровни2/10 ведутся в текущей исполнительской #86.
-
-## Принятая очередь реализации от 11.11.2026
-
-- #45/#46/#76 — общий справочник со свободным вводом, глобальный поиск и штатное первое обращение к управляемым профилям.
-- #86 — завершённые регистрации по личному приглашению, пороги2/10, суточная квота новых внешних собеседников и серверные права расширенных возможностей.
-- #43/#72 — окончательное удаление данных после подтверждения, сохранение переписки у собеседников с подписью «Удалённый пользователь».
-- #47/#48 — общая Hiring-лента, публикация после десяти приглашённых, свободное количество активных запросов, удаление при закрытии/истечении30дней и push согласившимся участникам.
-- #70 — исключена решением Александра от12.11.2026: привязка телефона, SMS-подтверждение и сопоставление номеров не нужны. P05 оставляет только приглашение другу.
-- #84/#85 — последующие тарифы компаний и возможная статистика. Закрытые и истёкшие запросы никому не показываются; экран истории не создаётся.
-
-Сохранённые технические проверки прежних версий учитываются отдельно от оставшейся разработки и клиентской приёмки. Внешние Google/Apple подтверждаются по фактическим настройкам и проверкам. SMS-провайдер исключён. Интерфейс принимается по мобильным экранам существующей Figma.
-
-## Существующие блоки
-
-- [x] [#2](https://github.com/Shteinyr/paul-flutter-prototype/issues/2) **P01 — Profile creation — Test**. Принято12.11.2026. Новые правки читаемости #98 принимаются отдельно. [Требования и приёмка](PROJECT_SPEC.md#p01)
-- [x] [#3](https://github.com/Shteinyr/paul-flutter-prototype/issues/3) **P02 — Profile creation — Next**. Принято12.11.2026. Новые правки читаемости #98 принимаются отдельно. [Требования и приёмка](PROJECT_SPEC.md#p02)
-- [x] [#4](https://github.com/Shteinyr/paul-flutter-prototype/issues/4) **P03 — Profile view → GitHub setup**. Принято12.11.2026. Новые правки читаемости #98 принимаются отдельно. [Требования и приёмка](PROJECT_SPEC.md#p03)
-- [ ] [#5](https://github.com/Shteinyr/paul-flutter-prototype/issues/5) **P04 — QR code generation → Cloud setup**. Серверные QR/код/15 минут реализованы. Лимиты, offline-решение, реальный OAuth и устройства открыты. [Требования и приёмка](PROJECT_SPEC.md#p04)
-- [ ] [#6](https://github.com/Shteinyr/paul-flutter-prototype/issues/6) **P05 — Contact access**. Копирование, системная отправка приглашения и выбор контакта при поддержке браузера реализованы. #70 исключена; SMS-провайдер не нужен. Остаётся реальная проверка отправки/отмены/возврата на телефоне и клиентская приёмка #34/#35/#41. [Требования и приёмка](PROJECT_SPEC.md#p05)
-- [ ] [#7](https://github.com/Shteinyr/paul-flutter-prototype/issues/7) **P06 — Registration / Splash screen → Firebase**. Гостевой просмотр и серверная последовательность регистрации реализованы. Удаление #72 реализовано. Реальный OAuth #22, Terms/Privacy #71 и доступ #77 открыты. [Требования и приёмка](PROJECT_SPEC.md#p06)
-- [ ] [#8](https://github.com/Shteinyr/paul-flutter-prototype/issues/8) **P07 — Getting Started — offered skills 1/3**. Шаг с общим ESCO-справочником и свободным вводом реализован. Предлагаемые навыки учитывают уровень приглашений #86. [Требования и приёмка](PROJECT_SPEC.md#p07)
-- [ ] [#9](https://github.com/Shteinyr/paul-flutter-prototype/issues/9) **P08 — Searching Skills — 2/3**. Необязательный шаг с общим ESCO-справочником и свободным вводом реализован. [Требования и приёмка](PROJECT_SPEC.md#p08)
-- [ ] [#10](https://github.com/Shteinyr/paul-flutter-prototype/issues/10) **P09 — About You — 3/3**. Форма и серверная загрузка фото реализованы. Cleanup #73, реальные picker и OAuth проверки открыты. [Требования и приёмка](PROJECT_SPEC.md#p09)
-- [ ] [#11](https://github.com/Shteinyr/paul-flutter-prototype/issues/11) **P10 — Chat — Push → Firebase / WebSocket setup**. Серверный чат и Web Push включены в main `0eec05f`, Sites v15. Реальные доставки проверены, системный tap, устройства, правила связей и клиентская приёмка открыты в #69/#41/#36/#37. [Требования и приёмка](PROJECT_SPEC.md#p10)
-- [ ] [#12](https://github.com/Shteinyr/paul-flutter-prototype/issues/12) **P11 — Admin + User management**. Admin workspace, глобальное первое обращение #76 и окончательное удаление #43 реализованы. Клиентская приёмка и реальная роль Пола #77 открыты. [Требования и приёмка](PROJECT_SPEC.md#p11)
-- [x] [#13](https://github.com/Shteinyr/paul-flutter-prototype/issues/13) **P12 — Skill search + Filter**. Глобальный поиск зарегистрированных участников и общий справочник со свободным вводом #45/#46 реализованы. Принято12.11.2026; новые #75/#112 ожидают отдельной приёмки. [Требования и приёмка](PROJECT_SPEC.md#p12)
-- [ ] [#14](https://github.com/Shteinyr/paul-flutter-prototype/issues/14) **P13 — Community reach out — Local**. Hiring/feed/create/close/30-day expiry и Web Push реализованы в #47/#48. Клиентская и системная приёмка уведомлений открыты. [Требования и приёмка](PROJECT_SPEC.md#p13)
-- [ ] [#15](https://github.com/Shteinyr/paul-flutter-prototype/issues/15) **P14 — Connections — Search — Hiring — Chat**. Общие знакомые опубликованы, ожидается приёмка. [Требования и приёмка](PROJECT_SPEC.md#p14)
-- [ ] [#16](https://github.com/Shteinyr/paul-flutter-prototype/issues/16) **P15 — Pop-ups**. Continue setup 1 of 3 / 2 of 3 и общие состояния реализованы, источники Figma и тесты проверены. Физические permissions и полная мобильная/клиентская приёмка открыты. [Требования и приёмка](PROJECT_SPEC.md#p15)
-- [ ] [#17](https://github.com/Shteinyr/paul-flutter-prototype/issues/17) **P16 — Реальные карточки и Hiring для гостя во Flutter**. Опубликовано, ожидается приёмка. [Требования и приёмка](PROJECT_SPEC.md#p16)
-
-Порядок: согласование scope и backend → доступы/окружения → auth/profile → messaging/connections → push/invites/contacts → согласованные discovery/admin/community/web.
+The portfolio demo uses fictional identities and simulated conversations. Full server-backed mode retains normal invitation/authentication rules. Public source does not imply an ongoing feature roadmap or support commitment.

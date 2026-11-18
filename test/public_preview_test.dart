@@ -357,7 +357,7 @@ void main() {
         find.text('Could not load profiles. Please retry.'),
         findsOneWidget,
       );
-      expect(find.text('Paul Galda'), findsNothing);
+      expect(find.text('Alex Morgan'), findsNothing);
       repo.fail = false;
       await tester.tap(find.text('Retry'));
       await tester.pumpAndSettle();
