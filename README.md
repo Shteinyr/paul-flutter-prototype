@@ -40,7 +40,7 @@ flutter run -d chrome --dart-define=PAUL_TARGET=demo
 
 ### Android
 
-Download the ARM64 demo APK from [Releases](https://github.com/Shteinyr/paul-flutter-prototype/releases/latest), or build it:
+Download the ARM64 demo APK (release mode, development signature) from [Releases](https://github.com/Shteinyr/paul-flutter-prototype/releases/latest), or build it:
 
 ```sh
 flutter build apk --debug --dart-define=PAUL_TARGET=demo --target-platform android-arm64

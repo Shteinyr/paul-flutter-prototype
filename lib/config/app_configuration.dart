@@ -22,8 +22,7 @@ class AppConfiguration {
     ),
     appUrl: const String.fromEnvironment(
       'PAUL_APP_URL',
-      defaultValue:
-          'https://shteinyr-community-network.web.app',
+      defaultValue: 'https://shteinyr-community-network.web.app',
     ),
   );
   final AppPurpose purpose;
